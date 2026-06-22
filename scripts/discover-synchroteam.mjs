@@ -106,6 +106,21 @@ async function fetchEquipmentSample() {
   return data.data?.[0] ?? null
 }
 
+async function probeAuth() {
+  const url = `${BASE_URL}/Api/v3/customer/list?pageSize=1`
+  console.log(`\n🔬  Probe auth — GET ${url}`)
+  const res = await fetch(url, { method: 'GET', headers })
+  const text = await res.text()
+  console.log(`    Status  : ${res.status} ${res.statusText}`)
+  console.log(`    Headers : content-type=${res.headers.get('content-type')}`)
+  console.log(`    Body    : ${text.slice(0, 1000)}`)
+  if (!res.ok) {
+    console.error('\n❌  Probe échouée — authentification ou URL incorrecte. Arrêt.')
+    process.exit(1)
+  }
+  console.log('\n✅  Auth OK — API Synchroteam joignable.\n')
+}
+
 async function main() {
   console.log('='.repeat(60))
   console.log('  STAR aid — Discovery Synchroteam Custom Fields')
@@ -113,6 +128,8 @@ async function main() {
   console.log(`  Domain  : ${SYNCHROTEAM_DOMAIN}`)
   console.log(`  Base URL: ${BASE_URL}`)
   console.log('='.repeat(60))
+
+  await probeAuth()
 
   const [fields, sampleEquipment] = await Promise.all([
     fetchCustomFields(),
