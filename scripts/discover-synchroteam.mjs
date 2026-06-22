@@ -107,23 +107,33 @@ async function fetchEquipmentSample() {
 }
 
 async function probeAuth() {
-  const url = `${BASE_URL}/Api/v3/customer/list`
-  const body = JSON.stringify({ pageSize: 1 })
-  console.log(`\n🔬  Probe — POST ${url}`)
-  console.log(`    Body envoyé : ${body}`)
+  const variants = [
+    { label: '1', method: 'GET',  url: 'https://ws.synchroteam.com/api/v3/customer/list?pageSize=1', body: undefined },
+    { label: '2', method: 'GET',  url: 'https://ws.synchroteam.com/Api/v3/customer/list?pageSize=1', body: undefined },
+    { label: '3', method: 'POST', url: 'https://ws.synchroteam.com/api/v3/customer/list',            body: '{}' },
+  ]
 
-  const res = await fetch(url, { method: 'POST', headers, body })
-  const text = await res.text()
+  console.log('\n🔬  Test des 3 variantes URL pour customer/list\n')
 
-  console.log(`\n    Status  : ${res.status} ${res.statusText}`)
-  console.log(`    Content-Type : ${res.headers.get('content-type')}`)
-  console.log(`    Body brut :\n${text}`)
+  let workingVariant = null
+  for (const v of variants) {
+    const opts = { method: v.method, headers }
+    if (v.body) opts.body = v.body
+    const res = await fetch(v.url, opts)
+    const text = await res.text()
+    const preview = text.replace(/\s+/g, ' ').slice(0, 50)
+    console.log(`  [${v.label}] ${v.method.padEnd(4)} ${v.url}`)
+    console.log(`       → ${res.status} ${res.statusText} | ${preview}`)
+    console.log()
+    if (res.ok && !workingVariant) workingVariant = v
+  }
 
-  if (!res.ok) {
-    console.error('\n❌  Probe échouée. Arrêt.')
+  if (!workingVariant) {
+    console.error('❌  Aucune variante ne fonctionne. Arrêt.')
     process.exit(1)
   }
-  console.log('\n✅  Auth OK — API Synchroteam joignable.\n')
+  console.log(`✅  Variante [${workingVariant.label}] retourne 2xx — on continue avec cette config.\n`)
+  return workingVariant
 }
 
 async function main() {
