@@ -108,31 +108,33 @@ async function fetchEquipmentSample() {
 
 async function probeAuth() {
   const variants = [
-    { label: '1', method: 'GET',  url: 'https://ws.synchroteam.com/api/v3/customer/list?pageSize=1', body: undefined },
-    { label: '2', method: 'GET',  url: 'https://ws.synchroteam.com/Api/v3/customer/list?pageSize=1', body: undefined },
-    { label: '3', method: 'POST', url: 'https://ws.synchroteam.com/api/v3/customer/list',            body: '{}' },
+    { label: '1 (v2 Search)', url: 'https://ws.synchroteam.com/Api/v2/customer/Search' },
+    { label: '2 (v3 Search)', url: 'https://ws.synchroteam.com/Api/v3/customer/Search' },
   ]
 
-  console.log('\n🔬  Test des 3 variantes URL pour customer/list\n')
+  console.log('\n🔬  Test action /Search (v2 vs v3)\n')
 
   let workingVariant = null
   for (const v of variants) {
-    const opts = { method: v.method, headers }
-    if (v.body) opts.body = v.body
-    const res = await fetch(v.url, opts)
+    const res = await fetch(v.url, { method: 'POST', headers, body: '{}' })
     const text = await res.text()
-    const preview = text.replace(/\s+/g, ' ').slice(0, 50)
-    console.log(`  [${v.label}] ${v.method.padEnd(4)} ${v.url}`)
-    console.log(`       → ${res.status} ${res.statusText} | ${preview}`)
+    const preview = text.replace(/\s+/g, ' ').slice(0, 100)
+    console.log(`  [${v.label}]`)
+    console.log(`  POST ${v.url}`)
+    console.log(`  → ${res.status} ${res.statusText} | ${preview}`)
+    if (res.ok) {
+      console.log('\n  ✅  Réponse complète :')
+      console.log(text)
+      if (!workingVariant) workingVariant = v
+    }
     console.log()
-    if (res.ok && !workingVariant) workingVariant = v
   }
 
   if (!workingVariant) {
-    console.error('❌  Aucune variante ne fonctionne. Arrêt.')
+    console.error('❌  Aucune variante /Search ne fonctionne. Arrêt.')
     process.exit(1)
   }
-  console.log(`✅  Variante [${workingVariant.label}] retourne 2xx — on continue avec cette config.\n`)
+  console.log(`✅  Variante "${workingVariant.label}" opérationnelle.\n`)
   return workingVariant
 }
 
