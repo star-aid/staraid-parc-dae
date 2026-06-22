@@ -1,12 +1,26 @@
 # Secrets - ne jamais committer
 .secrets/
+.env.local
+.env*.local
 
 # Next.js
 .next/
+out/
+
+# Node
 node_modules/
-.env.local
-.env*.local
+npm-debug.log*
+
+# Build
+/build
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
 
 # OS
 Thumbs.db
 .DS_Store
+
+# Vercel
+.vercel
