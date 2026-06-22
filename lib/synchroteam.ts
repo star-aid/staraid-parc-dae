@@ -72,38 +72,38 @@ export async function fetchAllPages<T>(
 // customfield/list répond 405 sur GET — utilise POST
 export async function fetchCustomFields(): Promise<SynchroteamCustomField[]> {
   const data = await apiFetch<SynchroteamPaginatedResponse<SynchroteamCustomField>>(
-    '/api/v3/customfield/list',
+    '/Api/v3/customfield/list',
     { method: 'POST', params: { type: 'equipment', pageSize: 100 } }
   )
   return data.data
 }
 
 export async function fetchCustomers() {
-  return fetchAllPages<Record<string, unknown>>('/api/v3/customer/list', { method: 'POST' })
+  return fetchAllPages<Record<string, unknown>>('/Api/v3/customer/list', { method: 'POST' })
 }
 
 export async function fetchSites() {
-  return fetchAllPages<Record<string, unknown>>('/api/v3/site/list', { method: 'POST' })
+  return fetchAllPages<Record<string, unknown>>('/Api/v3/site/list', { method: 'POST' })
 }
 
 export async function fetchEquipments() {
-  return fetchAllPages<Record<string, unknown>>('/api/v3/equipment/list', { method: 'POST' })
+  return fetchAllPages<Record<string, unknown>>('/Api/v3/equipment/list', { method: 'POST' })
 }
 
 export async function fetchEquipmentDetails(id: string) {
-  return apiFetch<Record<string, unknown>>('/api/v3/equipment/details', { method: 'GET', params: { id } })
+  return apiFetch<Record<string, unknown>>('/Api/v3/equipment/details', { method: 'GET', params: { id } })
 }
 
 export async function fetchContracts() {
-  return fetchAllPages<Record<string, unknown>>('/api/v3/contract/list', { method: 'POST' })
+  return fetchAllPages<Record<string, unknown>>('/Api/v3/contract/list', { method: 'POST' })
 }
 
 export async function fetchJobs(params: Record<string, string> = {}) {
-  return fetchAllPages<Record<string, unknown>>('/api/v3/job/list', { method: 'POST', params })
+  return fetchAllPages<Record<string, unknown>>('/Api/v3/job/list', { method: 'POST', params })
 }
 
 export async function fetchUsers() {
-  return fetchAllPages<Record<string, unknown>>('/api/v3/user/list', { method: 'POST' })
+  return fetchAllPages<Record<string, unknown>>('/Api/v3/user/list', { method: 'POST' })
 }
 
 /**

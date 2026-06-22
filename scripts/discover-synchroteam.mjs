@@ -7,7 +7,7 @@
  * Prérequis : .env.local rempli avec SYNCHROTEAM_DOMAIN et SYNCHROTEAM_API_KEY
  *
  * Ce script :
- *  1. Appelle POST /api/v3/customfield/list (body: { type: "equipment" })
+ *  1. Appelle POST /Api/v3/customfield/list (body: { type: "equipment" })
  *  2. Affiche la structure réelle des champs DAE
  *  3. Propose un mapping automatique vers les champs internes connus
  *  4. Génère un SQL INSERT prêt à coller dans Supabase
@@ -93,7 +93,7 @@ async function apiPost(endpoint, body = {}) {
 }
 
 async function fetchCustomFields() {
-  const endpoint = '/api/v3/customfield/list'
+  const endpoint = '/Api/v3/customfield/list'
   console.log(`\n📡  POST ${BASE_URL}${endpoint}  body: { type: "equipment", pageSize: 100 }\n`)
 
   const data = await apiPost(endpoint, { type: 'equipment', pageSize: 100 })
@@ -102,7 +102,7 @@ async function fetchCustomFields() {
 
 async function fetchEquipmentSample() {
   // Récupérer 1 équipement pour voir la structure des custom_fields réels
-  const data = await apiPost('/api/v3/equipment/list', { pageSize: 1, page: 1 })
+  const data = await apiPost('/Api/v3/equipment/list', { pageSize: 1, page: 1 })
   return data.data?.[0] ?? null
 }
 
