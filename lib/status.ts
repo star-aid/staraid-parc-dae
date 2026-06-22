@@ -50,7 +50,15 @@ export function computeConsumableStatus(expiryDate: string | null): BatteryStatu
   return 'ok'
 }
 
-export function detectTerritory(address: string): 'REU' | 'MYT' | 'GLP' {
+// zone_geographique (custom field Synchroteam) est prioritaire sur l'adresse
+// Valeurs connues : NORD, SUD, EST, OUEST → REU ; MAYOTTE → MYT ; GUADELOUPE → GLP
+export function detectTerritory(address: string, zoneGeographique?: string | null): 'REU' | 'MYT' | 'GLP' {
+  if (zoneGeographique) {
+    const zone = zoneGeographique.toLowerCase()
+    if (zone.includes('mayotte')) return 'MYT'
+    if (zone.includes('guadeloupe')) return 'GLP'
+    if (['nord', 'sud', 'est', 'ouest', 'centre'].some((z) => zone.includes(z))) return 'REU'
+  }
   const lower = address.toLowerCase()
   if (lower.includes('réunion') || lower.includes('reunion') || lower.includes('974')) return 'REU'
   if (lower.includes('mayotte') || lower.includes('976')) return 'MYT'

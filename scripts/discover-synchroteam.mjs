@@ -55,24 +55,49 @@ const headers = {
   Accept: 'application/json',
 }
 
-// Heuristiques alignées sur les labels réels Synchroteam STAR aid
+// Heuristiques — labels réels confirmés par discovery du 2026-06-22
 const HEURISTICS = [
-  // Batterie
-  { keywords: ['batterie', 'battery', 'pile', 'mise en place batt'],   internal: 'battery_expiry',       type: 'date' },
-  // Électrodes adultes (DLU = Date Limite d'Utilisation)
-  { keywords: ['dlu électrodes adultes', 'électrodes adulte'],          internal: 'electrodes_expiry',    type: 'date' },
-  // Électrodes pédiatriques (champ supplémentaire, mappé sur même champ pour l'instant)
-  { keywords: ['dlu électrodes pédiatriques', 'électrodes pédiat'],    internal: 'electrodes_expiry',    type: 'date' },
-  // Numéro de série
-  { keywords: ['n° de série du défibrillateur', 'serial', 'numéro de série', 'n° série'], internal: 'serial_number', type: 'text' },
-  // Modèle / Marque
-  { keywords: ['marque', 'modèle', 'marque/modèle', 'brand', 'model'], internal: 'model',                type: 'text' },
+  // Consommables
+  { keywords: ['mise en place batterie', 'mise en place batt', 'date usine de la batt',
+               'batterie ou pile', 'battery', 'pile'],
+    internal: 'battery_expiry',    type: 'date' },
+  { keywords: ['dlu électrodes adultes', 'péremption des électrodes adultes', 'électrodes adulte'],
+    internal: 'electrodes_expiry', type: 'date' },
+  { keywords: ['dlu électrodes pédiatriques', 'péremption des électrodes pédiat', 'électrodes pédiat'],
+    internal: 'electrodes_expiry', type: 'date' },
+  // Identification appareil
+  { keywords: ["n° de série du défibrillateur", 'numéro de série du défibrillateur'],
+    internal: 'serial_number',     type: 'text' },
+  { keywords: ['marque/modèle', 'marque', 'modèle'],
+    internal: 'model',             type: 'text' },
+  { keywords: ['date usine du défibrillateur', 'date usine'],
+    internal: 'manufacture_date',  type: 'date' },
+  // Localisation
+  { keywords: ['emplacement'],
+    internal: 'location_detail',   type: 'text' },
+  { keywords: ['code armoire'],
+    internal: 'cabinet_code',      type: 'text' },
+  { keywords: ['zone géographique', 'zone geographique'],
+    internal: 'zone_geographique', type: 'text' },
+  { keywords: ['identifiant geo dae', 'geo dae', 'identifiant dae'],
+    internal: 'geo_dae_id',        type: 'number' },
   // Contrat
-  { keywords: ['type de contrat', 'contract'],                          internal: 'contract_type',        type: 'text' },
-  { keywords: ['date de fin de contrat', 'fin contrat'],                internal: 'contract_end',         type: 'date' },
-  { keywords: ['date de livraison', 'livraison'],                       internal: 'contract_start',       type: 'date' },
-  // Commentaires / notes
-  { keywords: ['commentaires', 'commentaire', 'notes', 'remarque'],    internal: 'notes',                type: 'text' },
+  { keywords: ['type de contrat'],
+    internal: 'contract_type',     type: 'text' },
+  { keywords: ['date de fin de contrat', 'fin de contrat'],
+    internal: 'contract_end',      type: 'date' },
+  { keywords: ['date de livraison', 'livraison'],
+    internal: 'contract_start',    type: 'date' },
+  // Équipement annexe
+  { keywords: ['kit rcp', 'kit complet', 'kit paire', 'kit rasoir', 'kit protection', 'kit gant'],
+    internal: 'kit_rcp',           type: 'text' },
+  { keywords: ["n° de série de l'appareil de prêt", 'appareil de prêt', 'prêt'],
+    internal: 'loan_serial_number', type: 'text' },
+  { keywords: ['registre défibrillateur', 'registre star'],
+    internal: 'registre_star_aid', type: 'text' },
+  // Notes
+  { keywords: ['commentaires', 'commentaire', 'notes', 'remarque'],
+    internal: 'notes',             type: 'text' },
 ]
 
 function guessInternalField(label, fieldType) {

@@ -70,6 +70,15 @@ export interface Defibrillator {
   contract_start: string | null
   contract_end: string | null
   notes: string | null
+  // Champs supplémentaires (custom fields Synchroteam STAR aid)
+  manufacture_date: string | null
+  location_detail: string | null
+  geo_dae_id: string | null
+  zone_geographique: string | null
+  cabinet_code: string | null
+  kit_rcp: boolean | null
+  loan_serial_number: string | null
+  registre_star_aid: boolean | null
   active: boolean
   synced_at: string | null
   created_at: string
