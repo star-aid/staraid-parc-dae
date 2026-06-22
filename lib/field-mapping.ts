@@ -3,8 +3,8 @@
 export const INTERNAL_FIELDS = [
   // Consommables critiques (calcul statut DAE)
   { value: 'battery_expiry',        label: 'Date installation/expiration batterie', type: 'date' as const },
-  { value: 'electrodes_expiry',     label: 'DLU électrodes adultes',                type: 'date' as const },
-  { value: 'electrodes_expiry',     label: 'DLU électrodes pédiatriques',           type: 'date' as const },
+  { value: 'electrodes_adult_expiry',    label: 'DLU électrodes adultes',       type: 'date' as const },
+  { value: 'electrodes_pediatric_expiry', label: 'DLU électrodes pédiatriques', type: 'date' as const },
   // Identification appareil
   { value: 'serial_number',         label: 'N° de série du défibrillateur',         type: 'text' as const },
   { value: 'model',                 label: 'Marque / modèle',                       type: 'text' as const },
@@ -37,9 +37,9 @@ export const HEURISTICS: Array<{
                'batterie ou pile', 'battery', 'pile'],
     internal: 'battery_expiry', type: 'date' },
   { keywords: ['dlu électrodes adultes', 'péremption des électrodes adultes', 'électrodes adulte'],
-    internal: 'electrodes_expiry', type: 'date' },
+    internal: 'electrodes_adult_expiry', type: 'date' },
   { keywords: ['dlu électrodes pédiatriques', 'péremption des électrodes pédiat', 'électrodes pédiat'],
-    internal: 'electrodes_expiry', type: 'date' },
+    internal: 'electrodes_pediatric_expiry', type: 'date' },
 
   // --- Identification ---
   { keywords: ["n° de série du défibrillateur", 'numéro de série du défibrillateur'],

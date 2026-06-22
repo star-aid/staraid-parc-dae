@@ -62,7 +62,8 @@ export interface Defibrillator {
   last_maintenance_date: string | null
   next_maintenance_date: string | null
   battery_expiry: string | null
-  electrodes_expiry: string | null
+  electrodes_adult_expiry: string | null
+  electrodes_pediatric_expiry: string | null
   battery_status: BatteryStatus
   electrodes_status: BatteryStatus
   custom_fields: Record<string, unknown> | null

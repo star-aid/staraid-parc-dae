@@ -1,16 +1,28 @@
 import type { DAEStatus, BatteryStatus } from '@/types'
 
+// Retourne la date d'expiration la plus proche entre électrodes adultes et pédiatriques
+function earliestElectrodes(
+  adult: string | null,
+  pediatric: string | null
+): Date | null {
+  const a = adult ? new Date(adult) : null
+  const p = pediatric ? new Date(pediatric) : null
+  if (a && p) return a < p ? a : p
+  return a ?? p
+}
+
 export function computeDAEStatus(dae: {
   next_maintenance_date: string | null
   battery_expiry: string | null
-  electrodes_expiry: string | null
+  electrodes_adult_expiry: string | null
+  electrodes_pediatric_expiry: string | null
 }): { status: DAEStatus; reason: string } {
   const today = new Date()
   const in30Days = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000)
 
   const nextMaint = dae.next_maintenance_date ? new Date(dae.next_maintenance_date) : null
-  const battExp = dae.battery_expiry ? new Date(dae.battery_expiry) : null
-  const elecExp = dae.electrodes_expiry ? new Date(dae.electrodes_expiry) : null
+  const battExp   = dae.battery_expiry ? new Date(dae.battery_expiry) : null
+  const elecExp   = earliestElectrodes(dae.electrodes_adult_expiry, dae.electrodes_pediatric_expiry)
 
   if (!nextMaint && !battExp && !elecExp) {
     return { status: 'inconnu', reason: 'Données insuffisantes' }

@@ -85,8 +85,9 @@ CREATE TABLE IF NOT EXISTS defibrillators (
   status_reason         TEXT,
   last_maintenance_date DATE,
   next_maintenance_date DATE,
-  battery_expiry        DATE,
-  electrodes_expiry     DATE,
+  battery_expiry               DATE,
+  electrodes_adult_expiry      DATE,
+  electrodes_pediatric_expiry  DATE,
   battery_status        TEXT  DEFAULT 'inconnu'
                               CHECK (battery_status IN ('ok', 'a_remplacer', 'expire', 'inconnu')),
   electrodes_status     TEXT  DEFAULT 'inconnu'
@@ -151,8 +152,9 @@ CREATE INDEX IF NOT EXISTS idx_dae_client            ON defibrillators(client_id
 CREATE INDEX IF NOT EXISTS idx_dae_site              ON defibrillators(site_id);
 CREATE INDEX IF NOT EXISTS idx_dae_status            ON defibrillators(status);
 CREATE INDEX IF NOT EXISTS idx_dae_next_maintenance  ON defibrillators(next_maintenance_date);
-CREATE INDEX IF NOT EXISTS idx_dae_battery_expiry    ON defibrillators(battery_expiry);
-CREATE INDEX IF NOT EXISTS idx_dae_electrodes_expiry ON defibrillators(electrodes_expiry);
+CREATE INDEX IF NOT EXISTS idx_dae_battery_expiry             ON defibrillators(battery_expiry);
+CREATE INDEX IF NOT EXISTS idx_dae_electrodes_adult_expiry    ON defibrillators(electrodes_adult_expiry);
+CREATE INDEX IF NOT EXISTS idx_dae_electrodes_pediatric_expiry ON defibrillators(electrodes_pediatric_expiry);
 CREATE INDEX IF NOT EXISTS idx_dae_active            ON defibrillators(active);
 CREATE INDEX IF NOT EXISTS idx_interventions_dae     ON interventions(defibrillator_id);
 CREATE INDEX IF NOT EXISTS idx_interventions_date    ON interventions(scheduled_date);
@@ -358,14 +360,16 @@ BEGIN
       FROM (
         SELECT d.id, d.serial_number, d.model,
                c.name AS client_name, t.code AS territory_code,
-               LEAST(d.next_maintenance_date, d.battery_expiry, d.electrodes_expiry)::TEXT AS next_date,
+               LEAST(d.next_maintenance_date, d.battery_expiry,
+                     d.electrodes_adult_expiry, d.electrodes_pediatric_expiry)::TEXT AS next_date,
                d.status_reason AS reason
         FROM defibrillators d
         LEFT JOIN clients c ON c.id = d.client_id
         LEFT JOIN territories t ON t.id = d.territory_id
         WHERE d.active = true
           AND d.status IN ('critique', 'vigilance')
-          AND LEAST(d.next_maintenance_date, d.battery_expiry, d.electrodes_expiry) IS NOT NULL
+          AND LEAST(d.next_maintenance_date, d.battery_expiry,
+                    d.electrodes_adult_expiry, d.electrodes_pediatric_expiry) IS NOT NULL
         ORDER BY next_date LIMIT 10
       ) sub
     ),

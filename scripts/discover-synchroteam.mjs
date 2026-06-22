@@ -62,9 +62,9 @@ const HEURISTICS = [
                'batterie ou pile', 'battery', 'pile'],
     internal: 'battery_expiry',    type: 'date' },
   { keywords: ['dlu électrodes adultes', 'péremption des électrodes adultes', 'électrodes adulte'],
-    internal: 'electrodes_expiry', type: 'date' },
+    internal: 'electrodes_adult_expiry',    type: 'date' },
   { keywords: ['dlu électrodes pédiatriques', 'péremption des électrodes pédiat', 'électrodes pédiat'],
-    internal: 'electrodes_expiry', type: 'date' },
+    internal: 'electrodes_pediatric_expiry', type: 'date' },
   // Identification appareil
   { keywords: ["n° de série du défibrillateur", 'numéro de série du défibrillateur'],
     internal: 'serial_number',     type: 'text' },
