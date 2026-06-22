@@ -36,6 +36,15 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           >
             <span>🤖</span> Analyse IA
           </Link>
+
+          <div className="pt-3 mt-3 border-t border-gray-100">
+            <Link
+              href="/admin/field-mapping"
+              className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-gray-500 hover:bg-gray-100"
+            >
+              <span>⚙️</span> Mapping champs
+            </Link>
+          </div>
         </nav>
 
         <div className="p-4 border-t border-gray-200 text-xs text-gray-400">

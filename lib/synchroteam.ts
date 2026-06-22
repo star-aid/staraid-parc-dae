@@ -1,4 +1,4 @@
-import type { SynchroteamPaginatedResponse, SynchroteamCustomField } from '@/types'
+import type { SynchroteamPaginatedResponse, SynchroteamCustomField, CustomFieldMapping } from '@/types'
 
 const credentials = Buffer.from(
   `${process.env.SYNCHROTEAM_DOMAIN}:${process.env.SYNCHROTEAM_API_KEY}`
@@ -89,4 +89,47 @@ export async function fetchJobs(params: Record<string, string> = {}) {
 
 export async function fetchUsers() {
   return fetchAllPages<Record<string, unknown>>('/api/v3/user/list')
+}
+
+/**
+ * Extrait les custom fields d'un équipement brut Synchroteam
+ * en utilisant le mapping stocké en base (label → champ interne).
+ *
+ * Retourne un objet plat avec les champs internes comme clés.
+ * Les champs non mappés sont ignorés (conservés dans custom_fields JSONB brut).
+ */
+export function extractCustomFields(
+  rawEquipment: Record<string, unknown>,
+  mappings: CustomFieldMapping[]
+): Record<string, string | null> {
+  const result: Record<string, string | null> = {}
+
+  // Synchroteam expose les custom fields sous différentes formes selon la version API :
+  //   - tableau : equipment.customFields = [{ id: 101, value: '2025-06-01' }, ...]
+  //   - objet   : equipment.customFields = { "101": "2025-06-01", ... }
+  const rawFields = rawEquipment.customFields ?? rawEquipment.custom_fields ?? rawEquipment.customfields
+
+  if (!rawFields) return result
+
+  const mappingById = new Map(mappings.map((m) => [m.synchroteam_field_id, m]))
+
+  if (Array.isArray(rawFields)) {
+    for (const entry of rawFields as Array<{ id?: number; fieldId?: number; value?: unknown }>) {
+      const fieldId = entry.id ?? entry.fieldId
+      if (fieldId == null) continue
+      const mapping = mappingById.get(Number(fieldId))
+      if (mapping) {
+        result[mapping.internal_field] = entry.value != null ? String(entry.value) : null
+      }
+    }
+  } else if (typeof rawFields === 'object') {
+    for (const [key, value] of Object.entries(rawFields as Record<string, unknown>)) {
+      const mapping = mappingById.get(Number(key))
+      if (mapping) {
+        result[mapping.internal_field] = value != null ? String(value) : null
+      }
+    }
+  }
+
+  return result
 }
