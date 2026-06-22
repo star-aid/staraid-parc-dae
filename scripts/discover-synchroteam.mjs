@@ -107,15 +107,20 @@ async function fetchEquipmentSample() {
 }
 
 async function probeAuth() {
-  const url = `${BASE_URL}/Api/v3/customer/list?pageSize=1`
-  console.log(`\n🔬  Probe auth — GET ${url}`)
-  const res = await fetch(url, { method: 'GET', headers })
+  const url = `${BASE_URL}/Api/v3/customer/list`
+  const body = JSON.stringify({ pageSize: 1 })
+  console.log(`\n🔬  Probe — POST ${url}`)
+  console.log(`    Body envoyé : ${body}`)
+
+  const res = await fetch(url, { method: 'POST', headers, body })
   const text = await res.text()
-  console.log(`    Status  : ${res.status} ${res.statusText}`)
-  console.log(`    Headers : content-type=${res.headers.get('content-type')}`)
-  console.log(`    Body    : ${text.slice(0, 1000)}`)
+
+  console.log(`\n    Status  : ${res.status} ${res.statusText}`)
+  console.log(`    Content-Type : ${res.headers.get('content-type')}`)
+  console.log(`    Body brut :\n${text}`)
+
   if (!res.ok) {
-    console.error('\n❌  Probe échouée — authentification ou URL incorrecte. Arrêt.')
+    console.error('\n❌  Probe échouée. Arrêt.')
     process.exit(1)
   }
   console.log('\n✅  Auth OK — API Synchroteam joignable.\n')
