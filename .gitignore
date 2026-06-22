@@ -1,0 +1,12 @@
+# Secrets - ne jamais committer
+.secrets/
+
+# Next.js
+.next/
+node_modules/
+.env.local
+.env*.local
+
+# OS
+Thumbs.db
+.DS_Store
