@@ -10,38 +10,24 @@ const headers = {
   Accept: 'application/json',
 }
 
+// Capital A obligatoire — /api/v3/ retourne 404
 const BASE_URL = process.env.SYNCHROTEAM_BASE_URL ?? 'https://ws.synchroteam.com'
 
-type FetchOpts = {
-  method?: 'GET' | 'POST'
-  params?: Record<string, string | number>
-}
+async function apiFetch<T>(endpoint: string, params: Record<string, string | number> = {}): Promise<T> {
+  const url = new URL(`${BASE_URL}${endpoint}`)
+  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, String(v)))
 
-async function apiFetch<T>(endpoint: string, opts: FetchOpts = {}): Promise<T> {
-  const { method = 'GET', params = {} } = opts
-  let url = `${BASE_URL}${endpoint}`
-  let body: string | undefined
-
-  if (method === 'POST') {
-    // Synchroteam list endpoints qui utilisent POST attendent les filtres dans le body JSON
-    body = JSON.stringify(params)
-  } else {
-    const u = new URL(url)
-    Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, String(v)))
-    url = u.toString()
-  }
-
-  const res = await fetch(url, { method, headers, body })
+  const res = await fetch(url.toString(), { headers })
 
   if (res.status === 429) {
     const resetTs = res.headers.get('X-RateLimit-Reset')
     const waitMs = resetTs ? Number(resetTs) * 1000 - Date.now() : 60_000
     await new Promise((r) => setTimeout(r, Math.max(waitMs, 1000)))
-    return apiFetch(endpoint, opts)
+    return apiFetch(endpoint, params)
   }
 
   if (!res.ok) {
-    throw new Error(`Synchroteam API ${res.status} (${method} ${endpoint})`)
+    throw new Error(`Synchroteam API ${res.status} GET ${endpoint}`)
   }
 
   return res.json() as Promise<T>
@@ -49,15 +35,16 @@ async function apiFetch<T>(endpoint: string, opts: FetchOpts = {}): Promise<T> {
 
 export async function fetchAllPages<T>(
   endpoint: string,
-  opts: FetchOpts = {}
+  params: Record<string, string | number> = {}
 ): Promise<T[]> {
   const results: T[] = []
   let page = 1
 
   while (true) {
     const data = await apiFetch<SynchroteamPaginatedResponse<T>>(endpoint, {
-      ...opts,
-      params: { ...opts.params, page, pageSize: 100 },
+      ...params,
+      page,
+      pageSize: 100,
     })
 
     results.push(...data.data)
@@ -69,49 +56,46 @@ export async function fetchAllPages<T>(
   return results
 }
 
-// customfield/list répond 405 sur GET — utilise POST
 export async function fetchCustomFields(): Promise<SynchroteamCustomField[]> {
   const data = await apiFetch<SynchroteamPaginatedResponse<SynchroteamCustomField>>(
     '/Api/v3/customfield/list',
-    { method: 'POST', params: { type: 'equipment', pageSize: 100 } }
+    { type: 'equipment' }
   )
   return data.data
 }
 
 export async function fetchCustomers() {
-  return fetchAllPages<Record<string, unknown>>('/Api/v3/customer/list', { method: 'POST' })
+  return fetchAllPages<Record<string, unknown>>('/Api/v3/customer/list')
 }
 
 export async function fetchSites() {
-  return fetchAllPages<Record<string, unknown>>('/Api/v3/site/list', { method: 'POST' })
+  return fetchAllPages<Record<string, unknown>>('/Api/v3/site/list')
 }
 
 export async function fetchEquipments() {
-  return fetchAllPages<Record<string, unknown>>('/Api/v3/equipment/list', { method: 'POST' })
+  return fetchAllPages<Record<string, unknown>>('/Api/v3/equipment/list')
 }
 
 export async function fetchEquipmentDetails(id: string) {
-  return apiFetch<Record<string, unknown>>('/Api/v3/equipment/details', { method: 'GET', params: { id } })
+  return apiFetch<Record<string, unknown>>('/Api/v3/equipment/details', { id })
 }
 
 export async function fetchContracts() {
-  return fetchAllPages<Record<string, unknown>>('/Api/v3/contract/list', { method: 'POST' })
+  return fetchAllPages<Record<string, unknown>>('/Api/v3/contract/list')
 }
 
-export async function fetchJobs(params: Record<string, string> = {}) {
-  return fetchAllPages<Record<string, unknown>>('/Api/v3/job/list', { method: 'POST', params })
+export async function fetchJobs(params: Record<string, string | number> = {}) {
+  return fetchAllPages<Record<string, unknown>>('/Api/v3/job/list', params)
 }
 
 export async function fetchUsers() {
-  return fetchAllPages<Record<string, unknown>>('/Api/v3/user/list', { method: 'POST' })
+  return fetchAllPages<Record<string, unknown>>('/Api/v3/user/list')
 }
 
 /**
  * Extrait les custom fields d'un équipement brut Synchroteam
- * en utilisant le mapping stocké en base (label → champ interne).
- *
- * Retourne un objet plat avec les champs internes comme clés.
- * Les champs non mappés sont ignorés (conservés dans custom_fields JSONB brut).
+ * en utilisant le mapping stocké en base (id → champ interne).
+ * Supporte les deux formats : tableau [{id, value}] ou objet {"id": value}.
  */
 export function extractCustomFields(
   rawEquipment: Record<string, unknown>,
@@ -119,10 +103,11 @@ export function extractCustomFields(
 ): Record<string, string | null> {
   const result: Record<string, string | null> = {}
 
-  // Synchroteam expose les custom fields sous différentes formes selon la version API :
-  //   - tableau : equipment.customFields = [{ id: 101, value: '2025-06-01' }, ...]
-  //   - objet   : equipment.customFields = { "101": "2025-06-01", ... }
-  const rawFields = rawEquipment.customFields ?? rawEquipment.custom_fields ?? rawEquipment.customfields
+  const rawFields =
+    rawEquipment.customFieldValues ??
+    rawEquipment.customFields ??
+    rawEquipment.custom_fields ??
+    rawEquipment.customfields
 
   if (!rawFields) return result
 

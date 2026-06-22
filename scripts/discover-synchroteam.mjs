@@ -7,7 +7,7 @@
  * Prérequis : .env.local rempli avec SYNCHROTEAM_DOMAIN et SYNCHROTEAM_API_KEY
  *
  * Ce script :
- *  1. Appelle POST /Api/v3/customfield/list (body: { type: "equipment" })
+ *  1. Appelle GET /Api/v3/customfield/list?type=equipment
  *  2. Affiche la structure réelle des champs DAE
  *  3. Propose un mapping automatique vers les champs internes connus
  *  4. Génère un SQL INSERT prêt à coller dans Supabase
@@ -20,7 +20,7 @@ import { fileURLToPath } from 'url'
 const __dir = dirname(fileURLToPath(import.meta.url))
 const envPath = resolve(__dir, '../.env.local')
 
-// Charger .env.local manuellement (sans dotenv)
+// Charger .env.local — strip commentaires inline (ex: KEY=val  # commentaire)
 try {
   const env = readFileSync(envPath, 'utf8')
   for (const line of env.split('\n')) {
@@ -29,7 +29,9 @@ try {
     const eqIndex = trimmed.indexOf('=')
     if (eqIndex === -1) continue
     const key = trimmed.slice(0, eqIndex).trim()
-    const val = trimmed.slice(eqIndex + 1).trim()
+    const raw = trimmed.slice(eqIndex + 1)
+    // Strip commentaires inline : tout ce qui suit un espace + '#'
+    const val = raw.replace(/\s+#.*$/, '').trim()
     if (val) process.env[key] = val
   }
 } catch {
@@ -44,7 +46,7 @@ if (!SYNCHROTEAM_DOMAIN || !SYNCHROTEAM_API_KEY) {
   process.exit(1)
 }
 
-const BASE_URL = SYNCHROTEAM_BASE_URL || 'https://ws.synchroteam.com'
+const BASE_URL = (SYNCHROTEAM_BASE_URL || 'https://ws.synchroteam.com').replace(/\/$/, '')
 const credentials = Buffer.from(`${SYNCHROTEAM_DOMAIN}:${SYNCHROTEAM_API_KEY}`).toString('base64')
 
 const headers = {
@@ -53,89 +55,71 @@ const headers = {
   Accept: 'application/json',
 }
 
-// Mapping heuristique : mots-clés dans le label → champ interne
+// Heuristiques alignées sur les labels réels Synchroteam STAR aid
 const HEURISTICS = [
-  { keywords: ['batterie', 'battery', 'pile'],         internal: 'battery_expiry',      type: 'date' },
-  { keywords: ['électrode', 'electrode', 'pad'],       internal: 'electrodes_expiry',   type: 'date' },
-  { keywords: ['série', 'serial', 'sn', 'n° série'],  internal: 'serial_number',        type: 'text' },
-  { keywords: ['modèle', 'model', 'référence', 'ref'], internal: 'model',               type: 'text' },
-  { keywords: ['marque', 'brand', 'fabricant'],        internal: 'brand',               type: 'text' },
-  { keywords: ['maintenance', 'entretien', 'visite'],  internal: 'next_maintenance_date', type: 'date' },
-  { keywords: ['contrat', 'contract'],                 internal: 'contract_type',        type: 'text' },
-  { keywords: ['installation', 'pose', 'mise en service'], internal: 'contract_start',  type: 'date' },
-  { keywords: ['note', 'commentaire', 'remarque'],     internal: 'notes',               type: 'text' },
+  // Batterie
+  { keywords: ['batterie', 'battery', 'pile', 'mise en place batt'],   internal: 'battery_expiry',       type: 'date' },
+  // Électrodes adultes (DLU = Date Limite d'Utilisation)
+  { keywords: ['dlu électrodes adultes', 'électrodes adulte'],          internal: 'electrodes_expiry',    type: 'date' },
+  // Électrodes pédiatriques (champ supplémentaire, mappé sur même champ pour l'instant)
+  { keywords: ['dlu électrodes pédiatriques', 'électrodes pédiat'],    internal: 'electrodes_expiry',    type: 'date' },
+  // Numéro de série
+  { keywords: ['n° de série du défibrillateur', 'serial', 'numéro de série', 'n° série'], internal: 'serial_number', type: 'text' },
+  // Modèle / Marque
+  { keywords: ['marque', 'modèle', 'marque/modèle', 'brand', 'model'], internal: 'model',                type: 'text' },
+  // Contrat
+  { keywords: ['type de contrat', 'contract'],                          internal: 'contract_type',        type: 'text' },
+  { keywords: ['date de fin de contrat', 'fin contrat'],                internal: 'contract_end',         type: 'date' },
+  { keywords: ['date de livraison', 'livraison'],                       internal: 'contract_start',       type: 'date' },
+  // Commentaires / notes
+  { keywords: ['commentaires', 'commentaire', 'notes', 'remarque'],    internal: 'notes',                type: 'text' },
 ]
 
 function guessInternalField(label, fieldType) {
   const lower = label.toLowerCase()
   for (const h of HEURISTICS) {
     if (h.keywords.some((k) => lower.includes(k))) {
-      // Affiner le type si le champ est détecté comme date dans Synchroteam
-      const resolvedType = fieldType === 'date' ? 'date' : h.type
-      return { internal: h.internal, type: resolvedType }
+      return { internal: h.internal, type: fieldType === 'date' ? 'date' : h.type }
     }
   }
   return null
 }
 
-async function apiPost(endpoint, body = {}) {
-  const url = `${BASE_URL}${endpoint}`
-  const res = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-  })
+async function apiGet(endpoint, params = {}) {
+  const url = new URL(`${BASE_URL}${endpoint}`)
+  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, String(v)))
+  const res = await fetch(url.toString(), { method: 'GET', headers })
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(`${res.status} ${res.statusText} — ${text.slice(0, 200)}`)
+    throw new Error(`${res.status} ${res.statusText} — ${text.slice(0, 300)}`)
   }
   return res.json()
 }
 
-async function fetchCustomFields() {
-  const endpoint = '/Api/v3/customfield/list'
-  console.log(`\n📡  POST ${BASE_URL}${endpoint}  body: { type: "equipment", pageSize: 100 }\n`)
+async function probeAuth() {
+  const url = `${BASE_URL}/Api/v3/customer/list?pageSize=1`
+  console.log(`\n🔬  Probe auth — GET ${url}`)
+  const res = await fetch(url, { method: 'GET', headers })
+  const text = await res.text()
+  console.log(`    Status  : ${res.status} ${res.statusText}`)
+  console.log(`    Preview : ${text.slice(0, 120)}`)
+  if (!res.ok) {
+    console.error('\n❌  Auth échouée. Vérifier SYNCHROTEAM_DOMAIN et SYNCHROTEAM_API_KEY.')
+    console.error(`    Domain lu : "${SYNCHROTEAM_DOMAIN}"`)
+    process.exit(1)
+  }
+  console.log('✅  Auth OK\n')
+}
 
-  const data = await apiPost(endpoint, { type: 'equipment', pageSize: 100 })
+async function fetchCustomFields() {
+  console.log(`📡  GET /Api/v3/customfield/list?type=equipment`)
+  const data = await apiGet('/Api/v3/customfield/list', { type: 'equipment', pageSize: 100 })
   return data.data ?? []
 }
 
 async function fetchEquipmentSample() {
-  // Récupérer 1 équipement pour voir la structure des custom_fields réels
-  const data = await apiPost('/Api/v3/equipment/list', { pageSize: 1, page: 1 })
+  const data = await apiGet('/Api/v3/equipment/list', { pageSize: 1, page: 1 })
   return data.data?.[0] ?? null
-}
-
-async function probeAuth() {
-  const variants = [
-    { label: '1 (v2 Search)', url: 'https://ws.synchroteam.com/Api/v2/customer/Search' },
-    { label: '2 (v3 Search)', url: 'https://ws.synchroteam.com/Api/v3/customer/Search' },
-  ]
-
-  console.log('\n🔬  Test action /Search (v2 vs v3)\n')
-
-  let workingVariant = null
-  for (const v of variants) {
-    const res = await fetch(v.url, { method: 'POST', headers, body: '{}' })
-    const text = await res.text()
-    const preview = text.replace(/\s+/g, ' ').slice(0, 100)
-    console.log(`  [${v.label}]`)
-    console.log(`  POST ${v.url}`)
-    console.log(`  → ${res.status} ${res.statusText} | ${preview}`)
-    if (res.ok) {
-      console.log('\n  ✅  Réponse complète :')
-      console.log(text)
-      if (!workingVariant) workingVariant = v
-    }
-    console.log()
-  }
-
-  if (!workingVariant) {
-    console.error('❌  Aucune variante /Search ne fonctionne. Arrêt.')
-    process.exit(1)
-  }
-  console.log(`✅  Variante "${workingVariant.label}" opérationnelle.\n`)
-  return workingVariant
 }
 
 async function main() {
@@ -153,12 +137,10 @@ async function main() {
     fetchEquipmentSample(),
   ])
 
-  console.log(`\n✅  ${fields.length} champ(s) custom trouvé(s) pour type=equipment\n`)
+  console.log(`✅  ${fields.length} champ(s) custom trouvé(s) pour type=equipment\n`)
 
   if (fields.length === 0) {
     console.log('⚠️  Aucun custom field configuré dans Synchroteam.')
-    console.log('   Les dates de batterie, électrodes et N° série doivent être')
-    console.log('   créées dans : Configuration > Custom Fields > Equipment\n')
     process.exit(0)
   }
 
@@ -168,29 +150,27 @@ async function main() {
   console.log('├────────┼──────────────────────────────────────────┼──────────┼─────────────────────────┤')
 
   const mappings = []
-
   for (const field of fields) {
     const guess = guessInternalField(field.label, field.type)
-    const internalLabel = guess ? guess.internal : '⚠️  À mapper manuellement'
-    const id = String(field.id).padEnd(6)
-    const label = field.label.slice(0, 40).padEnd(40)
-    const type = (field.type ?? 'text').padEnd(8)
+    const internalLabel = guess ? guess.internal : '⚠️  Manuel'
+    const id      = String(field.id).padEnd(6)
+    const label   = field.label.slice(0, 40).padEnd(40)
+    const type    = (field.type ?? 'text').padEnd(8)
     const internal = internalLabel.slice(0, 23).padEnd(23)
     console.log(`│ ${id} │ ${label} │ ${type} │ ${internal} │`)
     mappings.push({ id: field.id, label: field.label, type: field.type ?? 'text', guess })
   }
-
   console.log('└────────┴──────────────────────────────────────────┴──────────┴─────────────────────────┘')
 
-  // Échantillon équipement
+  // Échantillon équipement (structure raw)
   if (sampleEquipment) {
     console.log('\n📋  Échantillon équipement (structure raw) :')
     console.log(JSON.stringify(sampleEquipment, null, 2).slice(0, 2000))
     if (JSON.stringify(sampleEquipment).length > 2000) console.log('  ... (tronqué)')
   }
 
-  // Générer SQL INSERT pour custom_field_mapping
-  const mapped = mappings.filter((m) => m.guess)
+  // SQL INSERT
+  const mapped   = mappings.filter((m) => m.guess)
   const unmapped = mappings.filter((m) => !m.guess)
 
   if (mapped.length > 0) {
@@ -200,8 +180,7 @@ async function main() {
     console.log('  (synchroteam_field_id, synchroteam_label, internal_field, field_type)')
     console.log('VALUES')
     const rows = mapped.map(
-      (m) =>
-        `  (${m.id}, '${m.label.replace(/'/g, "''")}', '${m.guess.internal}', '${m.guess.type}')`
+      (m) => `  (${m.id}, '${m.label.replace(/'/g, "''")}', '${m.guess.internal}', '${m.guess.type}')`
     )
     console.log(rows.join(',\n'))
     console.log('ON CONFLICT (synchroteam_field_id) DO UPDATE SET')
@@ -213,11 +192,11 @@ async function main() {
   }
 
   if (unmapped.length > 0) {
-    console.log('\n⚠️  Champs NON mappés automatiquement (à configurer manuellement) :')
+    console.log('\n⚠️  Champs non mappés automatiquement :')
     for (const m of unmapped) {
       console.log(`   ID ${m.id} — "${m.label}" (type: ${m.type})`)
     }
-    console.log('\n   → Utiliser /admin/field-mapping dans le dashboard pour les mapper.')
+    console.log('   → /admin/field-mapping dans le dashboard pour les mapper.')
   }
 
   console.log('\n✅  Discovery terminée.\n')
