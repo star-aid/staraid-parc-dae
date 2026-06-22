@@ -7,7 +7,7 @@
  * Prérequis : .env.local rempli avec SYNCHROTEAM_DOMAIN et SYNCHROTEAM_API_KEY
  *
  * Ce script :
- *  1. Appelle GET /api/v3/customfield/list?type=equipment
+ *  1. Appelle POST /api/v3/customfield/list (body: { type: "equipment" })
  *  2. Affiche la structure réelle des champs DAE
  *  3. Propose un mapping automatique vers les champs internes connus
  *  4. Génère un SQL INSERT prêt à coller dans Supabase
@@ -78,28 +78,31 @@ function guessInternalField(label, fieldType) {
   return null
 }
 
-async function fetchCustomFields() {
-  const url = `${BASE_URL}/api/v3/customfield/list?type=equipment&pageSize=100`
-  console.log(`\n📡  GET ${url}\n`)
-
-  const res = await fetch(url, { headers })
-
+async function apiPost(endpoint, body = {}) {
+  const url = `${BASE_URL}${endpoint}`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  })
   if (!res.ok) {
-    const body = await res.text()
-    console.error(`❌  Erreur API ${res.status} : ${body}`)
-    process.exit(1)
+    const text = await res.text()
+    throw new Error(`${res.status} ${res.statusText} — ${text.slice(0, 200)}`)
   }
+  return res.json()
+}
 
-  const data = await res.json()
+async function fetchCustomFields() {
+  const endpoint = '/api/v3/customfield/list'
+  console.log(`\n📡  POST ${BASE_URL}${endpoint}  body: { type: "equipment", pageSize: 100 }\n`)
+
+  const data = await apiPost(endpoint, { type: 'equipment', pageSize: 100 })
   return data.data ?? []
 }
 
 async function fetchEquipmentSample() {
   // Récupérer 1 équipement pour voir la structure des custom_fields réels
-  const url = `${BASE_URL}/api/v3/equipment/list?pageSize=1&page=1`
-  const res = await fetch(url, { headers })
-  if (!res.ok) return null
-  const data = await res.json()
+  const data = await apiPost('/api/v3/equipment/list', { pageSize: 1, page: 1 })
   return data.data?.[0] ?? null
 }
 

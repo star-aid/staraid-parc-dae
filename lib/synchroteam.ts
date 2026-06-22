@@ -12,21 +12,36 @@ const headers = {
 
 const BASE_URL = process.env.SYNCHROTEAM_BASE_URL ?? 'https://ws.synchroteam.com'
 
-async function apiFetch<T>(endpoint: string, params: Record<string, string> = {}): Promise<T> {
-  const url = new URL(`${BASE_URL}${endpoint}`)
-  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v))
+type FetchOpts = {
+  method?: 'GET' | 'POST'
+  params?: Record<string, string | number>
+}
 
-  const res = await fetch(url.toString(), { headers })
+async function apiFetch<T>(endpoint: string, opts: FetchOpts = {}): Promise<T> {
+  const { method = 'GET', params = {} } = opts
+  let url = `${BASE_URL}${endpoint}`
+  let body: string | undefined
+
+  if (method === 'POST') {
+    // Synchroteam list endpoints qui utilisent POST attendent les filtres dans le body JSON
+    body = JSON.stringify(params)
+  } else {
+    const u = new URL(url)
+    Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, String(v)))
+    url = u.toString()
+  }
+
+  const res = await fetch(url, { method, headers, body })
 
   if (res.status === 429) {
     const resetTs = res.headers.get('X-RateLimit-Reset')
     const waitMs = resetTs ? Number(resetTs) * 1000 - Date.now() : 60_000
     await new Promise((r) => setTimeout(r, Math.max(waitMs, 1000)))
-    return apiFetch(endpoint, params)
+    return apiFetch(endpoint, opts)
   }
 
   if (!res.ok) {
-    throw new Error(`Synchroteam API ${res.status}: ${endpoint}`)
+    throw new Error(`Synchroteam API ${res.status} (${method} ${endpoint})`)
   }
 
   return res.json() as Promise<T>
@@ -34,16 +49,15 @@ async function apiFetch<T>(endpoint: string, params: Record<string, string> = {}
 
 export async function fetchAllPages<T>(
   endpoint: string,
-  params: Record<string, string> = {}
+  opts: FetchOpts = {}
 ): Promise<T[]> {
   const results: T[] = []
   let page = 1
 
   while (true) {
     const data = await apiFetch<SynchroteamPaginatedResponse<T>>(endpoint, {
-      ...params,
-      page: String(page),
-      pageSize: '100',
+      ...opts,
+      params: { ...opts.params, page, pageSize: 100 },
     })
 
     results.push(...data.data)
@@ -55,40 +69,41 @@ export async function fetchAllPages<T>(
   return results
 }
 
+// customfield/list répond 405 sur GET — utilise POST
 export async function fetchCustomFields(): Promise<SynchroteamCustomField[]> {
   const data = await apiFetch<SynchroteamPaginatedResponse<SynchroteamCustomField>>(
     '/api/v3/customfield/list',
-    { type: 'equipment' }
+    { method: 'POST', params: { type: 'equipment', pageSize: 100 } }
   )
   return data.data
 }
 
 export async function fetchCustomers() {
-  return fetchAllPages<Record<string, unknown>>('/api/v3/customer/list')
+  return fetchAllPages<Record<string, unknown>>('/api/v3/customer/list', { method: 'POST' })
 }
 
 export async function fetchSites() {
-  return fetchAllPages<Record<string, unknown>>('/api/v3/site/list')
+  return fetchAllPages<Record<string, unknown>>('/api/v3/site/list', { method: 'POST' })
 }
 
 export async function fetchEquipments() {
-  return fetchAllPages<Record<string, unknown>>('/api/v3/equipment/list')
+  return fetchAllPages<Record<string, unknown>>('/api/v3/equipment/list', { method: 'POST' })
 }
 
 export async function fetchEquipmentDetails(id: string) {
-  return apiFetch<Record<string, unknown>>('/api/v3/equipment/details', { id })
+  return apiFetch<Record<string, unknown>>('/api/v3/equipment/details', { method: 'GET', params: { id } })
 }
 
 export async function fetchContracts() {
-  return fetchAllPages<Record<string, unknown>>('/api/v3/contract/list')
+  return fetchAllPages<Record<string, unknown>>('/api/v3/contract/list', { method: 'POST' })
 }
 
 export async function fetchJobs(params: Record<string, string> = {}) {
-  return fetchAllPages<Record<string, unknown>>('/api/v3/job/list', params)
+  return fetchAllPages<Record<string, unknown>>('/api/v3/job/list', { method: 'POST', params })
 }
 
 export async function fetchUsers() {
-  return fetchAllPages<Record<string, unknown>>('/api/v3/user/list')
+  return fetchAllPages<Record<string, unknown>>('/api/v3/user/list', { method: 'POST' })
 }
 
 /**
