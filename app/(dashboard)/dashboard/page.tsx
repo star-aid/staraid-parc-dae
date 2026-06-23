@@ -21,19 +21,21 @@ function countQ(
   supabase: ReturnType<typeof createServiceClient>,
   status?: string,
   territoryId?: string,
-  contratFilter?: string | null
+  contratFilter?: string | null,
+  clientOrFilter?: string | null
 ) {
   let q = supabase
     .from('defibrillators')
     .select('*', { count: 'exact', head: true })
     .eq('active', true)
-  if (status)        q = q.eq('status', status)
-  if (territoryId)   q = q.eq('territory_id', territoryId)
-  if (contratFilter) q = q.or(contratFilter)
+  if (status)          q = q.eq('status', status)
+  if (territoryId)     q = q.eq('territory_id', territoryId)
+  if (contratFilter)   q = q.or(contratFilter)
+  if (clientOrFilter)  q = q.or(clientOrFilter)
   return q
 }
 
-async function getDashboardData(contratFilter: string | null): Promise<{
+async function getDashboardData(contratFilter: string | null, clientId: string | null): Promise<{
   summary: ParkSummary | null
   monthly: MonthlyRow[]
 }> {
@@ -44,17 +46,28 @@ async function getDashboardData(contratFilter: string | null): Promise<{
     twelveMonthsAgo.setFullYear(twelveMonthsAgo.getFullYear() - 1)
     const dateFrom = twelveMonthsAgo.toISOString().split('T')[0]
 
+    // Filtre client : OR sur client_id direct OU site_id (héritage via le site)
+    let clientOrFilter: string | null = null
+    if (clientId) {
+      const { data: cs } = await supabase.from('sites').select('id').eq('client_id', clientId).limit(100)
+      const siteIds = (cs ?? []).map((s: { id: string }) => s.id)
+      const parts = [`client_id.eq.${clientId}`]
+      if (siteIds.length > 0) parts.push(`site_id.in.(${siteIds.join(',')})`)
+      clientOrFilter = parts.join(',')
+    }
+
     // ── Passe 1 : données indépendantes des IDs de territoire ────────────────
     // Les interventions sont paginées séparément pour contourner max_rows=1000
     let expQ = supabase
       .from('defibrillators')
-      .select('id, serial_number, model, status_reason, battery_expiry, electrodes_adult_expiry, next_maintenance_date, clients(name), territories(code)')
+      .select('id, serial_number, model, status_reason, battery_expiry, electrodes_adult_expiry, electrodes_pediatric_expiry, next_maintenance_date, clients(name), territories(code)')
       .eq('active', true)
       .in('status', ['critique', 'vigilance'])
       .order('status', { ascending: false })
       .order('battery_expiry', { ascending: true, nullsFirst: false })
       .limit(5)
-    if (contratFilter) expQ = expQ.or(contratFilter)
+    if (contratFilter)  expQ = expQ.or(contratFilter)
+    if (clientOrFilter) expQ = expQ.or(clientOrFilter)
 
     const [
       { count: total },
@@ -66,11 +79,11 @@ async function getDashboardData(contratFilter: string | null): Promise<{
       lastSyncRes,
       expirationsRes,
     ] = await Promise.all([
-      countQ(supabase, undefined, undefined, contratFilter),
-      countQ(supabase, 'conforme',  undefined, contratFilter),
-      countQ(supabase, 'vigilance', undefined, contratFilter),
-      countQ(supabase, 'critique',  undefined, contratFilter),
-      countQ(supabase, 'inconnu',   undefined, contratFilter),
+      countQ(supabase, undefined, undefined, contratFilter, clientOrFilter),
+      countQ(supabase, 'conforme',  undefined, contratFilter, clientOrFilter),
+      countQ(supabase, 'vigilance', undefined, contratFilter, clientOrFilter),
+      countQ(supabase, 'critique',  undefined, contratFilter, clientOrFilter),
+      countQ(supabase, 'inconnu',   undefined, contratFilter, clientOrFilter),
       supabase.from('territories').select('id, code'),
       supabase
         .from('sync_logs')
@@ -90,7 +103,7 @@ async function getDashboardData(contratFilter: string | null): Promise<{
       const PAGE = 1000
       let page = 0
       while (true) {
-        const { data, error: err } = await supabase
+        let intQ = supabase
           .from('interventions')
           .select('type, completed_date')
           .eq('status', 'termine')
@@ -98,6 +111,9 @@ async function getDashboardData(contratFilter: string | null): Promise<{
           .not('completed_date', 'is', null)
           .order('completed_date', { ascending: true })
           .range(page * PAGE, (page + 1) * PAGE - 1)
+        // interventions.client_id suit la même logique que defibrillators
+        if (clientOrFilter) intQ = intQ.or(clientOrFilter)
+        const { data, error: err } = await intQ
         if (err || !data?.length) break
         allInterventions.push(...(data as IntRow[]))
         if (data.length < PAGE) break
@@ -113,8 +129,8 @@ async function getDashboardData(contratFilter: string | null): Promise<{
 
     const terrCountResults = await Promise.all(
       territories.flatMap((t) => [
-        countQ(supabase, undefined, t.id, contratFilter),
-        ...STATUSES.map((s) => countQ(supabase, s, t.id, contratFilter)),
+        countQ(supabase, undefined, t.id, contratFilter, clientOrFilter),
+        ...STATUSES.map((s) => countQ(supabase, s, t.id, contratFilter, clientOrFilter)),
       ])
     )
 
@@ -142,12 +158,13 @@ async function getDashboardData(contratFilter: string | null): Promise<{
       status_reason: string | null
       battery_expiry: string | null
       electrodes_adult_expiry: string | null
+      electrodes_pediatric_expiry: string | null
       next_maintenance_date: string | null
       clients: { name: string } | null
       territories: { code: string } | null
     }
     const next_expirations = ((expirationsRes.data ?? []) as unknown as ExpRow[]).map((d) => {
-      const dates = [d.battery_expiry, d.electrodes_adult_expiry, d.next_maintenance_date]
+      const dates = [d.battery_expiry, d.electrodes_adult_expiry, d.electrodes_pediatric_expiry, d.next_maintenance_date]
         .filter((x): x is string => !!x)
         .sort()
       return {
@@ -238,10 +255,11 @@ function KPICard({ label, value, sub, accent, icon }: KPICardProps) {
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams?: { contrat?: string; [key: string]: string | undefined }
+  searchParams?: { contrat?: string; client?: string; [key: string]: string | undefined }
 }) {
   const contratFilter = buildContratOrFilter(parseContratParam(searchParams?.contrat))
-  const { summary, monthly } = await getDashboardData(contratFilter)
+  const clientId = searchParams?.client ?? null
+  const { summary, monthly } = await getDashboardData(contratFilter, clientId)
 
   const total     = summary?.total     ?? 0
   const conforme  = summary?.conforme  ?? 0

@@ -21,9 +21,20 @@ type RawRow = {
   territories: { code: string; name: string } | null
 }
 
-async function getAlerts(contratFilter: string | null): Promise<AlertRow[]> {
+async function getAlerts(contratFilter: string | null, clientId: string | null): Promise<AlertRow[]> {
   try {
     const supabase = createServiceClient()
+
+    // Filtre client via OR (client_id direct OU site_id via le site du client)
+    let clientOrFilter: string | null = null
+    if (clientId) {
+      const { data: cs } = await supabase.from('sites').select('id').eq('client_id', clientId).limit(100)
+      const siteIds = (cs ?? []).map((s: { id: string }) => s.id)
+      const parts = [`client_id.eq.${clientId}`]
+      if (siteIds.length > 0) parts.push(`site_id.in.(${siteIds.join(',')})`)
+      clientOrFilter = parts.join(',')
+    }
+
     let q = supabase
       .from('defibrillators')
       .select(`
@@ -36,7 +47,8 @@ async function getAlerts(contratFilter: string | null): Promise<AlertRow[]> {
       .eq('active', true)
       .in('status', ['critique', 'vigilance'])
       .limit(1000)
-    if (contratFilter) q = q.or(contratFilter)
+    if (contratFilter)  q = q.or(contratFilter)
+    if (clientOrFilter) q = q.or(clientOrFilter)
     const { data, error } = await q
 
     if (error) throw error
@@ -66,9 +78,10 @@ async function getAlerts(contratFilter: string | null): Promise<AlertRow[]> {
 export default async function AlertesPage({
   searchParams,
 }: {
-  searchParams?: { contrat?: string; [key: string]: string | undefined }
+  searchParams?: { contrat?: string; client?: string; [key: string]: string | undefined }
 }) {
   const contratFilter = buildContratOrFilter(parseContratParam(searchParams?.contrat))
-  const rows = await getAlerts(contratFilter)
+  const clientId = searchParams?.client ?? null
+  const rows = await getAlerts(contratFilter, clientId)
   return <AlertesClient rows={rows} />
 }

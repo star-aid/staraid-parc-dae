@@ -3,13 +3,14 @@ import { Suspense } from 'react'
 import { createServiceClient } from '@/lib/supabase'
 import Sidebar from '@/components/dashboard/Sidebar'
 import ContratFilterBar from '@/components/dashboard/ContratFilterBar'
+import ClientFilterBar, { type ClientOption } from '@/components/dashboard/ClientFilterBar'
 
 export const dynamic = 'force-dynamic'
 
 async function getSidebarData() {
   try {
     const supabase = createServiceClient()
-    const [critiqueRes, syncRes] = await Promise.all([
+    const [critiqueRes, syncRes, clientsRes] = await Promise.all([
       supabase
         .from('defibrillators')
         .select('id', { count: 'exact', head: true })
@@ -23,29 +24,40 @@ async function getSidebarData() {
         .order('finished_at', { ascending: false })
         .limit(1)
         .maybeSingle(),
+      supabase
+        .from('clients')
+        .select('id, name')
+        .eq('active', true)
+        .order('name')
+        .limit(1000),
     ])
     return {
       critiqueCount: critiqueRes.count ?? 0,
       lastSync: syncRes.data?.finished_at ?? null,
+      clients: (clientsRes.data ?? []) as ClientOption[],
     }
   } catch {
-    return { critiqueCount: 0, lastSync: null }
+    return { critiqueCount: 0, lastSync: null, clients: [] as ClientOption[] }
   }
 }
 
 export default async function DashboardLayout({ children }: { children: ReactNode }) {
-  const { critiqueCount, lastSync } = await getSidebarData()
+  const { critiqueCount, lastSync, clients } = await getSidebarData()
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
       <Sidebar critiqueCount={critiqueCount} lastSync={lastSync} />
 
-      {/* Colonne droite : filtre global + contenu scrollable */}
+      {/* Colonne droite : filtres globaux + contenu scrollable */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Barre de filtre contrat — persistante sur toutes les pages dashboard */}
-        <div className="shrink-0 bg-white border-b border-slate-200 px-6 py-2.5 flex items-center gap-3 pt-14 lg:pt-2.5">
-          <Suspense fallback={<div className="h-[28px]" />}>
+        {/* Barre de filtres globaux — persistante sur toutes les pages dashboard */}
+        <div className="shrink-0 bg-white border-b border-slate-200 px-6 py-2.5 flex items-center gap-3 flex-wrap pt-14 lg:pt-2.5">
+          <Suspense fallback={<div className="h-[28px] w-60" />}>
             <ContratFilterBar />
+          </Suspense>
+          <div className="w-px h-5 bg-slate-200 shrink-0 hidden sm:block" />
+          <Suspense fallback={<div className="h-[28px] w-48" />}>
+            <ClientFilterBar clients={clients} />
           </Suspense>
         </div>
 

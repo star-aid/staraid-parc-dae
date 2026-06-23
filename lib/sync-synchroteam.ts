@@ -240,6 +240,7 @@ async function syncEquipments(
   supabase: SupabaseClient,
   clientMap: Map<string, string>,
   siteMap: Map<string, string>,
+  siteClientMap: Map<string, string>,
   territoryMap: Map<string, string>,
   mappings: CustomFieldMapping[],
   errors: string[]
@@ -252,8 +253,13 @@ async function syncEquipments(
     const rows = equipments.map((eq) => {
       const customer = eq.customer as Record<string, unknown> | null
       const site = eq.site as Record<string, unknown> | null
-      const client_id = customer?.id ? (clientMap.get(String(customer.id)) ?? null) : null
       const site_id = site?.id ? (siteMap.get(String(site.id)) ?? null) : null
+
+      // Priorité au customer direct de l'équipement ;
+      // sinon héritage du client via le site (cas le plus fréquent dans Synchroteam)
+      const client_id = customer?.id
+        ? (clientMap.get(String(customer.id)) ?? null)
+        : (site?.id ? (siteClientMap.get(String(site.id)) ?? null) : null)
 
       // Extraction des custom fields via mapping par ID
       const cf = extractCustomFields(eq, mappings)
@@ -646,11 +652,19 @@ export async function runSynchroteamSync(supabase: SupabaseClient): Promise<Sync
   result.sites = await syncSites(supabase, clientMap, territoryMap, result.errors)
   const siteMap = await buildIdMap(supabase, 'sites')
 
+  // Carte synchroteam_site_id → client_uuid pour héritage du client via le site
+  const { data: sitesForClientMap } = await supabase.from('sites').select('synchroteam_id, client_id')
+  const siteClientMap = new Map<string, string>(
+    ((sitesForClientMap ?? []) as Array<{ synchroteam_id: string; client_id: string | null }>)
+      .filter((s) => !!s.client_id)
+      .map((s) => [s.synchroteam_id, s.client_id as string])
+  )
+
   // 3. Techniciens (indépendant)
   result.technicians = await syncTechnicians(supabase, result.errors)
 
-  // 4. Équipements (nécessite clientMap + siteMap + mappings)
-  result.equipments = await syncEquipments(supabase, clientMap, siteMap, territoryMap, mappings, result.errors)
+  // 4. Équipements (nécessite clientMap + siteMap + siteClientMap + mappings)
+  result.equipments = await syncEquipments(supabase, clientMap, siteMap, siteClientMap, territoryMap, mappings, result.errors)
   const daeMap = await buildIdMap(supabase, 'defibrillators')
 
   // 5. Contrats (enrichissement, best-effort)

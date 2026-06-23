@@ -32,6 +32,7 @@ interface SearchParams {
   territoire?: string
   statut?: string
   contrat?: string
+  client?: string
   sort?: SortCol
   dir?: SortDir
   page?: string
@@ -51,9 +52,24 @@ type ParcRow = {
   next_maintenance_date: string | null
   battery_expiry: string | null
   electrodes_adult_expiry: string | null
+  electrodes_pediatric_expiry: string | null
   clients:     { name: string } | null
   sites:       { name: string } | null
   territories: { code: string; name: string } | null
+}
+
+/** Retourne la date la plus critique (la plus proche ou expirée) entre deux dates */
+function criticalDate(a: string | null, b: string | null): string | null {
+  if (!a) return b
+  if (!b) return a
+  return a <= b ? a : b
+}
+
+/** Vrai si b est strictement plus urgente que a */
+function isPediatricMoreCritical(adult: string | null, ped: string | null): boolean {
+  if (!ped) return false
+  if (!adult) return true
+  return ped < adult
 }
 
 function fmtDate(s: string | null) {
@@ -77,6 +93,7 @@ function sortUrl(col: string, activeSort: string, activeDir: string, sp: SearchP
   if (sp.territoire) p.set('territoire', sp.territoire)
   if (sp.statut)     p.set('statut', sp.statut)
   if (sp.contrat)    p.set('contrat', sp.contrat)
+  if (sp.client)     p.set('client', sp.client)
   const nextDir = col === activeSort && activeDir === 'asc' ? 'desc' : 'asc'
   p.set('sort', col)
   p.set('dir', nextDir)
@@ -89,6 +106,7 @@ function pageUrl(page: number, sp: SearchParams) {
   if (sp.territoire) p.set('territoire', sp.territoire)
   if (sp.statut)     p.set('statut', sp.statut)
   if (sp.contrat)    p.set('contrat', sp.contrat)
+  if (sp.client)     p.set('client', sp.client)
   if (sp.sort)       p.set('sort', sp.sort)
   if (sp.dir)        p.set('dir', sp.dir)
   if (page > 1)      p.set('page', String(page))
@@ -102,6 +120,7 @@ function viewUrl(vue: 'tableau' | 'carte', sp: SearchParams) {
   if (sp.territoire) p.set('territoire', sp.territoire)
   if (sp.statut)     p.set('statut', sp.statut)
   if (sp.contrat)    p.set('contrat', sp.contrat)
+  if (sp.client)     p.set('client', sp.client)
   if (vue === 'carte') p.set('vue', 'carte')
   return `/parc?${p.toString()}`
 }
@@ -136,11 +155,28 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
   const offset    = (page - 1) * PAGE_SIZE
   const contratGroups = parseContratParam(searchParams.contrat)
   const contratFilter = buildContratOrFilter(contratGroups)
+  const clientId  = searchParams.client ?? null
 
   const supabase = createServiceClient()
 
+  // Pré-requête sites du client sélectionné → filtre OR (client_id OU site_id)
+  // Nécessaire car defibrillators.client_id peut être NULL quand l'association
+  // est portée par le site et non l'équipement dans Synchroteam.
+  let clientSiteIds: string[] = []
+  if (clientId) {
+    const { data: cs } = await supabase.from('sites').select('id').eq('client_id', clientId).limit(100)
+    clientSiteIds = (cs ?? []).map((s: { id: string }) => s.id)
+  }
+  function buildClientOrFilter(): string | null {
+    if (!clientId) return null
+    const parts = [`client_id.eq.${clientId}`]
+    if (clientSiteIds.length > 0) parts.push(`site_id.in.(${clientSiteIds.join(',')})`)
+    return parts.join(',')
+  }
+  const clientOrFilter = buildClientOrFilter()
+
   // ── Vue carte : marqueurs GPS depuis defibrillators → sites ─────────────
-  let mapMarkers: MapMarker[] = []
+  const mapMarkers: MapMarker[] = []
   if (vue === 'carte') {
     type RawMapRow = {
       id: string
@@ -171,7 +207,8 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
         .eq('active', true)
         .order('id')
         .range(p * PAGE, (p + 1) * PAGE - 1)
-      if (contratFilter) batchQ = batchQ.or(contratFilter)
+      if (contratFilter)   batchQ = batchQ.or(contratFilter)
+      if (clientOrFilter)  batchQ = batchQ.or(clientOrFilter)
       const { data: batch } = await batchQ
 
       if (!batch?.length) break
@@ -216,16 +253,45 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
     .select(
       `id, serial_number, model, brand,
        status, status_reason, battery_status, electrodes_status,
-       last_maintenance_date, next_maintenance_date, battery_expiry, electrodes_adult_expiry,
+       last_maintenance_date, next_maintenance_date, battery_expiry,
+       electrodes_adult_expiry, electrodes_pediatric_expiry,
        clients(name), sites(name), territories(code, name)`,
       { count: 'exact' }
     )
     .eq('active', true)
 
-  if (q) query = query.or(`serial_number.ilike.%${q}%,model.ilike.%${q}%,brand.ilike.%${q}%`)
+  // Recherche texte : N° série, modèle, marque + noms de clients correspondants
+  if (q) {
+    // Limites volontairement basses pour rester dans les limites d'URL PostgREST
+    const { data: matchedClients } = await supabase
+      .from('clients')
+      .select('id')
+      .ilike('name', `%${q}%`)
+      .order('name')
+      .limit(20)
+    const matchedClientIds = (matchedClients ?? []).map((c: { id: string }) => c.id)
+
+    // Sites des clients trouvés (fallback quand client_id est NULL sur le DAE)
+    let matchedSiteIds: string[] = []
+    if (matchedClientIds.length > 0) {
+      const { data: matchedSites } = await supabase
+        .from('sites')
+        .select('id')
+        .in('client_id', matchedClientIds)
+        .limit(80)
+      matchedSiteIds = (matchedSites ?? []).map((s: { id: string }) => s.id)
+    }
+
+    const orParts = [`serial_number.ilike.%${q}%`, `model.ilike.%${q}%`, `brand.ilike.%${q}%`]
+    if (matchedClientIds.length > 0) orParts.push(`client_id.in.(${matchedClientIds.join(',')})`)
+    if (matchedSiteIds.length > 0) orParts.push(`site_id.in.(${matchedSiteIds.join(',')})`)
+    query = query.or(orParts.join(','))
+  }
+
   if (terr.length > 0 && territoryIds.length > 0) query = query.in('territory_id', territoryIds)
   if (stat.length > 0) query = query.in('status', stat)
-  if (contratFilter) query = query.or(contratFilter)
+  if (contratFilter)  query = query.or(contratFilter)
+  if (clientOrFilter) query = query.or(clientOrFilter)
 
   query = query
     .order(sort, { ascending: dir === 'asc', nullsFirst: false })
@@ -251,7 +317,8 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
     'Batterie':             d.battery_status,
     'DLU batterie':         fmtDate(d.battery_expiry),
     'Électrodes':           d.electrodes_status,
-    'DLU électrodes':       fmtDate(d.electrodes_adult_expiry),
+    'DLU électrodes':       fmtDate(criticalDate(d.electrodes_adult_expiry, d.electrodes_pediatric_expiry)),
+    'Type électrodes':      isPediatricMoreCritical(d.electrodes_adult_expiry, d.electrodes_pediatric_expiry) ? 'Pédiatriques' : 'Adultes',
   }))
 
   return (
@@ -328,7 +395,7 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
             </div>
           ) : (
             <ParcMapDynamic
-              key={`map-${searchParams.contrat ?? 'all'}`}
+              key={`map-${searchParams.contrat ?? 'all'}-${clientId ?? 'all'}`}
               markers={mapMarkers}
               statusFilter={stat}
               territoryFilter={terr}
@@ -411,7 +478,13 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
                         <ConsumableStatus status={dae.battery_status} date={dae.battery_expiry} />
                       </td>
                       <td className="px-3 py-3">
-                        <ConsumableStatus status={dae.electrodes_status} date={dae.electrodes_adult_expiry} />
+                        <ConsumableStatus
+                          status={dae.electrodes_status}
+                          date={criticalDate(dae.electrodes_adult_expiry, dae.electrodes_pediatric_expiry)}
+                        />
+                        {isPediatricMoreCritical(dae.electrodes_adult_expiry, dae.electrodes_pediatric_expiry) && (
+                          <div className="text-[10px] text-amber-600 font-medium mt-0.5">pédiatriques</div>
+                        )}
                       </td>
                       <td className="px-3 py-3 text-right">
                         <Link

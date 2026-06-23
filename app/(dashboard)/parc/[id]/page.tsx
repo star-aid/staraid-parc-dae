@@ -320,15 +320,32 @@ export default async function ParcDetailPage({ params }: Props) {
               installDate={d.battery_install_date}
               expiryDate={d.battery_expiry}
             />
-            <ConsumableBar
-              label="Électrodes adulte"
-              expiryDate={d.electrodes_adult_expiry}
-            />
-            {d.electrodes_pediatric_expiry && (
-              <ConsumableBar
-                label="Électrodes pédiatrique"
-                expiryDate={d.electrodes_pediatric_expiry}
-              />
+            {/* Afficher la plus critique en premier */}
+            {d.electrodes_pediatric_expiry &&
+             (!d.electrodes_adult_expiry || d.electrodes_pediatric_expiry < d.electrodes_adult_expiry) ? (
+              <>
+                <ConsumableBar
+                  label="Électrodes pédiatriques ⚠"
+                  expiryDate={d.electrodes_pediatric_expiry}
+                />
+                <ConsumableBar
+                  label="Électrodes adultes"
+                  expiryDate={d.electrodes_adult_expiry}
+                />
+              </>
+            ) : (
+              <>
+                <ConsumableBar
+                  label="Électrodes adultes"
+                  expiryDate={d.electrodes_adult_expiry}
+                />
+                {d.electrodes_pediatric_expiry && (
+                  <ConsumableBar
+                    label="Électrodes pédiatriques"
+                    expiryDate={d.electrodes_pediatric_expiry}
+                  />
+                )}
+              </>
             )}
             {!d.battery_expiry && !d.electrodes_adult_expiry && (
               <p className="text-sm text-slate-400 italic text-center py-4">
