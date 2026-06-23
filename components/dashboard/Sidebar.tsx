@@ -76,9 +76,10 @@ function HamburgerIcon() {
 
 export default function Sidebar({ critiqueCount, lastSync }: SidebarProps) {
   const pathname = usePathname()
-  const [open, setOpen]     = useState(false)
-  const [syncing, setSyncing] = useState(false)
-  const [syncMsg, setSyncMsg] = useState<string | null>(null)
+  const [open, setOpen]       = useState(false)
+  const [syncing, setSyncing]  = useState(false)
+  const [syncMsg, setSyncMsg]  = useState<string | null>(null)
+  const [elapsed, setElapsed]  = useState(0)
 
   const formatSync = lastSync
     ? new Date(lastSync).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })
@@ -88,17 +89,55 @@ export default function Sidebar({ critiqueCount, lastSync }: SidebarProps) {
     if (syncing) return
     setSyncing(true)
     setSyncMsg(null)
+    setElapsed(0)
+
+    // Timer d'affichage — montre que la sync progresse
+    const timerRef = setInterval(() => setElapsed((s) => s + 1), 1000)
+
     try {
-      const res = await fetch('/api/sync/trigger')
-      if (res.ok) {
-        setSyncMsg('Sync terminée')
-        setTimeout(() => window.location.reload(), 800)
-      } else {
-        setSyncMsg('Erreur sync')
+      // Démarre la sync côté serveur — retourne immédiatement avec un logId
+      const startRes = await fetch('/api/sync/trigger')
+      if (!startRes.ok) {
+        setSyncMsg(`Erreur démarrage (${startRes.status})`)
+        return
       }
+      const { logId } = await startRes.json() as { logId: string | null }
+
+      if (!logId) {
+        setSyncMsg('Erreur : pas de logId')
+        return
+      }
+
+      // Polling toutes les 3 secondes jusqu'à success / partial / error
+      await new Promise<void>((resolve) => {
+        const poll = setInterval(async () => {
+          try {
+            const r = await fetch(`/api/sync/status?id=${logId}`)
+            const body = await r.json() as { status: string; records_synced?: number; error_message?: string }
+
+            if (body.status === 'success' || body.status === 'partial') {
+              clearInterval(poll)
+              const msg = body.status === 'partial'
+                ? `Sync terminée avec avertissements (${body.records_synced ?? 0} enreg.)`
+                : `Sync terminée — ${body.records_synced ?? 0} enregistrements`
+              setSyncMsg(msg)
+              setTimeout(() => window.location.reload(), 1200)
+              resolve()
+            } else if (body.status === 'error') {
+              clearInterval(poll)
+              setSyncMsg(`Erreur : ${body.error_message?.slice(0, 60) ?? 'inconnue'}`)
+              resolve()
+            }
+            // 'running' ou 'unknown' → on repoll
+          } catch {
+            // Erreur réseau transitoire → on continue de poller
+          }
+        }, 3000)
+      })
     } catch {
       setSyncMsg('Erreur réseau')
     } finally {
+      clearInterval(timerRef)
       setSyncing(false)
     }
   }
@@ -197,7 +236,10 @@ export default function Sidebar({ critiqueCount, lastSync }: SidebarProps) {
             ].join(' ')}
           >
             <SyncIcon spinning={syncing} />
-            {syncing ? 'Synchronisation…' : syncMsg ?? 'Synchroniser maintenant'}
+            {syncing
+              ? `Sync en cours… ${elapsed > 0 ? `(${elapsed}s)` : ''}`
+              : syncMsg ?? 'Synchroniser maintenant'
+            }
           </button>
         </div>
       </aside>
