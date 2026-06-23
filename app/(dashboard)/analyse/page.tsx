@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 export default function AnalysePage() {
   return (
     <div className="p-8">

@@ -1,5 +1,133 @@
 import type { DAEStatus, BatteryStatus } from '@/types'
 
+// ─── Règles métier d'expiration par marque (tableau STAR aid juin 2026) ──────
+
+type BrandKey =
+  | 'SAVERONE'
+  | 'STRYKER'        // HeartSine / Samaritan / LifePak
+  | 'MINDRAY'
+  | 'ZOLL'
+  | 'CARDIAC_SCIENCE' // PowerHeart — électrodes pédiatriques intégrées
+  | 'COLSON'          // CU Medical / iPAD
+  | 'PHILIPS_FR3'     // Philips HeartStart FR3 → batterie 3 ans
+  | 'PHILIPS_FR2'     // Philips HeartStart FR2 → batterie 4 ans
+  | 'PHILIPS'         // Philips / Laerdal sans modèle FR3/FR2 détecté → 4 ans par défaut
+  | 'OTHER'
+
+// Durée de vie batterie (années) par marque — source : tableau officiel STAR aid
+const BATTERY_YEARS: Record<BrandKey, number> = {
+  SAVERONE:        4,
+  STRYKER:         4,
+  MINDRAY:         5,
+  ZOLL:            5,
+  CARDIAC_SCIENCE: 4,
+  COLSON:          4,
+  PHILIPS_FR3:     3,
+  PHILIPS_FR2:     4,
+  PHILIPS:         4,
+  OTHER:           5,
+}
+
+/**
+ * Extrait la clé de marque depuis la valeur brute "MARQUE - Modèle" (custom field 12583).
+ * La détection s'effectue en uppercase sur la partie marque (avant " - ") ; pour
+ * Philips FR3/FR2, le modèle entier est inspecté car c'est lui qui distingue les deux.
+ */
+export function extractBrand(brandModel: string | null): BrandKey {
+  if (!brandModel) return 'OTHER'
+  const full = brandModel.toUpperCase()
+  const brandPart = brandModel.includes(' - ')
+    ? brandModel.split(' - ')[0].toUpperCase().trim()
+    : full.trim()
+
+  if (brandPart.includes('SAVERONE') || brandPart.includes('SAVER ONE')) return 'SAVERONE'
+  if (
+    brandPart.includes('STRYKER') ||
+    brandPart.includes('HEARTSINE') ||
+    brandPart.includes('SAMARITAN') ||
+    brandPart.includes('LIFEPAK')
+  ) return 'STRYKER'
+  if (brandPart.includes('MINDRAY')) return 'MINDRAY'
+  if (brandPart.includes('ZOLL')) return 'ZOLL'
+  if (
+    full.includes('CARDIAC SCIENCE') ||
+    brandPart.includes('POWERHEART')
+  ) return 'CARDIAC_SCIENCE'
+  if (
+    brandPart.includes('COLSON') ||
+    full.includes('CU MEDICAL') ||
+    brandPart.includes('IPAD')
+  ) return 'COLSON'
+  if (
+    brandPart.includes('PHILIPS') ||  // inclut PHILLIPS (double L)
+    brandPart.includes('LAERDAL') ||
+    brandPart.includes('HEARTSTART')
+  ) {
+    if (full.includes('FR3') || full.includes('FR 3')) return 'PHILIPS_FR3'
+    if (full.includes('FR2') || full.includes('FR 2')) return 'PHILIPS_FR2'
+    return 'PHILIPS'
+  }
+  return 'OTHER'
+}
+
+// Ajoute des années (supporte les fractions : 1.5 = +1 an +6 mois)
+function addYears(dateStr: string, years: number): string {
+  const d = new Date(dateStr)
+  const wholeYears = Math.floor(years)
+  const months = Math.round((years - wholeYears) * 12)
+  d.setFullYear(d.getFullYear() + wholeYears)
+  if (months) d.setMonth(d.getMonth() + months)
+  return d.toISOString().split('T')[0]
+}
+
+/**
+ * Calcule les dates d'expiration réelles selon la marque (tableau STAR aid juin 2026).
+ *
+ * Règle générale :
+ *   - battery_expiry    = battery_install_date + durée_marque (cf. BATTERY_YEARS)
+ *   - electrodes_adult  = DLU brut (champ 12587, date limite d'utilisation)
+ *   - electrodes_pediatric = DLU brut (champ 12588)
+ *
+ * Exceptions :
+ *   - CARDIAC_SCIENCE : pas d'électrodes pédiatriques dédiées (mode intégré) → null
+ *   - ZOLL + DLU pédiatrique absent : fallback Pedi-Padz II → install + 18 mois
+ */
+export function computeExpiryDates(params: {
+  brand: string | null               // valeur brute du champ "Marque/modèle" (12583)
+  battery_install_date: string | null
+  raw_electrodes_adult: string | null    // DLU brut champ 12587
+  raw_electrodes_pediatric: string | null // DLU brut champ 12588
+}): {
+  battery_expiry: string | null
+  electrodes_adult_expiry: string | null
+  electrodes_pediatric_expiry: string | null
+} {
+  const brandKey = extractBrand(params.brand)
+
+  const battery_expiry = params.battery_install_date
+    ? addYears(params.battery_install_date, BATTERY_YEARS[brandKey])
+    : null
+
+  // Électrodes adultes : toujours DLU brut, toutes marques
+  const electrodes_adult_expiry = params.raw_electrodes_adult ?? null
+
+  // Électrodes pédiatriques
+  let electrodes_pediatric_expiry: string | null
+  if (brandKey === 'CARDIAC_SCIENCE') {
+    // Électrodes intégrées — pas de consommable pédiatrique séparé
+    electrodes_pediatric_expiry = null
+  } else if (brandKey === 'ZOLL' && !params.raw_electrodes_pediatric) {
+    // Pedi-Padz II sans DLU renseignée : estimation 18 mois depuis l'installation batterie
+    electrodes_pediatric_expiry = params.battery_install_date
+      ? addYears(params.battery_install_date, 1.5)
+      : null
+  } else {
+    electrodes_pediatric_expiry = params.raw_electrodes_pediatric ?? null
+  }
+
+  return { battery_expiry, electrodes_adult_expiry, electrodes_pediatric_expiry }
+}
+
 // Retourne la date d'expiration la plus proche entre électrodes adultes et pédiatriques
 function earliestElectrodes(
   adult: string | null,

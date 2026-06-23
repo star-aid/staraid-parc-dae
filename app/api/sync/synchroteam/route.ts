@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import { runSynchroteamSync } from '@/lib/sync-synchroteam'
 
+export const dynamic = 'force-dynamic'
+
 export async function POST(req: NextRequest) {
   const secret = req.headers.get('x-cron-secret')
   if (secret !== process.env.CRON_SECRET) {

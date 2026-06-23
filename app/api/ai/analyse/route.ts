@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+export const dynamic = 'force-dynamic'
+
 export async function POST(req: NextRequest) {
   // TODO: implémenter le streaming SSE avec Claude Sonnet
   // 1. Récupérer le message utilisateur

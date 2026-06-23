@@ -8,7 +8,7 @@ import {
   fetchUsers,
   extractCustomFields,
 } from '@/lib/synchroteam'
-import { computeDAEStatus, computeConsumableStatus, detectTerritory } from '@/lib/status'
+import { computeDAEStatus, computeConsumableStatus, detectTerritory, computeExpiryDates } from '@/lib/status'
 import { geocodeAddress } from '@/lib/geocoding'
 import type { CustomFieldMapping } from '@/types'
 
@@ -94,8 +94,9 @@ function mapJobType(raw: unknown): 'maintenance' | 'depannage' | 'installation' 
 
 function mapJobStatus(raw: unknown): 'planifie' | 'en_cours' | 'termine' | 'annule' {
   const s = str(raw)?.toLowerCase() ?? ''
-  if (['done', 'completed', 'finished', 'terminé', 'termine', 'closed'].some((v) => s.includes(v))) return 'termine'
-  if (['inprogress', 'in_progress', 'en cours', 'encours', 'started', 'working'].some((v) => s.includes(v.replace(' ', '')))) return 'en_cours'
+  // Synchroteam v3 : statut dominant = "validated" (intervention validée par le technicien)
+  if (['validated', 'done', 'completed', 'finished', 'terminé', 'termine', 'closed'].some((v) => s.includes(v))) return 'termine'
+  if (['inprogress', 'in_progress', 'encours', 'started', 'working'].some((v) => s.includes(v))) return 'en_cours'
   if (['cancelled', 'canceled', 'annulé', 'annule'].some((v) => s.includes(v))) return 'annule'
   return 'planifie'
 }
@@ -172,7 +173,7 @@ async function syncSites(
       const country = str(g(s, 'addressCountry')) ?? ''
       const territory_code = detectTerritory([address ?? '', city ?? '', country].join(' '))
 
-      const position = s.Position as Record<string, unknown> | null
+      const position = (s.position ?? s.Position) as Record<string, unknown> | null
       const latitude = position?.latitude ? parseFloat(String(position.latitude)) : null
       const longitude = position?.longitude ? parseFloat(String(position.longitude)) : null
 
@@ -269,6 +270,18 @@ async function syncEquipments(
       const kitRcp = parseBool(cf.kit_rcp)
       const registre = parseBool(cf.registre_star_aid)
 
+      // Champ 12575 : date d'INSTALLATION batterie (jamais une DLU)
+      // Fallback sur cf.battery_expiry si le mapping Supabase n'a pas encore été mis à jour
+      const battery_install_date = parseDate(cf.battery_install_date ?? cf.battery_expiry)
+
+      // Calcul des expirations réelles selon la marque
+      const expiry = computeExpiryDates({
+        brand: str(cf.model) ?? null,
+        battery_install_date,
+        raw_electrodes_adult: parseDate(cf.electrodes_adult_expiry),
+        raw_electrodes_pediatric: parseDate(cf.electrodes_pediatric_expiry),
+      })
+
       return {
         synchroteam_id: String(eq.id),
         client_id,
@@ -278,9 +291,10 @@ async function syncEquipments(
         model,
         brand,
         manufacture_date: parseDate(cf.manufacture_date),
-        battery_expiry: parseDate(cf.battery_expiry),
-        electrodes_adult_expiry: parseDate(cf.electrodes_adult_expiry),
-        electrodes_pediatric_expiry: parseDate(cf.electrodes_pediatric_expiry),
+        battery_install_date,
+        battery_expiry: expiry.battery_expiry,
+        electrodes_adult_expiry: expiry.electrodes_adult_expiry,
+        electrodes_pediatric_expiry: expiry.electrodes_pediatric_expiry,
         location_detail: str(cf.location_detail) ?? null,
         cabinet_code: str(cf.cabinet_code) ?? null,
         zone_geographique: zone,
@@ -299,8 +313,8 @@ async function syncEquipments(
       }
     })
 
-    // Colonnes qui peuvent manquer si le schéma a été appliqué avant le split électrodes
-    const ELECTRODE_COLS = ['electrodes_adult_expiry', 'electrodes_pediatric_expiry']
+    // Colonnes ajoutées progressivement — retenter sans elles si PostgREST ne les connaît pas encore
+    const ELECTRODE_COLS = ['electrodes_adult_expiry', 'electrodes_pediatric_expiry', 'battery_install_date']
 
     for (const batch of chunk(rows, 50)) {
       const { error } = await supabase.from('defibrillators').upsert(batch, { onConflict: 'synchroteam_id' })

@@ -2,9 +2,9 @@
 // (discovery confirmée le 2026-06-22)
 export const INTERNAL_FIELDS = [
   // Consommables critiques (calcul statut DAE)
-  { value: 'battery_expiry',        label: 'Date installation/expiration batterie', type: 'date' as const },
-  { value: 'electrodes_adult_expiry',    label: 'DLU électrodes adultes',       type: 'date' as const },
-  { value: 'electrodes_pediatric_expiry', label: 'DLU électrodes pédiatriques', type: 'date' as const },
+  { value: 'battery_install_date',  label: 'Date installation batterie/piles (brute)', type: 'date' as const },
+  { value: 'electrodes_adult_expiry',    label: 'Date installation/DLU électrodes adultes',     type: 'date' as const },
+  { value: 'electrodes_pediatric_expiry', label: 'Date installation/DLU électrodes pédiatriques', type: 'date' as const },
   // Identification appareil
   { value: 'serial_number',         label: 'N° de série du défibrillateur',         type: 'text' as const },
   { value: 'model',                 label: 'Marque / modèle',                       type: 'text' as const },
@@ -33,9 +33,11 @@ export const HEURISTICS: Array<{
   type: 'date' | 'text' | 'number'
 }> = [
   // --- Consommables ---
+  // Champ 12575 : "Date mise en place batterie ou piles" — toujours une date d'INSTALLATION
+  // L'expiration réelle est calculée dans computeExpiryDates() selon la marque (≠ DLU brute)
   { keywords: ['mise en place batterie', 'mise en place batt', 'date usine de la batt',
                'batterie ou pile', 'battery', 'pile'],
-    internal: 'battery_expiry', type: 'date' },
+    internal: 'battery_install_date', type: 'date' },
   { keywords: ['dlu électrodes adultes', 'péremption des électrodes adultes', 'électrodes adulte'],
     internal: 'electrodes_adult_expiry', type: 'date' },
   { keywords: ['dlu électrodes pédiatriques', 'péremption des électrodes pédiat', 'électrodes pédiat'],

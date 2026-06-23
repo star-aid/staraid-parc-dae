@@ -61,6 +61,7 @@ export interface Defibrillator {
   status_reason: string | null
   last_maintenance_date: string | null
   next_maintenance_date: string | null
+  battery_install_date: string | null
   battery_expiry: string | null
   electrodes_adult_expiry: string | null
   electrodes_pediatric_expiry: string | null

@@ -2,6 +2,8 @@ import type { ReactNode } from 'react'
 import { createServiceClient } from '@/lib/supabase'
 import Sidebar from '@/components/dashboard/Sidebar'
 
+export const dynamic = 'force-dynamic'
+
 async function getSidebarData() {
   try {
     const supabase = createServiceClient()

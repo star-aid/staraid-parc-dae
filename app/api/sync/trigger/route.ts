@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 
+export const dynamic = 'force-dynamic'
+
 // Proxy côté serveur pour déclencher la sync depuis l'UI sans exposer le CRON_SECRET au client
 export async function GET() {
   const base = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'

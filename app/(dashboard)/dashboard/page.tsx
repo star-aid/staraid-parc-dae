@@ -1,10 +1,12 @@
 import type { ReactNode } from 'react'
 import { createServiceClient } from '@/lib/supabase'
-import type { ParkSummary } from '@/types'
+import type { ParkSummary, TerritoryCode } from '@/types'
 import StatusDonut from '@/components/dashboard/StatusDonut'
 import TerritoryBars from '@/components/dashboard/TerritoryBars'
 import InterventionsLine from '@/components/dashboard/InterventionsLine'
 import NextExpirations from '@/components/dashboard/NextExpirations'
+
+export const dynamic = 'force-dynamic'
 
 interface MonthlyRow {
   month: string
@@ -13,21 +15,173 @@ interface MonthlyRow {
   depannage: number
 }
 
+// Requête count HEAD — ne retourne que le comptage, pas de lignes → pas de limite max_rows
+function countQ(
+  supabase: ReturnType<typeof createServiceClient>,
+  status?: string,
+  territoryId?: string
+) {
+  let q = supabase
+    .from('defibrillators')
+    .select('*', { count: 'exact', head: true })
+    .eq('active', true)
+  if (status)      q = q.eq('status', status)
+  if (territoryId) q = q.eq('territory_id', territoryId)
+  return q
+}
+
 async function getDashboardData(): Promise<{
   summary: ParkSummary | null
   monthly: MonthlyRow[]
 }> {
   try {
     const supabase = createServiceClient()
-    const [summaryRes, monthlyRes] = await Promise.all([
-      supabase.rpc('get_park_summary'),
-      supabase.rpc('get_interventions_monthly', { p_months: 12 }),
+
+    const twelveMonthsAgo = new Date()
+    twelveMonthsAgo.setFullYear(twelveMonthsAgo.getFullYear() - 1)
+    const dateFrom = twelveMonthsAgo.toISOString().split('T')[0]
+
+    // ── Passe 1 : données indépendantes des IDs de territoire ────────────────
+    // Les interventions sont paginées séparément pour contourner max_rows=1000
+    const [
+      { count: total },
+      { count: conforme },
+      { count: vigilance },
+      { count: critique },
+      { count: inconnu },
+      territoriesRes,
+      lastSyncRes,
+      expirationsRes,
+    ] = await Promise.all([
+      countQ(supabase),
+      countQ(supabase, 'conforme'),
+      countQ(supabase, 'vigilance'),
+      countQ(supabase, 'critique'),
+      countQ(supabase, 'inconnu'),
+      supabase.from('territories').select('id, code'),
+      supabase
+        .from('sync_logs')
+        .select('finished_at')
+        .eq('source', 'synchroteam')
+        .eq('status', 'success')
+        .order('finished_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from('defibrillators')
+        .select('id, serial_number, model, status_reason, battery_expiry, electrodes_adult_expiry, next_maintenance_date, clients(name), territories(code)')
+        .eq('active', true)
+        .in('status', ['critique', 'vigilance'])
+        .order('status', { ascending: false })
+        .order('battery_expiry', { ascending: true, nullsFirst: false })
+        .limit(5),
     ])
-    return {
-      summary: summaryRes.data as ParkSummary | null,
-      monthly: (monthlyRes.data ?? []) as MonthlyRow[],
+
+    // Pagination des interventions pour contourner max_rows=1000
+    type IntRow = { type: string | null; completed_date: string }
+    const allInterventions: IntRow[] = []
+    {
+      const PAGE = 1000
+      let page = 0
+      while (true) {
+        const { data, error: err } = await supabase
+          .from('interventions')
+          .select('type, completed_date')
+          .eq('status', 'termine')
+          .gte('completed_date', dateFrom)
+          .not('completed_date', 'is', null)
+          .order('completed_date', { ascending: true })
+          .range(page * PAGE, (page + 1) * PAGE - 1)
+        if (err || !data?.length) break
+        allInterventions.push(...(data as IntRow[]))
+        if (data.length < PAGE) break
+        page++
+      }
     }
-  } catch {
+
+    const territories = (territoriesRes.data ?? []) as Array<{ id: string; code: string }>
+
+    // ── Passe 2 : counts par territoire (IDs maintenant connus) ──────────────
+    const STATUSES = ['conforme', 'vigilance', 'critique', 'inconnu'] as const
+    const CODES    = ['REU', 'MYT', 'GLP'] as const
+
+    const terrCountResults = await Promise.all(
+      territories.flatMap((t) => [
+        countQ(supabase, undefined, t.id),
+        ...STATUSES.map((s) => countQ(supabase, s, t.id)),
+      ])
+    )
+
+    // Reconstruction by_territory depuis les résultats
+    const by_territory = Object.fromEntries(
+      CODES.map((c) => [c, { total: 0, conforme: 0, vigilance: 0, critique: 0, inconnu: 0 }])
+    ) as ParkSummary['by_territory']
+
+    territories.forEach((t, ti) => {
+      const code = t.code as TerritoryCode
+      if (!(code in by_territory)) return
+      const base = ti * (STATUSES.length + 1)
+      by_territory[code].total     = terrCountResults[base].count     ?? 0
+      by_territory[code].conforme  = terrCountResults[base + 1].count ?? 0
+      by_territory[code].vigilance = terrCountResults[base + 2].count ?? 0
+      by_territory[code].critique  = terrCountResults[base + 3].count ?? 0
+      by_territory[code].inconnu   = terrCountResults[base + 4].count ?? 0
+    })
+
+    // ── Prochaines échéances ──────────────────────────────────────────────────
+    type ExpRow = {
+      id: string
+      serial_number: string | null
+      model: string | null
+      status_reason: string | null
+      battery_expiry: string | null
+      electrodes_adult_expiry: string | null
+      next_maintenance_date: string | null
+      clients: { name: string } | null
+      territories: { code: string } | null
+    }
+    const next_expirations = ((expirationsRes.data ?? []) as unknown as ExpRow[]).map((d) => {
+      const dates = [d.battery_expiry, d.electrodes_adult_expiry, d.next_maintenance_date]
+        .filter((x): x is string => !!x)
+        .sort()
+      return {
+        id:             d.id,
+        serial_number:  d.serial_number,
+        model:          d.model,
+        client_name:    d.clients?.name ?? null,
+        territory_code: (d.territories?.code ?? null) as TerritoryCode | null,
+        next_date:      dates[0] ?? '',
+        reason:         d.status_reason ?? '',
+      }
+    })
+
+    // ── Interventions mensuelles groupées en JS ───────────────────────────────
+    const monthlyMap = new Map<string, MonthlyRow>()
+    for (const iv of allInterventions) {
+      if (!iv.completed_date) continue
+      const month = iv.completed_date.slice(0, 7)
+      if (!monthlyMap.has(month)) monthlyMap.set(month, { month, total: 0, maintenance: 0, depannage: 0 })
+      const row = monthlyMap.get(month)!
+      row.total++
+      if (iv.type === 'maintenance') row.maintenance++
+      if (iv.type === 'depannage') row.depannage++
+    }
+    const monthly = Array.from(monthlyMap.values()).sort((a, b) => a.month.localeCompare(b.month))
+
+    const summary: ParkSummary = {
+      total:     total     ?? 0,
+      conforme:  conforme  ?? 0,
+      vigilance: vigilance ?? 0,
+      critique:  critique  ?? 0,
+      inconnu:   inconnu   ?? 0,
+      by_territory,
+      next_expirations,
+      last_sync: lastSyncRes.data?.finished_at ?? null,
+    }
+
+    return { summary, monthly }
+  } catch (err) {
+    console.error('getDashboardData:', err)
     return { summary: null, monthly: [] }
   }
 }

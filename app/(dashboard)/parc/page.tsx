@@ -1,11 +1,13 @@
 import Link from 'next/link'
-import dynamic from 'next/dynamic'
+import dynamicImport from 'next/dynamic'
 import { createServiceClient } from '@/lib/supabase'
+
+export const dynamic = 'force-dynamic'
 import ParcFiltersBar from '@/components/table/ParcFiltersBar'
 import { DAEStatusBadge, ConsumableStatus } from '@/components/table/StatusBadge'
 import type { MapMarker } from '@/components/map/ParcMap'
 
-const ParcMapDynamic = dynamic(() => import('@/components/map/ParcMap'), {
+const ParcMapDynamic = dynamicImport(() => import('@/components/map/ParcMap'), {
   ssr: false,
   loading: () => (
     <div className="h-full w-full flex items-center justify-center bg-slate-50">
@@ -130,11 +132,67 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
 
   const supabase = createServiceClient()
 
-  // ── Vue carte : récupère tous les marqueurs GPS ──────────────────────────
+  // ── Vue carte : marqueurs GPS depuis defibrillators → sites ─────────────
   let mapMarkers: MapMarker[] = []
   if (vue === 'carte') {
-    const { data } = await supabase.rpc('get_map_markers')
-    mapMarkers = (data ?? []) as MapMarker[]
+    type RawMapRow = {
+      id: string
+      serial_number: string | null
+      model: string | null
+      status: string
+      status_reason: string | null
+      battery_expiry: string | null
+      electrodes_adult_expiry: string | null
+      electrodes_pediatric_expiry: string | null
+      next_maintenance_date: string | null
+      clients:     { name: string } | null
+      territories: { code: string } | null
+      sites:       { name: string; latitude: number | null; longitude: number | null } | null
+    }
+
+    const PAGE = 1000
+    for (let p = 0; ; p++) {
+      const { data: batch } = await supabase
+        .from('defibrillators')
+        .select(`
+          id, serial_number, model, status, status_reason,
+          battery_expiry, electrodes_adult_expiry, electrodes_pediatric_expiry, next_maintenance_date,
+          clients(name),
+          territories(code),
+          sites(name, latitude, longitude)
+        `)
+        .eq('active', true)
+        .order('id')
+        .range(p * PAGE, (p + 1) * PAGE - 1)
+
+      if (!batch?.length) break
+
+      for (const raw of batch as unknown as RawMapRow[]) {
+        const site = raw.sites
+        if (!site?.latitude || !site?.longitude) continue
+
+        const next_expiry =
+          [raw.battery_expiry, raw.electrodes_adult_expiry, raw.electrodes_pediatric_expiry, raw.next_maintenance_date]
+            .filter((x): x is string => !!x)
+            .sort()[0] ?? null
+
+        mapMarkers.push({
+          id:             raw.id,
+          latitude:       site.latitude,
+          longitude:      site.longitude,
+          status:         raw.status,
+          status_reason:  raw.status_reason,
+          site_name:      site.name,
+          client_name:    raw.clients?.name ?? null,
+          serial_number:  raw.serial_number,
+          model:          raw.model,
+          territory_code: raw.territories?.code ?? null,
+          next_expiry,
+        })
+      }
+
+      if (batch.length < PAGE) break
+    }
   }
 
   // ── Vue tableau : requête paginée ────────────────────────────────────────

@@ -3,6 +3,8 @@ import { createServiceClient } from '@/lib/supabase'
 import { fetchCustomFields } from '@/lib/synchroteam'
 import { guessInternalField, INTERNAL_FIELDS } from '@/lib/field-mapping'
 
+export const dynamic = 'force-dynamic'
+
 // POST — lance la discovery : récupère les champs Synchroteam, propose le mapping,
 //         et upserte automatiquement les champs identifiés avec confiance
 export async function POST() {

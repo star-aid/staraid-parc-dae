@@ -3,6 +3,8 @@ import { createServiceClient } from '@/lib/supabase'
 import { fetchCustomFields } from '@/lib/synchroteam'
 import type { CustomFieldMapping } from '@/types'
 
+export const dynamic = 'force-dynamic'
+
 // GET — liste tous les mappings + les champs Synchroteam non encore mappés
 export async function GET() {
   const supabase = createServiceClient()

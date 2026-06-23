@@ -1,0 +1,62 @@
+
+> staraid-parc-dae@0.1.0 dev
+> next dev
+
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3000
+  - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 1564ms
+ ○ Compiling /dashboard ...
+ ✓ Compiled /dashboard in 3.3s (1652 modules)
+ ✓ Compiled in 302ms (796 modules)
+ GET /dashboard 200 in 4648ms
+ ✓ Compiled in 346ms (1652 modules)
+ ✓ Compiled in 205ms (1652 modules)
+ GET /dashboard 200 in 595ms
+ ✓ Compiled in 206ms (796 modules)
+ ✓ Compiled /dashboard in 168ms (856 modules)
+ GET /dashboard 200 in 2167ms
+ ✓ Compiled /api/sync/trigger in 426ms (884 modules)
+ GET /api/sync/trigger 200 in 482ms
+ GET /dashboard 200 in 1090ms
+ ✓ Compiled /alertes in 388ms (1684 modules)
+ GET /alertes 200 in 957ms
+ GET /api/sync/trigger 200 in 15ms
+ GET /alertes 200 in 330ms
+ ✓ Compiled /analyse in 259ms (1672 modules)
+ ○ Compiling /parc ...
+ ✓ Compiled /parc in 597ms (1705 modules)
+ ✓ Compiled /parc/[id] in 236ms (1707 modules)
+ GET /api/sync/trigger 200 in 16ms
+ ✓ Compiled in 573ms (1693 modules)
+getDashboardData: ReferenceError: interventionsRes is not defined
+    at getDashboardData (webpack-internal:///(rsc)/./app/(dashboard)/dashboard/page.tsx:127:51)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async DashboardPage (webpack-internal:///(rsc)/./app/(dashboard)/dashboard/page.tsx:241:34)
+ ✓ Compiled in 231ms (1693 modules)
+ ✓ Compiled in 251ms (1693 modules)
+ ✓ Compiled /api/sync/trigger in 146ms (911 modules)
+ POST /api/sync/trigger 405 in 192ms
+ ✓ Compiled /api/sync/synchroteam in 184ms (917 modules)
+ POST /api/sync/synchroteam 200 in 10003ms
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 552ms (1696 modules)
+ GET /dashboard 404 in 653ms
+ GET /_next/static/css/app/layout.css?v=1782200918483 404 in 43ms
+ GET /_next/static/chunks/app-pages-internals.js 404 in 42ms
+ GET /_next/static/chunks/main-app.js?v=1782200918483 404 in 43ms
+ GET /dashboard 200 in 1287ms
+ GET /_next/static/css/app/layout.css?v=1782200922414 404 in 36ms
+ GET /_next/static/chunks/app-pages-internals.js 404 in 37ms
+ GET /_next/static/chunks/main-app.js?v=1782200922414 404 in 38ms
+ GET /_next/static/chunks/app/(dashboard)/layout.js 404 in 37ms
+ GET /_next/static/chunks/app/(dashboard)/dashboard/page.js 404 in 36ms
+ GET /dashboard 200 in 1652ms
+ GET /_next/static/css/app/layout.css?v=1782200980649 404 in 56ms
+ GET /_next/static/chunks/main-app.js?v=1782200980649 404 in 56ms
+ GET /_next/static/chunks/app-pages-internals.js 404 in 58ms
+ GET /_next/static/chunks/app/(dashboard)/dashboard/page.js 404 in 56ms
+ GET /_next/static/chunks/app/(dashboard)/layout.js 404 in 58ms
+[?25h
