@@ -6,6 +6,7 @@ export const dynamic = 'force-dynamic'
 import ParcFiltersBar from '@/components/table/ParcFiltersBar'
 import { DAEStatusBadge, ConsumableStatus } from '@/components/table/StatusBadge'
 import type { MapMarker } from '@/components/map/ParcMap'
+import { parseContratParam, buildContratOrFilter } from '@/lib/contract-groups'
 
 const ParcMapDynamic = dynamicImport(() => import('@/components/map/ParcMap'), {
   ssr: false,
@@ -30,6 +31,7 @@ interface SearchParams {
   q?: string
   territoire?: string
   statut?: string
+  contrat?: string
   sort?: SortCol
   dir?: SortDir
   page?: string
@@ -74,6 +76,7 @@ function sortUrl(col: string, activeSort: string, activeDir: string, sp: SearchP
   if (sp.q)          p.set('q', sp.q)
   if (sp.territoire) p.set('territoire', sp.territoire)
   if (sp.statut)     p.set('statut', sp.statut)
+  if (sp.contrat)    p.set('contrat', sp.contrat)
   const nextDir = col === activeSort && activeDir === 'asc' ? 'desc' : 'asc'
   p.set('sort', col)
   p.set('dir', nextDir)
@@ -85,6 +88,7 @@ function pageUrl(page: number, sp: SearchParams) {
   if (sp.q)          p.set('q', sp.q)
   if (sp.territoire) p.set('territoire', sp.territoire)
   if (sp.statut)     p.set('statut', sp.statut)
+  if (sp.contrat)    p.set('contrat', sp.contrat)
   if (sp.sort)       p.set('sort', sp.sort)
   if (sp.dir)        p.set('dir', sp.dir)
   if (page > 1)      p.set('page', String(page))
@@ -97,6 +101,7 @@ function viewUrl(vue: 'tableau' | 'carte', sp: SearchParams) {
   if (sp.q)          p.set('q', sp.q)
   if (sp.territoire) p.set('territoire', sp.territoire)
   if (sp.statut)     p.set('statut', sp.statut)
+  if (sp.contrat)    p.set('contrat', sp.contrat)
   if (vue === 'carte') p.set('vue', 'carte')
   return `/parc?${p.toString()}`
 }
@@ -129,6 +134,8 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
   const dir: SortDir  = searchParams.dir === 'desc' ? 'desc' : 'asc'
   const page      = Math.max(1, parseInt(searchParams.page ?? '1', 10))
   const offset    = (page - 1) * PAGE_SIZE
+  const contratGroups = parseContratParam(searchParams.contrat)
+  const contratFilter = buildContratOrFilter(contratGroups)
 
   const supabase = createServiceClient()
 
@@ -152,7 +159,7 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
 
     const PAGE = 1000
     for (let p = 0; ; p++) {
-      const { data: batch } = await supabase
+      let batchQ = supabase
         .from('defibrillators')
         .select(`
           id, serial_number, model, status, status_reason,
@@ -164,6 +171,8 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
         .eq('active', true)
         .order('id')
         .range(p * PAGE, (p + 1) * PAGE - 1)
+      if (contratFilter) batchQ = batchQ.or(contratFilter)
+      const { data: batch } = await batchQ
 
       if (!batch?.length) break
 
@@ -216,6 +225,7 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
   if (q) query = query.or(`serial_number.ilike.%${q}%,model.ilike.%${q}%,brand.ilike.%${q}%`)
   if (terr.length > 0 && territoryIds.length > 0) query = query.in('territory_id', territoryIds)
   if (stat.length > 0) query = query.in('status', stat)
+  if (contratFilter) query = query.or(contratFilter)
 
   query = query
     .order(sort, { ascending: dir === 'asc', nullsFirst: false })
@@ -318,6 +328,7 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
             </div>
           ) : (
             <ParcMapDynamic
+              key={`map-${searchParams.contrat ?? 'all'}`}
               markers={mapMarkers}
               statusFilter={stat}
               territoryFilter={terr}

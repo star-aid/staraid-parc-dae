@@ -5,6 +5,7 @@ import StatusDonut from '@/components/dashboard/StatusDonut'
 import TerritoryBars from '@/components/dashboard/TerritoryBars'
 import InterventionsLine from '@/components/dashboard/InterventionsLine'
 import NextExpirations from '@/components/dashboard/NextExpirations'
+import { parseContratParam, buildContratOrFilter } from '@/lib/contract-groups'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,18 +20,20 @@ interface MonthlyRow {
 function countQ(
   supabase: ReturnType<typeof createServiceClient>,
   status?: string,
-  territoryId?: string
+  territoryId?: string,
+  contratFilter?: string | null
 ) {
   let q = supabase
     .from('defibrillators')
     .select('*', { count: 'exact', head: true })
     .eq('active', true)
-  if (status)      q = q.eq('status', status)
-  if (territoryId) q = q.eq('territory_id', territoryId)
+  if (status)        q = q.eq('status', status)
+  if (territoryId)   q = q.eq('territory_id', territoryId)
+  if (contratFilter) q = q.or(contratFilter)
   return q
 }
 
-async function getDashboardData(): Promise<{
+async function getDashboardData(contratFilter: string | null): Promise<{
   summary: ParkSummary | null
   monthly: MonthlyRow[]
 }> {
@@ -43,6 +46,16 @@ async function getDashboardData(): Promise<{
 
     // ── Passe 1 : données indépendantes des IDs de territoire ────────────────
     // Les interventions sont paginées séparément pour contourner max_rows=1000
+    let expQ = supabase
+      .from('defibrillators')
+      .select('id, serial_number, model, status_reason, battery_expiry, electrodes_adult_expiry, next_maintenance_date, clients(name), territories(code)')
+      .eq('active', true)
+      .in('status', ['critique', 'vigilance'])
+      .order('status', { ascending: false })
+      .order('battery_expiry', { ascending: true, nullsFirst: false })
+      .limit(5)
+    if (contratFilter) expQ = expQ.or(contratFilter)
+
     const [
       { count: total },
       { count: conforme },
@@ -53,11 +66,11 @@ async function getDashboardData(): Promise<{
       lastSyncRes,
       expirationsRes,
     ] = await Promise.all([
-      countQ(supabase),
-      countQ(supabase, 'conforme'),
-      countQ(supabase, 'vigilance'),
-      countQ(supabase, 'critique'),
-      countQ(supabase, 'inconnu'),
+      countQ(supabase, undefined, undefined, contratFilter),
+      countQ(supabase, 'conforme',  undefined, contratFilter),
+      countQ(supabase, 'vigilance', undefined, contratFilter),
+      countQ(supabase, 'critique',  undefined, contratFilter),
+      countQ(supabase, 'inconnu',   undefined, contratFilter),
       supabase.from('territories').select('id, code'),
       supabase
         .from('sync_logs')
@@ -67,14 +80,7 @@ async function getDashboardData(): Promise<{
         .order('finished_at', { ascending: false })
         .limit(1)
         .maybeSingle(),
-      supabase
-        .from('defibrillators')
-        .select('id, serial_number, model, status_reason, battery_expiry, electrodes_adult_expiry, next_maintenance_date, clients(name), territories(code)')
-        .eq('active', true)
-        .in('status', ['critique', 'vigilance'])
-        .order('status', { ascending: false })
-        .order('battery_expiry', { ascending: true, nullsFirst: false })
-        .limit(5),
+      expQ,
     ])
 
     // Pagination des interventions pour contourner max_rows=1000
@@ -107,8 +113,8 @@ async function getDashboardData(): Promise<{
 
     const terrCountResults = await Promise.all(
       territories.flatMap((t) => [
-        countQ(supabase, undefined, t.id),
-        ...STATUSES.map((s) => countQ(supabase, s, t.id)),
+        countQ(supabase, undefined, t.id, contratFilter),
+        ...STATUSES.map((s) => countQ(supabase, s, t.id, contratFilter)),
       ])
     )
 
@@ -229,8 +235,13 @@ function KPICard({ label, value, sub, accent, icon }: KPICardProps) {
   )
 }
 
-export default async function DashboardPage() {
-  const { summary, monthly } = await getDashboardData()
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams?: { contrat?: string; [key: string]: string | undefined }
+}) {
+  const contratFilter = buildContratOrFilter(parseContratParam(searchParams?.contrat))
+  const { summary, monthly } = await getDashboardData(contratFilter)
 
   const total     = summary?.total     ?? 0
   const conforme  = summary?.conforme  ?? 0

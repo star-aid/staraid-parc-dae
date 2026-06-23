@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react'
+import { Suspense } from 'react'
 import { createServiceClient } from '@/lib/supabase'
 import Sidebar from '@/components/dashboard/Sidebar'
+import ContratFilterBar from '@/components/dashboard/ContratFilterBar'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,10 +40,20 @@ export default async function DashboardLayout({ children }: { children: ReactNod
     <div className="flex h-screen bg-slate-50 overflow-hidden">
       <Sidebar critiqueCount={critiqueCount} lastSync={lastSync} />
 
-      {/* Zone de contenu — padding-top mobile pour le header fixe */}
-      <main className="flex-1 overflow-y-auto pt-14 lg:pt-0">
-        {children}
-      </main>
+      {/* Colonne droite : filtre global + contenu scrollable */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Barre de filtre contrat — persistante sur toutes les pages dashboard */}
+        <div className="shrink-0 bg-white border-b border-slate-200 px-6 py-2.5 flex items-center gap-3 pt-14 lg:pt-2.5">
+          <Suspense fallback={<div className="h-[28px]" />}>
+            <ContratFilterBar />
+          </Suspense>
+        </div>
+
+        {/* Zone de contenu principale scrollable */}
+        <main className="flex-1 overflow-y-auto">
+          {children}
+        </main>
+      </div>
     </div>
   )
 }

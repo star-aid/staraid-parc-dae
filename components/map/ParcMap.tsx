@@ -3,7 +3,6 @@ import 'leaflet/dist/leaflet.css'
 import 'leaflet.markercluster/dist/MarkerCluster.css'
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
 import { useEffect, useRef } from 'react'
-// Augments L namespace avec MarkerClusterGroup / markerClusterGroup()
 import type {} from 'leaflet.markercluster'
 import type L from 'leaflet'
 
@@ -46,17 +45,39 @@ function fmtDate(s: string | null): string | null {
   return new Date(s).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' })
 }
 
+type MarkerEntry = {
+  circle: L.CircleMarker
+  status: string
+  territory_code: string | null
+}
+
+function isVisible(entry: MarkerEntry, sf: Set<string> | null, tf: Set<string> | null): boolean {
+  if (sf && !sf.has(entry.status)) return false
+  if (tf && entry.territory_code && !tf.has(entry.territory_code)) return false
+  return true
+}
+
 export default function ParcMap({ markers, statusFilter, territoryFilter }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const mapRef       = useRef<import('leaflet').Map | null>(null)
+  const clusterRef   = useRef<L.MarkerClusterGroup | null>(null)
+  const entriesRef   = useRef<MarkerEntry[]>([])
+  // Tracks which circles are currently added to the cluster (O(1) lookup)
+  const addedRef     = useRef<Set<L.CircleMarker>>(new Set())
 
+  // ── Effect 1 : initialise la carte et les marqueurs une seule fois ───────
   useEffect(() => {
-    if (!containerRef.current) return
-    const el = containerRef.current
-    let leafletMap: import('leaflet').Map | null = null
+    if (!containerRef.current || mapRef.current) return
+    let cancelled = false
+
+    // Capture les filtres initiaux pour l'affichage au premier chargement
+    const initSF = statusFilter.length    > 0 ? new Set(statusFilter)    : null
+    const initTF = territoryFilter.length > 0 ? new Set(territoryFilter) : null
 
     async function init() {
       const L = (await import('leaflet')).default
       await import('leaflet.markercluster')
+      if (cancelled || !containerRef.current || mapRef.current) return
 
       type LWithCluster = typeof L & {
         markerClusterGroup(opts?: L.MarkerClusterGroupOptions): L.MarkerClusterGroup
@@ -68,16 +89,14 @@ export default function ParcMap({ markers, statusFilter, territoryFilter }: Prop
         zoomToBoundsOnClick: true,
         chunkedLoading: true,
       })
+      clusterRef.current = cluster
 
-      const filtered = markers.filter((m) => {
-        if (statusFilter.length > 0 && !statusFilter.includes(m.status)) return false
-        if (territoryFilter.length > 0 && m.territory_code && !territoryFilter.includes(m.territory_code)) return false
-        return true
-      })
+      const entries: MarkerEntry[] = []
+      const added = new Set<L.CircleMarker>()
 
-      filtered.forEach((m) => {
-        const color = STATUS_COLORS[m.status] ?? STATUS_COLORS.inconnu
-        const label = STATUS_LABELS[m.status] ?? m.status
+      markers.forEach((m) => {
+        const color  = STATUS_COLORS[m.status] ?? STATUS_COLORS.inconnu
+        const label  = STATUS_LABELS[m.status] ?? m.status
         const expiry = fmtDate(m.next_expiry)
 
         const circle = L.circleMarker([m.latitude, m.longitude], {
@@ -108,39 +127,82 @@ export default function ParcMap({ markers, statusFilter, territoryFilter }: Prop
           </div>
         `, { maxWidth: 280, className: 'dae-popup' })
 
-        cluster.addLayer(circle)
+        const entry: MarkerEntry = { circle, status: m.status, territory_code: m.territory_code }
+        entries.push(entry)
+
+        if (isVisible(entry, initSF, initTF)) {
+          cluster.addLayer(circle)
+          added.add(circle)
+        }
       })
 
-      leafletMap = L.map(el, {
+      entriesRef.current = entries
+      addedRef.current   = added
+
+      const map = L.map(containerRef.current, {
         center: [-21.1, 55.5],
         zoom: 10,
         zoomControl: true,
         attributionControl: true,
       })
+      mapRef.current = map
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>',
         maxZoom: 19,
-      }).addTo(leafletMap)
+      }).addTo(map)
 
-      leafletMap.addLayer(cluster)
+      map.addLayer(cluster)
 
-      // Zoomer pour englober tous les marqueurs si présents
-      if (filtered.length > 0) {
-        const coords = filtered.map((m) => L.latLng(m.latitude, m.longitude))
-        leafletMap.fitBounds(L.latLngBounds(coords).pad(0.15))
+      // Cadrer la carte sur les marqueurs visibles au chargement
+      const visibleLatLngs = entries
+        .filter((e) => isVisible(e, initSF, initTF))
+        .map(({ circle }) => circle.getLatLng())
+      if (visibleLatLngs.length > 0) {
+        map.fitBounds(L.latLngBounds(visibleLatLngs).pad(0.15))
       }
     }
 
     init()
 
     return () => {
-      leafletMap?.remove()
-      leafletMap = null
+      cancelled = true
+      if (mapRef.current) {
+        mapRef.current.remove()
+        mapRef.current   = null
+        clusterRef.current = null
+        entriesRef.current = []
+        addedRef.current   = new Set()
+      }
     }
-  // markers est stable (passé depuis server), statusFilter/territoryFilter peuvent changer
+  // Dépendance vide : la carte est créée une seule fois au montage.
+  // Les changements de filtres sont gérés par l'effect suivant.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [markers, statusFilter.join(','), territoryFilter.join(',')])
+  }, [])
+
+  // ── Effect 2 : toggle les marqueurs sans recréer la carte ─────────────────
+  useEffect(() => {
+    const cluster = clusterRef.current
+    if (!cluster || entriesRef.current.length === 0) return
+
+    const sf = statusFilter.length    > 0 ? new Set(statusFilter)    : null
+    const tf = territoryFilter.length > 0 ? new Set(territoryFilter) : null
+
+    entriesRef.current.forEach((entry) => {
+      const shouldShow = isVisible(entry, sf, tf)
+      const isAdded    = addedRef.current.has(entry.circle)
+
+      if (shouldShow && !isAdded) {
+        cluster.addLayer(entry.circle)
+        addedRef.current.add(entry.circle)
+      } else if (!shouldShow && isAdded) {
+        cluster.removeLayer(entry.circle)
+        addedRef.current.delete(entry.circle)
+      }
+    })
+  // Jointure en string pour éviter les re-renders sur nouvelles références de tableau
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter.join(','), territoryFilter.join(',')])
 
   return <div ref={containerRef} className="h-full w-full" />
 }

@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 
 import { createServiceClient } from '@/lib/supabase'
 import AlertesClient, { type AlertRow } from './AlertesClient'
+import { parseContratParam, buildContratOrFilter } from '@/lib/contract-groups'
 
 // Forme des lignes retournées par Supabase avec les relations imbriquées
 type RawRow = {
@@ -20,10 +21,10 @@ type RawRow = {
   territories: { code: string; name: string } | null
 }
 
-async function getAlerts(): Promise<AlertRow[]> {
+async function getAlerts(contratFilter: string | null): Promise<AlertRow[]> {
   try {
     const supabase = createServiceClient()
-    const { data, error } = await supabase
+    let q = supabase
       .from('defibrillators')
       .select(`
         id, serial_number, model, brand, status, status_reason,
@@ -35,6 +36,8 @@ async function getAlerts(): Promise<AlertRow[]> {
       .eq('active', true)
       .in('status', ['critique', 'vigilance'])
       .limit(1000)
+    if (contratFilter) q = q.or(contratFilter)
+    const { data, error } = await q
 
     if (error) throw error
 
@@ -60,7 +63,12 @@ async function getAlerts(): Promise<AlertRow[]> {
   }
 }
 
-export default async function AlertesPage() {
-  const rows = await getAlerts()
+export default async function AlertesPage({
+  searchParams,
+}: {
+  searchParams?: { contrat?: string; [key: string]: string | undefined }
+}) {
+  const contratFilter = buildContratOrFilter(parseContratParam(searchParams?.contrat))
+  const rows = await getAlerts(contratFilter)
   return <AlertesClient rows={rows} />
 }
