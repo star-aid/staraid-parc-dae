@@ -122,12 +122,13 @@ export default function Sidebar({ critiqueCount, lastSync }: SidebarProps) {
         return
       }
 
-      // Polling toutes les 3 secondes jusqu'à success / partial / error
+      // Polling toutes les 3 secondes jusqu'à success / partial / error / timeout 400s
       await new Promise<void>((resolve) => {
+        const POLL_TIMEOUT = 400 // secondes max avant abandon
         const poll = setInterval(async () => {
           try {
             const r = await fetch(`/api/sync/status?id=${logId}`)
-            const body = await r.json() as { status: string; records_synced?: number; error_message?: string }
+            const body = await r.json() as { status: string; records_synced?: number; error_message?: string; started_at?: string }
 
             if (body.status === 'success' || body.status === 'partial') {
               clearInterval(poll)
@@ -138,13 +139,25 @@ export default function Sidebar({ critiqueCount, lastSync }: SidebarProps) {
               setSyncMsg(msg)
               setTimeout(() => window.location.reload(), 1500)
               resolve()
-            } else if (body.status === 'error') {
+            } else if (body.status === 'error' || body.status === 'timeout') {
               clearInterval(poll)
               setSyncOk(false)
-              setSyncMsg(`Erreur : ${body.error_message?.slice(0, 60) ?? 'inconnue'}`)
+              setSyncMsg(body.status === 'timeout'
+                ? 'Sync interrompue (timeout Vercel Hobby — plan Pro requis pour syncs longues)'
+                : `Erreur : ${body.error_message?.slice(0, 80) ?? 'inconnue'}`)
               resolve()
+            } else if (body.status === 'running') {
+              // Vérifier si le log est trop vieux (fonction tuée côté Vercel)
+              const age = body.started_at
+                ? (Date.now() - new Date(body.started_at).getTime()) / 1000
+                : 0
+              if (age > POLL_TIMEOUT) {
+                clearInterval(poll)
+                setSyncOk(null)
+                setSyncMsg('Sync en cours côté serveur — vérifiez Supabase sync_logs dans quelques minutes')
+                resolve()
+              }
             }
-            // 'running' ou 'unknown' → on repoll
           } catch {
             // Erreur réseau transitoire → on continue de poller
           }
