@@ -116,11 +116,9 @@ export function computeExpiryDates(params: {
   if (brandKey === 'CARDIAC_SCIENCE') {
     // Électrodes intégrées — pas de consommable pédiatrique séparé
     electrodes_pediatric_expiry = null
-  } else if (brandKey === 'ZOLL' && !params.raw_electrodes_pediatric) {
-    // Pedi-Padz II sans DLU renseignée : estimation 18 mois depuis l'installation batterie
-    electrodes_pediatric_expiry = params.battery_install_date
-      ? addYears(params.battery_install_date, 1.5)
-      : null
+  } else if (!params.raw_electrodes_pediatric) {
+    // DLU pédiatrique non renseignée : on utilise la même date que les électrodes adultes
+    electrodes_pediatric_expiry = params.raw_electrodes_adult ?? null
   } else {
     electrodes_pediatric_expiry = params.raw_electrodes_pediatric ?? null
   }
