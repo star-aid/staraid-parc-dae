@@ -16,6 +16,7 @@ type RawRow = {
   electrodes_adult_expiry: string | null
   electrodes_pediatric_expiry: string | null
   next_maintenance_date: string | null
+  active: boolean
   clients: { name: string } | null
   sites: { name: string } | null
   territories: { code: string; name: string } | null
@@ -40,11 +41,11 @@ async function getAlerts(contratFilter: string | null, clientId: string | null):
       .select(`
         id, serial_number, model, brand, status, status_reason,
         battery_expiry, electrodes_adult_expiry, electrodes_pediatric_expiry, next_maintenance_date,
+        active,
         clients(name),
         sites(name),
         territories(code, name)
       `)
-      .eq('active', true)
       .in('status', ['critique', 'vigilance'])
       .limit(1000)
     if (contratFilter)  q = q.or(contratFilter)
@@ -64,6 +65,7 @@ async function getAlerts(contratFilter: string | null, clientId: string | null):
       electrodes_adult_expiry:  d.electrodes_adult_expiry,
       electrodes_pediatric_expiry: d.electrodes_pediatric_expiry,
       next_maintenance_date:    d.next_maintenance_date,
+      active:                   d.active,
       client_name:    (d.clients    as { name: string } | null)?.name    ?? null,
       site_name:      (d.sites      as { name: string } | null)?.name    ?? null,
       territory_code: (d.territories as { code: string; name: string } | null)?.code ?? null,

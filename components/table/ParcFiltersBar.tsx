@@ -44,9 +44,10 @@ export default function ParcFiltersBar({ total, shown, csvData }: Props) {
   const sp = useSearchParams()
   const [isPending, startTransition] = useTransition()
 
-  const currentQ = sp.get('q') ?? ''
-  const currentTerr = sp.get('territoire')?.split(',').filter(Boolean) ?? []
-  const currentStat = sp.get('statut')?.split(',').filter(Boolean) ?? []
+  const currentQ     = sp.get('q') ?? ''
+  const currentTerr  = sp.get('territoire')?.split(',').filter(Boolean) ?? []
+  const currentStat  = sp.get('statut')?.split(',').filter(Boolean) ?? []
+  const currentActif = sp.get('actif') ?? 'actif'
 
   const [inputQ, setInputQ] = useState(currentQ)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -97,7 +98,7 @@ export default function ParcFiltersBar({ total, shown, csvData }: Props) {
     setInputQ('')
   }
 
-  const hasFilters = inputQ || currentTerr.length > 0 || currentStat.length > 0
+  const hasFilters = inputQ || currentTerr.length > 0 || currentStat.length > 0 || currentActif !== 'actif'
   const STAT_COLORS: Record<string, string> = {
     critique: 'border-red-300 bg-red-50 text-red-700',
     vigilance: 'border-amber-300 bg-amber-50 text-amber-700',
@@ -138,6 +139,20 @@ export default function ParcFiltersBar({ total, shown, csvData }: Props) {
               {label}
             </button>
           ))}
+        </div>
+
+        {/* Actif / Inactif */}
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-slate-500 font-medium mr-0.5">Équipements :</span>
+          <select
+            value={currentActif}
+            onChange={(e) => navigate(buildParams({ actif: e.target.value === 'actif' ? null : e.target.value }))}
+            className="text-xs border border-slate-200 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-700"
+          >
+            <option value="actif">Actifs uniquement</option>
+            <option value="inactif">Inactifs uniquement</option>
+            <option value="tous">Tous</option>
+          </select>
         </div>
 
         {/* Statut */}

@@ -16,6 +16,7 @@ export type AlertRow = {
   electrodes_adult_expiry: string | null
   electrodes_pediatric_expiry: string | null
   next_maintenance_date: string | null
+  active: boolean
   client_name: string | null
   site_name: string | null
   territory_code: string | null
@@ -109,6 +110,7 @@ export default function AlertesClient({ rows }: { rows: AlertRow[] }) {
   const [showCritique, setShowCritique] = useState(true)
   const [showVigilance, setShowVigilance] = useState(true)
   const [raison, setRaison] = useState<RaisonFilter>('all')
+  const [actif, setActif] = useState<'actif' | 'inactif' | 'tous'>('actif')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
 
@@ -119,6 +121,8 @@ export default function AlertesClient({ rows }: { rows: AlertRow[] }) {
     const q = search.trim().toLowerCase()
     return rows
       .filter((r) => {
+        if (actif === 'actif'   && !r.active) return false
+        if (actif === 'inactif' &&  r.active) return false
         if (territory !== 'all' && r.territory_code !== territory) return false
         if (!showCritique  && r.status === 'critique')  return false
         if (!showVigilance && r.status === 'vigilance') return false
@@ -142,7 +146,7 @@ export default function AlertesClient({ rows }: { rows: AlertRow[] }) {
         if (!db) return -1
         return da.localeCompare(db)
       })
-  }, [rows, territory, showCritique, showVigilance, raison, search])
+  }, [rows, actif, territory, showCritique, showVigilance, raison, search])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const safePage   = Math.min(page, totalPages)
@@ -234,6 +238,20 @@ export default function AlertesClient({ rows }: { rows: AlertRow[] }) {
             </select>
           </div>
 
+          {/* Actif / Inactif */}
+          <div>
+            <label className="block text-xs font-medium text-slate-500 mb-1">Équipements</label>
+            <select
+              value={actif}
+              onChange={(e) => { setActif(e.target.value as typeof actif); resetPage() }}
+              className="text-sm border border-slate-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            >
+              <option value="actif">Actifs uniquement</option>
+              <option value="inactif">Inactifs uniquement</option>
+              <option value="tous">Tous</option>
+            </select>
+          </div>
+
           {/* Raison */}
           <div>
             <label className="block text-xs font-medium text-slate-500 mb-1">Raison</label>
@@ -276,11 +294,12 @@ export default function AlertesClient({ rows }: { rows: AlertRow[] }) {
           </div>
 
           {/* Reset */}
-          {(territory !== 'all' || raison !== 'all' || !showCritique || !showVigilance || search) && (
+          {(territory !== 'all' || raison !== 'all' || actif !== 'actif' || !showCritique || !showVigilance || search) && (
             <button
               onClick={() => {
                 setTerritory('all')
                 setRaison('all')
+                setActif('actif')
                 setShowCritique(true)
                 setShowVigilance(true)
                 setSearch('')

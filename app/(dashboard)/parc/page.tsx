@@ -33,6 +33,7 @@ interface SearchParams {
   statut?: string
   contrat?: string
   client?: string
+  actif?: string
   sort?: SortCol
   dir?: SortDir
   page?: string
@@ -94,6 +95,7 @@ function sortUrl(col: string, activeSort: string, activeDir: string, sp: SearchP
   if (sp.statut)     p.set('statut', sp.statut)
   if (sp.contrat)    p.set('contrat', sp.contrat)
   if (sp.client)     p.set('client', sp.client)
+  if (sp.actif && sp.actif !== 'actif') p.set('actif', sp.actif)
   const nextDir = col === activeSort && activeDir === 'asc' ? 'desc' : 'asc'
   p.set('sort', col)
   p.set('dir', nextDir)
@@ -107,6 +109,7 @@ function pageUrl(page: number, sp: SearchParams) {
   if (sp.statut)     p.set('statut', sp.statut)
   if (sp.contrat)    p.set('contrat', sp.contrat)
   if (sp.client)     p.set('client', sp.client)
+  if (sp.actif && sp.actif !== 'actif') p.set('actif', sp.actif)
   if (sp.sort)       p.set('sort', sp.sort)
   if (sp.dir)        p.set('dir', sp.dir)
   if (page > 1)      p.set('page', String(page))
@@ -121,6 +124,7 @@ function viewUrl(vue: 'tableau' | 'carte', sp: SearchParams) {
   if (sp.statut)     p.set('statut', sp.statut)
   if (sp.contrat)    p.set('contrat', sp.contrat)
   if (sp.client)     p.set('client', sp.client)
+  if (sp.actif && sp.actif !== 'actif') p.set('actif', sp.actif)
   if (vue === 'carte') p.set('vue', 'carte')
   return `/parc?${p.toString()}`
 }
@@ -147,6 +151,7 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
   const q         = (searchParams.q ?? '').trim()
   const terr      = searchParams.territoire?.split(',').filter(Boolean) ?? []
   const stat      = searchParams.statut?.split(',').filter(Boolean) ?? []
+  const actif     = searchParams.actif ?? 'actif'
   const vue       = searchParams.vue === 'carte' ? 'carte' : 'tableau'
   const sort: SortCol = (['serial_number','model','status','next_maintenance_date','last_maintenance_date','battery_expiry'].includes(searchParams.sort ?? '')
     ? searchParams.sort! : 'next_maintenance_date')
@@ -204,9 +209,10 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
           territories(code),
           sites(name, latitude, longitude)
         `)
-        .eq('active', true)
         .order('id')
         .range(p * PAGE, (p + 1) * PAGE - 1)
+      if (actif === 'actif')   batchQ = batchQ.eq('active', true)
+      if (actif === 'inactif') batchQ = batchQ.eq('active', false)
       if (contratFilter)   batchQ = batchQ.or(contratFilter)
       if (clientOrFilter)  batchQ = batchQ.or(clientOrFilter)
       const { data: batch } = await batchQ
@@ -258,7 +264,8 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
        clients(name), sites(name), territories(code, name)`,
       { count: 'exact' }
     )
-    .eq('active', true)
+  if (actif === 'actif')   query = query.eq('active', true)
+  if (actif === 'inactif') query = query.eq('active', false)
 
   // Recherche texte : N° série, modèle, marque + noms de clients correspondants
   if (q) {
