@@ -6,13 +6,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js'
-import { config } from 'dotenv'
-import { resolve, dirname } from 'path'
-import { fileURLToPath } from 'url'
-
-// Charge .env.local depuis la racine du projet
-const __dirname = dirname(fileURLToPath(import.meta.url))
-config({ path: resolve(__dirname, '..', '.env.local') })
+// Les variables d'env sont chargées via --env-file=.env.local (voir commande ci-dessous)
 
 // ── Vérification des variables ──────────────────────────────────────────────
 
