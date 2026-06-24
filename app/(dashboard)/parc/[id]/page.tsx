@@ -2,7 +2,6 @@ export const dynamic = 'force-dynamic'
 
 import { createServiceClient } from '@/lib/supabase'
 import { notFound } from 'next/navigation'
-import Link from 'next/link'
 import dynamicImport from 'next/dynamic'
 import { DAEStatusBadge } from '@/components/table/StatusBadge'
 import BackButton from '@/components/BackButton'
