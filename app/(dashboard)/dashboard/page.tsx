@@ -1,11 +1,13 @@
 import type { ReactNode } from 'react'
+import dynamic from 'next/dynamic'
 import { createServiceClient } from '@/lib/supabase'
 import type { ParkSummary, TerritoryCode } from '@/types'
-import StatusDonut from '@/components/dashboard/StatusDonut'
-import TerritoryBars from '@/components/dashboard/TerritoryBars'
-import InterventionsLine from '@/components/dashboard/InterventionsLine'
 import NextExpirations from '@/components/dashboard/NextExpirations'
 import { parseContratParam, buildContratOrFilter } from '@/lib/contract-groups'
+
+const StatusDonut = dynamic(() => import('@/components/dashboard/StatusDonut'), { ssr: false })
+const TerritoryBars = dynamic(() => import('@/components/dashboard/TerritoryBars'), { ssr: false })
+const InterventionsLine = dynamic(() => import('@/components/dashboard/InterventionsLine'), { ssr: false })
 
 export const dynamic = 'force-dynamic'
 
