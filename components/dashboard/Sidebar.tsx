@@ -107,13 +107,13 @@ export default function Sidebar({ critiqueCount, lastSync }: SidebarProps) {
         errors?: string[]
       }
 
-      if (body.status === 'success' || body.status === 'partial') {
-        setSyncOk(body.status === 'success')
-        setSyncMsg(
-          body.status === 'partial'
-            ? `Terminée avec avertissements — ${body.interventions ?? 0} interventions`
-            : `Terminée — ${body.interventions ?? 0} interventions · ${body.statuses_updated ?? 0} statuts`
-        )
+      if (body.status === 'success') {
+        setSyncOk(true)
+        setSyncMsg(`Terminée — ${body.interventions ?? 0} interventions · ${body.statuses_updated ?? 0} statuts`)
+        setTimeout(() => window.location.reload(), 1500)
+      } else if (body.status === 'partial') {
+        setSyncOk(null) // warning : sync OK mais erreurs mineures
+        setSyncMsg(`Terminée avec avertissements — ${body.interventions ?? 0} interventions`)
         setTimeout(() => window.location.reload(), 1500)
       } else {
         setSyncOk(false)
@@ -250,7 +250,7 @@ export default function Sidebar({ critiqueCount, lastSync }: SidebarProps) {
 
           {/* Message résultat */}
           {!syncing && syncMsg && (
-            <p className={`mt-2 text-[10px] leading-tight ${syncOk === false ? 'text-red-400' : 'text-emerald-400'}`}>
+            <p className={`mt-2 text-[10px] leading-tight ${syncOk === false ? 'text-red-400' : syncOk === null ? 'text-amber-400' : 'text-emerald-400'}`}>
               {syncMsg}
             </p>
           )}
