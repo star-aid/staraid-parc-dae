@@ -452,31 +452,42 @@ async function updateLastMaintenanceDates(
   errors: string[]
 ): Promise<void> {
   try {
-    const { data: completed, error } = await supabase
-      .from('interventions')
-      .select('defibrillator_id, completed_date')
-      .eq('type', 'maintenance')
-      .eq('status', 'termine')
-      .not('defibrillator_id', 'is', null)
-      .not('completed_date', 'is', null)
-      .order('completed_date', { ascending: false })
+    // Pagination pour dépasser la limite PostgREST max_rows
+    type IntRow = { defibrillator_id: string; completed_date: string }
+    const allRows: IntRow[] = []
+    for (let page = 0; ; page++) {
+      const { data, error } = await supabase
+        .from('interventions')
+        .select('defibrillator_id, completed_date')
+        .eq('type', 'maintenance')
+        .eq('status', 'termine')
+        .not('defibrillator_id', 'is', null)
+        .not('completed_date', 'is', null)
+        .order('completed_date', { ascending: false })
+        .range(page * 1000, (page + 1) * 1000 - 1)
+      if (error || !data?.length) break
+      allRows.push(...(data as IntRow[]))
+      if (data.length < 1000) break
+    }
 
-    if (error || !completed?.length) return
+    if (!allRows.length) return
 
     const lastByDae = new Map<string, string>()
-    for (const row of completed as Array<{ defibrillator_id: string; completed_date: string }>) {
+    for (const row of allRows) {
       if (!lastByDae.has(row.defibrillator_id)) {
         lastByDae.set(row.defibrillator_id, row.completed_date.split('T')[0])
       }
     }
 
-    const updates = Array.from(lastByDae.entries())
-    for (const batch of chunk(updates, 20)) {
-      await Promise.all(
-        batch.map(([id, date]) =>
-          supabase.from('defibrillators').update({ last_maintenance_date: date }).eq('id', id)
-        )
-      )
+    // Un seul UPSERT groupé au lieu de N rounds séquentiels de updates individuels
+    const updates = Array.from(lastByDae.entries()).map(([id, date]) => ({
+      id,
+      last_maintenance_date: date,
+      updated_at: new Date().toISOString(),
+    }))
+    for (const batch of chunk(updates, 500)) {
+      const { error } = await supabase.from('defibrillators').upsert(batch, { onConflict: 'id' })
+      if (error) errors.push(`last_maintenance_date upsert: ${error.message}`)
     }
   } catch (err) {
     errors.push(`last_maintenance_date: ${String(err)}`)
@@ -651,9 +662,10 @@ export async function runSyncForAccount(
 
   // 2. Sites
   result.sites = await syncSites(rawSites, supabase, clientMap, territoryMap, idPrefix, forcedTerritoryCode, result.errors)
-  const siteMap = await buildIdMap(supabase, 'sites')
-
-  const { data: sitesForClientMap } = await supabase.from('sites').select('synchroteam_id, client_id')
+  const [siteMap, { data: sitesForClientMap }] = await Promise.all([
+    buildIdMap(supabase, 'sites'),
+    supabase.from('sites').select('synchroteam_id, client_id'),
+  ])
   const siteClientMap = new Map<string, string>(
     ((sitesForClientMap ?? []) as Array<{ synchroteam_id: string; client_id: string | null }>)
       .filter((s) => !!s.client_id)
