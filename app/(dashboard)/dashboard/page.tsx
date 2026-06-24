@@ -1,9 +1,11 @@
 import type { ReactNode } from 'react'
+import { Suspense } from 'react'
 import dynamicImport from 'next/dynamic'
 import { createServiceClient } from '@/lib/supabase'
 import type { ParkSummary, TerritoryCode } from '@/types'
 import NextExpirations from '@/components/dashboard/NextExpirations'
 import { parseContratParam, buildContratOrFilter } from '@/lib/contract-groups'
+import TerritoryFilterBar from '@/components/dashboard/TerritoryFilterBar'
 
 const StatusDonut = dynamicImport(() => import('@/components/dashboard/StatusDonut'), { ssr: false })
 const TerritoryBars = dynamicImport(() => import('@/components/dashboard/TerritoryBars'), { ssr: false })
@@ -37,7 +39,7 @@ function countQ(
   return q
 }
 
-async function getDashboardData(contratFilter: string | null, clientId: string | null): Promise<{
+async function getDashboardData(contratFilter: string | null, clientId: string | null, territoryCode: string | null): Promise<{
   summary: ParkSummary | null
   monthly: MonthlyRow[]
 }> {
@@ -47,6 +49,13 @@ async function getDashboardData(contratFilter: string | null, clientId: string |
     const twelveMonthsAgo = new Date()
     twelveMonthsAgo.setFullYear(twelveMonthsAgo.getFullYear() - 1)
     const dateFrom = twelveMonthsAgo.toISOString().split('T')[0]
+
+    // Résolution du territoire sélectionné en UUID
+    let selectedTerritoryId: string | undefined
+    if (territoryCode) {
+      const { data: tRow } = await supabase.from('territories').select('id').eq('code', territoryCode).maybeSingle()
+      selectedTerritoryId = tRow?.id
+    }
 
     // Filtre client : OR sur client_id direct OU site_id (héritage via le site)
     let clientOrFilter: string | null = null
@@ -68,6 +77,7 @@ async function getDashboardData(contratFilter: string | null, clientId: string |
       .order('status', { ascending: false })
       .order('battery_expiry', { ascending: true, nullsFirst: false })
       .limit(5)
+    if (selectedTerritoryId) expQ = expQ.eq('territory_id', selectedTerritoryId)
     if (contratFilter)  expQ = expQ.or(contratFilter)
     if (clientOrFilter) expQ = expQ.or(clientOrFilter)
 
@@ -81,11 +91,11 @@ async function getDashboardData(contratFilter: string | null, clientId: string |
       lastSyncRes,
       expirationsRes,
     ] = await Promise.all([
-      countQ(supabase, undefined, undefined, contratFilter, clientOrFilter),
-      countQ(supabase, 'conforme',  undefined, contratFilter, clientOrFilter),
-      countQ(supabase, 'vigilance', undefined, contratFilter, clientOrFilter),
-      countQ(supabase, 'critique',  undefined, contratFilter, clientOrFilter),
-      countQ(supabase, 'inconnu',   undefined, contratFilter, clientOrFilter),
+      countQ(supabase, undefined,   selectedTerritoryId, contratFilter, clientOrFilter),
+      countQ(supabase, 'conforme',  selectedTerritoryId, contratFilter, clientOrFilter),
+      countQ(supabase, 'vigilance', selectedTerritoryId, contratFilter, clientOrFilter),
+      countQ(supabase, 'critique',  selectedTerritoryId, contratFilter, clientOrFilter),
+      countQ(supabase, 'inconnu',   selectedTerritoryId, contratFilter, clientOrFilter),
       supabase.from('territories').select('id, code'),
       supabase
         .from('sync_logs')
@@ -257,11 +267,12 @@ function KPICard({ label, value, sub, accent, icon }: KPICardProps) {
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams?: { contrat?: string; client?: string; [key: string]: string | undefined }
+  searchParams?: { contrat?: string; client?: string; territoire?: string; [key: string]: string | undefined }
 }) {
   const contratFilter = buildContratOrFilter(parseContratParam(searchParams?.contrat))
   const clientId = searchParams?.client ?? null
-  const { summary, monthly } = await getDashboardData(contratFilter, clientId)
+  const territoryCode = searchParams?.territoire ?? null
+  const { summary, monthly } = await getDashboardData(contratFilter, clientId, territoryCode)
 
   const total     = summary?.total     ?? 0
   const conforme  = summary?.conforme  ?? 0
@@ -272,11 +283,16 @@ export default async function DashboardPage({
   return (
     <div className="p-6 lg:p-8 max-w-screen-xl mx-auto">
       {/* En-tête */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-slate-800">Tableau de bord</h1>
-        <p className="text-sm text-slate-500 mt-0.5">
-          Vue d&apos;ensemble du parc DAE STAR aid — données temps réel
-        </p>
+      <div className="mb-8 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Tableau de bord</h1>
+          <p className="text-sm text-slate-500 mt-0.5">
+            Vue d&apos;ensemble du parc DAE STAR aid — données temps réel
+          </p>
+        </div>
+        <Suspense>
+          <TerritoryFilterBar />
+        </Suspense>
       </div>
 
       {/* KPI cards */}
