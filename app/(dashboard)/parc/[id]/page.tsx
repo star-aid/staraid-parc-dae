@@ -192,6 +192,10 @@ function ConsumableBar({
             </span>
           </div>
         </>
+      ) : installDate ? (
+        <p className="text-[11px] text-slate-400">
+          Installation : {fmtDate(installDate)} · <span className="italic">Date d&apos;expiration non renseignée dans Synchroteam</span>
+        </p>
       ) : (
         <p className="text-sm text-slate-400 italic">Non renseigné</p>
       )}
