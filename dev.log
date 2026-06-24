@@ -1,0 +1,96 @@
+
+> staraid-parc-dae@0.1.0 dev
+> next dev
+
+ ⚠ Port 3000 is in use, trying 3001 instead.
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3001
+  - Environments: .env.local
+
+ ✓ Starting...
+<w> [webpack.cache.PackFileCacheStrategy] Restoring pack failed from C:\Projets\staraid-parc-dae\.next\cache\webpack\server-development.pack.gz: Error: unexpected end of file
+ ✓ Ready in 1637ms
+ ○ Compiling /api/sync/trigger ...
+ ✓ Compiled /api/sync/trigger in 575ms (102 modules)
+ GET /api/sync/trigger 200 in 1059ms
+ ✓ Compiled /api/sync/status in 70ms (104 modules)
+ GET /api/sync/status?id=93c7763f-d85a-44f9-ac40-f61881cb8fa7 200 in 379ms
+ GET /api/sync/status?id=93c7763f-d85a-44f9-ac40-f61881cb8fa7 200 in 272ms
+ GET /api/sync/status?id=93c7763f-d85a-44f9-ac40-f61881cb8fa7 200 in 269ms
+ GET /api/sync/status?id=93c7763f-d85a-44f9-ac40-f61881cb8fa7 200 in 284ms
+ GET /api/sync/status?id=93c7763f-d85a-44f9-ac40-f61881cb8fa7 200 in 302ms
+ GET /api/sync/status?id=93c7763f-d85a-44f9-ac40-f61881cb8fa7 200 in 276ms
+ GET /api/sync/status?id=93c7763f-d85a-44f9-ac40-f61881cb8fa7 200 in 283ms
+ GET /api/sync/status?id=93c7763f-d85a-44f9-ac40-f61881cb8fa7 200 in 281ms
+ GET /api/sync/status?id=93c7763f-d85a-44f9-ac40-f61881cb8fa7 200 in 277ms
+ GET /api/sync/status?id=93c7763f-d85a-44f9-ac40-f61881cb8fa7 200 in 270ms
+ GET /api/sync/status?id=93c7763f-d85a-44f9-ac40-f61881cb8fa7 200 in 266ms
+ GET /api/sync/status?id=93c7763f-d85a-44f9-ac40-f61881cb8fa7 200 in 280ms
+ GET /api/sync/status?id=93c7763f-d85a-44f9-ac40-f61881cb8fa7 200 in 259ms
+ GET /api/sync/status?id=93c7763f-d85a-44f9-ac40-f61881cb8fa7 200 in 378ms
+ GET /api/sync/status?id=93c7763f-d85a-44f9-ac40-f61881cb8fa7 200 in 252ms
+ GET /api/sync/status?id=93c7763f-d85a-44f9-ac40-f61881cb8fa7 200 in 284ms
+ ○ Compiling /dashboard ...
+ ✓ Compiled /dashboard in 3.7s (1676 modules)
+ ✓ Compiled in 580ms (798 modules)
+ ✓ Compiled in 55ms (784 modules)
+ GET /dashboard 200 in 5649ms
+ ✓ Compiled in 286ms (798 modules)
+ ✓ Compiled in 159ms (798 modules)
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename 'C:\Projets\staraid-parc-dae\.next\cache\webpack\client-development\2.pack.gz_' -> 'C:\Projets\staraid-parc-dae\.next\cache\webpack\client-development\2.pack.gz'
+ ✓ Compiled in 298ms (798 modules)
+ ✓ Compiled in 162ms (798 modules)
+ ✓ Compiled in 134ms (798 modules)
+ ✓ Compiled in 160ms (798 modules)
+ ✓ Compiled in 136ms (798 modules)
+ ✓ Compiled in 141ms (798 modules)
+ ✓ Compiled in 119ms (798 modules)
+ ✓ Compiled in 131ms (798 modules)
+ ✓ Compiled in 126ms (798 modules)
+ ✓ Compiled in 144ms (798 modules)
+ ✓ Compiled in 120ms (798 modules)
+ ✓ Compiled in 122ms (798 modules)
+ ✓ Compiled in 118ms (798 modules)
+ ✓ Compiled in 149ms (798 modules)
+ ✓ Compiled in 193ms (798 modules)
+ ✓ Compiled in 136ms (798 modules)
+ ✓ Compiled in 190ms (798 modules)
+ ✓ Compiled in 94ms (798 modules)
+ ✓ Compiled in 144ms (798 modules)
+ ✓ Compiled in 139ms (798 modules)
+ ✓ Compiled in 120ms (798 modules)
+ ✓ Compiled in 132ms (798 modules)
+ ✓ Compiled /api/sync/trigger in 100ms (102 modules)
+ GET /api/sync/trigger 200 in 935ms
+ ✓ Compiled /api/sync/status in 48ms (98 modules)
+ GET /api/sync/status?id=13ca02f6-cfa5-4db0-aa84-28c4c623defe 200 in 449ms
+ ✓ Compiled /_not-found in 243ms (1093 modules)
+ GET /api/sync/status?id=13ca02f6-cfa5-4db0-aa84-28c4c623defe 404 in 337ms
+ GET /api/sync/status?id=13ca02f6-cfa5-4db0-aa84-28c4c623defe 200 in 276ms
+ GET /api/sync/status?id=13ca02f6-cfa5-4db0-aa84-28c4c623defe 200 in 262ms
+ GET /api/sync/status?id=13ca02f6-cfa5-4db0-aa84-28c4c623defe 200 in 253ms
+ GET /api/sync/status?id=13ca02f6-cfa5-4db0-aa84-28c4c623defe 200 in 1731ms
+ GET /api/sync/status?id=13ca02f6-cfa5-4db0-aa84-28c4c623defe 200 in 266ms
+ GET /api/sync/status?id=13ca02f6-cfa5-4db0-aa84-28c4c623defe 200 in 263ms
+ GET /api/sync/status?id=13ca02f6-cfa5-4db0-aa84-28c4c623defe 200 in 262ms
+ GET /api/sync/status?id=13ca02f6-cfa5-4db0-aa84-28c4c623defe 200 in 283ms
+ ✓ Compiled in 238ms (798 modules)
+ ✓ Compiled in 176ms (798 modules)
+ ✓ Compiled in 168ms (798 modules)
+ ✓ Compiled in 116ms (798 modules)
+ ✓ Compiled in 168ms (798 modules)
+ ✓ Compiled in 227ms (798 modules)
+ ✓ Compiled in 128ms (798 modules)
+ ✓ Compiled in 137ms (798 modules)
+ ✓ Compiled in 232ms (798 modules)
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, stat 'C:\Projets\staraid-parc-dae\.next\cache\webpack\client-development\0.pack.gz'
+ ✓ Compiled in 244ms (798 modules)
+ ✓ Compiled in 158ms (798 modules)
+ ✓ Compiled in 144ms (798 modules)
+ ✓ Compiled in 174ms (798 modules)
+ ✓ Compiled in 167ms (798 modules)
+ ✓ Compiled in 153ms (798 modules)
+ ✓ Compiled in 184ms (798 modules)
+ ✓ Compiled in 123ms (798 modules)
+ ✓ Compiled in 146ms (798 modules)
+^C^C
