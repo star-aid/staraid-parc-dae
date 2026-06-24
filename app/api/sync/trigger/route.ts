@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
+import { createSynchroteamClient } from '@/lib/synchroteam'
 import { runSynchroteamSync } from '@/lib/sync-synchroteam'
 
 export const dynamic = 'force-dynamic'
@@ -23,7 +24,17 @@ export async function GET() {
   // Sur Vercel Pro, utiliser waitUntil() de @vercel/functions pour garantir la complétion.
   ;(async () => {
     try {
-      const result = await runSynchroteamSync(supabase)
+      const accounts = []
+      if (process.env.SYNCHROTEAM_DOMAIN && process.env.SYNCHROTEAM_API_KEY) {
+        accounts.push({ client: createSynchroteamClient(process.env.SYNCHROTEAM_DOMAIN, process.env.SYNCHROTEAM_API_KEY), idPrefix: '', forcedTerritoryCode: null })
+      }
+      if (process.env.SYNCHROTEAM_DOMAIN_GLP && process.env.SYNCHROTEAM_API_KEY_GLP) {
+        accounts.push({ client: createSynchroteamClient(process.env.SYNCHROTEAM_DOMAIN_GLP, process.env.SYNCHROTEAM_API_KEY_GLP), idPrefix: 'GLP_', forcedTerritoryCode: 'GLP' })
+      }
+      if (process.env.SYNCHROTEAM_DOMAIN_MYT && process.env.SYNCHROTEAM_API_KEY_MYT) {
+        accounts.push({ client: createSynchroteamClient(process.env.SYNCHROTEAM_DOMAIN_MYT, process.env.SYNCHROTEAM_API_KEY_MYT), idPrefix: 'MYT_', forcedTerritoryCode: 'MYT' })
+      }
+      const result = await runSynchroteamSync(supabase, accounts)
 
       const totalSynced =
         result.clients + result.sites + result.technicians +

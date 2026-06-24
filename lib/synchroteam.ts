@@ -1,101 +1,115 @@
 import type { SynchroteamPaginatedResponse, SynchroteamCustomField, CustomFieldMapping } from '@/types'
 
-const credentials = Buffer.from(
-  `${process.env.SYNCHROTEAM_DOMAIN}:${process.env.SYNCHROTEAM_API_KEY}`
-).toString('base64')
-
-const headers = {
-  Authorization: `Basic ${credentials}`,
-  'Content-Type': 'application/json',
-  Accept: 'application/json',
+export interface SynchroteamClient {
+  fetchCustomFields(): Promise<SynchroteamCustomField[]>
+  fetchAllPages<T>(endpoint: string, params?: Record<string, string | number>): Promise<T[]>
+  fetchCustomers(): Promise<Record<string, unknown>[]>
+  fetchSites(): Promise<Record<string, unknown>[]>
+  fetchEquipments(): Promise<Record<string, unknown>[]>
+  fetchEquipmentDetails(id: string): Promise<Record<string, unknown>>
+  fetchContracts(): Promise<Record<string, unknown>[]>
+  fetchJobs(params?: Record<string, string | number>): Promise<Record<string, unknown>[]>
+  fetchUsers(): Promise<Record<string, unknown>[]>
 }
 
-// Capital A obligatoire — /api/v3/ retourne 404
-const BASE_URL = process.env.SYNCHROTEAM_BASE_URL ?? 'https://ws.synchroteam.com'
+export function createSynchroteamClient(domain: string, apiKey: string): SynchroteamClient {
+  const credentials = Buffer.from(`${domain}:${apiKey}`).toString('base64')
+  const headers = {
+    Authorization: `Basic ${credentials}`,
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+  }
+  const BASE_URL = process.env.SYNCHROTEAM_BASE_URL ?? 'https://ws.synchroteam.com'
 
-async function apiFetch<T>(endpoint: string, params: Record<string, string | number> = {}): Promise<T> {
-  const url = new URL(`${BASE_URL}${endpoint}`)
-  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, String(v)))
+  async function apiFetch<T>(endpoint: string, params: Record<string, string | number> = {}): Promise<T> {
+    const url = new URL(`${BASE_URL}${endpoint}`)
+    Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, String(v)))
 
-  const res = await fetch(url.toString(), { headers })
+    const res = await fetch(url.toString(), { headers })
 
-  if (res.status === 429) {
-    const resetTs = res.headers.get('X-RateLimit-Reset')
-    const waitMs = resetTs ? Number(resetTs) * 1000 - Date.now() : 60_000
-    await new Promise((r) => setTimeout(r, Math.max(waitMs, 1000)))
-    return apiFetch(endpoint, params)
+    if (res.status === 429) {
+      const resetTs = res.headers.get('X-RateLimit-Reset')
+      const waitMs = resetTs ? Number(resetTs) * 1000 - Date.now() : 60_000
+      await new Promise((r) => setTimeout(r, Math.max(waitMs, 1000)))
+      return apiFetch(endpoint, params)
+    }
+
+    if (!res.ok) {
+      throw new Error(`Synchroteam API ${res.status} GET ${endpoint} (domain: ${domain})`)
+    }
+
+    return res.json() as Promise<T>
   }
 
-  if (!res.ok) {
-    throw new Error(`Synchroteam API ${res.status} GET ${endpoint}`)
+  async function fetchAllPages<T>(
+    endpoint: string,
+    params: Record<string, string | number> = {}
+  ): Promise<T[]> {
+    const results: T[] = []
+    let page = 1
+
+    while (true) {
+      const data = await apiFetch<SynchroteamPaginatedResponse<T>>(endpoint, {
+        ...params,
+        page,
+        pageSize: 100,
+      })
+
+      results.push(...data.data)
+
+      if (results.length >= data.recordsTotal) break
+      page++
+    }
+
+    return results
   }
 
-  return res.json() as Promise<T>
-}
-
-export async function fetchAllPages<T>(
-  endpoint: string,
-  params: Record<string, string | number> = {}
-): Promise<T[]> {
-  const results: T[] = []
-  let page = 1
-
-  while (true) {
-    const data = await apiFetch<SynchroteamPaginatedResponse<T>>(endpoint, {
-      ...params,
-      page,
-      pageSize: 100,
-    })
-
-    results.push(...data.data)
-
-    if (results.length >= data.recordsTotal) break
-    page++
+  return {
+    async fetchCustomFields() {
+      const data = await apiFetch<SynchroteamPaginatedResponse<SynchroteamCustomField>>(
+        '/Api/v3/customfield/list',
+        { type: 'equipment' }
+      )
+      return data.data
+    },
+    fetchAllPages,
+    fetchCustomers: () => fetchAllPages<Record<string, unknown>>('/Api/v3/customer/list'),
+    fetchSites: () => fetchAllPages<Record<string, unknown>>('/Api/v3/site/list'),
+    fetchEquipments: () => fetchAllPages<Record<string, unknown>>('/Api/v3/equipment/list'),
+    fetchEquipmentDetails: (id: string) =>
+      apiFetch<Record<string, unknown>>('/Api/v3/equipment/details', { id }),
+    fetchContracts: () => fetchAllPages<Record<string, unknown>>('/Api/v3/contract/list'),
+    fetchJobs: (params = {}) => fetchAllPages<Record<string, unknown>>('/Api/v3/job/list', params),
+    fetchUsers: () => fetchAllPages<Record<string, unknown>>('/Api/v3/user/list'),
   }
-
-  return results
 }
 
-export async function fetchCustomFields(): Promise<SynchroteamCustomField[]> {
-  const data = await apiFetch<SynchroteamPaginatedResponse<SynchroteamCustomField>>(
-    '/Api/v3/customfield/list',
-    { type: 'equipment' }
-  )
-  return data.data
+/**
+ * Client par défaut — compte La Réunion (variables d'environnement REU)
+ */
+function getDefaultClient(): SynchroteamClient {
+  const domain = process.env.SYNCHROTEAM_DOMAIN ?? ''
+  const apiKey = process.env.SYNCHROTEAM_API_KEY ?? ''
+  return createSynchroteamClient(domain, apiKey)
 }
 
-export async function fetchCustomers() {
-  return fetchAllPages<Record<string, unknown>>('/Api/v3/customer/list')
-}
+// Exports de compatibilité ascendante (utilisés par /admin/field-mapping/discover)
+const defaultClient = getDefaultClient()
 
-export async function fetchSites() {
-  return fetchAllPages<Record<string, unknown>>('/Api/v3/site/list')
-}
-
-export async function fetchEquipments() {
-  return fetchAllPages<Record<string, unknown>>('/Api/v3/equipment/list')
-}
-
-export async function fetchEquipmentDetails(id: string) {
-  return apiFetch<Record<string, unknown>>('/Api/v3/equipment/details', { id })
-}
-
-export async function fetchContracts() {
-  return fetchAllPages<Record<string, unknown>>('/Api/v3/contract/list')
-}
-
-export async function fetchJobs(params: Record<string, string | number> = {}) {
-  return fetchAllPages<Record<string, unknown>>('/Api/v3/job/list', params)
-}
-
-export async function fetchUsers() {
-  return fetchAllPages<Record<string, unknown>>('/Api/v3/user/list')
-}
+export const fetchCustomFields = () => defaultClient.fetchCustomFields()
+export const fetchAllPages = <T>(endpoint: string, params?: Record<string, string | number>) =>
+  defaultClient.fetchAllPages<T>(endpoint, params)
+export const fetchCustomers = () => defaultClient.fetchCustomers()
+export const fetchSites = () => defaultClient.fetchSites()
+export const fetchEquipments = () => defaultClient.fetchEquipments()
+export const fetchEquipmentDetails = (id: string) => defaultClient.fetchEquipmentDetails(id)
+export const fetchContracts = () => defaultClient.fetchContracts()
+export const fetchJobs = (params?: Record<string, string | number>) => defaultClient.fetchJobs(params)
+export const fetchUsers = () => defaultClient.fetchUsers()
 
 /**
  * Extrait les custom fields d'un équipement brut Synchroteam
  * en utilisant le mapping stocké en base (id → champ interne).
- * Supporte les deux formats : tableau [{id, value}] ou objet {"id": value}.
  */
 export function extractCustomFields(
   rawEquipment: Record<string, unknown>,
