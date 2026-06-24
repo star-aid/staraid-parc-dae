@@ -1,6 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  outputFileTracingRoot: process.cwd(),
+  experimental: {
+    outputFileTracingIncludes: {
+      '/**': ['./.next/server/**/*'],
+    },
+  },
 };
 
 export default nextConfig;
