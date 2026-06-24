@@ -153,7 +153,7 @@ export default function Sidebar({ critiqueCount, lastSync }: SidebarProps) {
         >
           <HamburgerIcon />
         </button>
-        <span className="text-white font-semibold text-sm">STAR aid · Parc DAE</span>
+        <span className="text-white font-semibold text-sm tracking-wide">STAR <span className="font-light">aid</span> · Parc DAE</span>
       </div>
 
       {/* Overlay mobile */}
@@ -173,10 +173,11 @@ export default function Sidebar({ critiqueCount, lastSync }: SidebarProps) {
         ].join(' ')}
       >
         {/* Logo */}
-        <div className="px-6 pt-6 pb-5 border-b border-slate-800">
-          <p className="text-[10px] font-bold tracking-[0.2em] uppercase text-blue-400">STAR aid</p>
-          <p className="text-lg font-bold text-white mt-1 leading-tight">Parc DAE</p>
-          <p className="text-[11px] text-slate-500 mt-0.5">Réunion · Mayotte · Guadeloupe</p>
+        <div className="px-5 pt-5 pb-4 border-b border-slate-800">
+          {/* Logo STAR aid */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/Logo STAR aid.png" alt="STAR aid" className="h-28 w-auto object-contain" />
+          <p className="text-[10px] text-slate-500 mt-2 tracking-wide uppercase">Parc DAE · Réunion · Mayotte · Guadeloupe</p>
         </div>
 
         {/* Nav */}
@@ -189,9 +190,9 @@ export default function Sidebar({ critiqueCount, lastSync }: SidebarProps) {
                 href={href}
                 onClick={() => setOpen(false)}
                 className={[
-                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors group',
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-base font-bold transition-colors group',
                   active
-                    ? 'bg-blue-600 text-white shadow-sm'
+                    ? 'bg-[#AF2125] text-white shadow-sm'
                     : 'text-slate-400 hover:bg-slate-800 hover:text-white',
                 ].join(' ')}
               >
