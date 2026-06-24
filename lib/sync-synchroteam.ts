@@ -366,16 +366,13 @@ async function syncContracts(
       }
     }
 
+    // Upsert groupé : une seule passe par batch de 50 au lieu de N updates séquentiels
     for (const batch of chunk(updates, 50)) {
-      for (const upd of batch) {
-        const { error } = await supabase
-          .from('defibrillators')
-          .update({ contract_type: upd.contract_type, contract_start: upd.contract_start, contract_end: upd.contract_end })
-          .eq('id', upd.id)
-          .is('contract_type', null)
-        if (error) errors.push(`[${idPrefix||'REU'}] contracts update: ${error.message}`)
-        else total++
-      }
+      const { error } = await supabase
+        .from('defibrillators')
+        .upsert(batch, { onConflict: 'id' })
+      if (error) errors.push(`[${idPrefix||'REU'}] contracts upsert: ${error.message}`)
+      else total += batch.length
     }
   } catch (err) {
     errors.push(`[${idPrefix||'REU'}] contracts fetch: ${String(err)}`)
