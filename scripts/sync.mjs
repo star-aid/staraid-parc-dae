@@ -114,7 +114,11 @@ function g(obj, ...keys) {
 function str(val) { const s = String(val ?? '').trim(); return s || null }
 function parseDate(val) {
   if (!val) return null
-  const d = new Date(val)
+  let s = String(val).trim()
+  // Convertir dd/mm/yyyy → yyyy-mm-dd (format Synchroteam pour les dates saisies manuellement)
+  const ddmmyyyy = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  if (ddmmyyyy) s = `${ddmmyyyy[3]}-${ddmmyyyy[2]}-${ddmmyyyy[1]}`
+  const d = new Date(s)
   return isNaN(d.getTime()) ? null : d.toISOString().split('T')[0]
 }
 function parseTimestamp(val) {

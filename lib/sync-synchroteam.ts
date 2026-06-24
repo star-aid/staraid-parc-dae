@@ -36,8 +36,11 @@ function str(val: unknown): string | null {
 
 function parseDate(val: unknown): string | null {
   if (val == null) return null
-  const raw = String(val).trim()
+  let raw = String(val).trim()
   if (!raw) return null
+  // Convertir dd/mm/yyyy → yyyy-mm-dd (format Synchroteam pour les dates saisies manuellement)
+  const ddmmyyyy = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  if (ddmmyyyy) raw = `${ddmmyyyy[3]}-${ddmmyyyy[2]}-${ddmmyyyy[1]}`
   const d = new Date(raw)
   if (isNaN(d.getTime())) return null
   return d.toISOString().split('T')[0]
