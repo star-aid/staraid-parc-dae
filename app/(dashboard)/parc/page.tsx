@@ -421,7 +421,7 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
                   <SortTh col="next_maintenance_date"  label="Prochaine échéance"    sort={sort} dir={dir} sp={searchParams} />
                   <SortTh col="battery_expiry"         label="Batterie"             sort={sort} dir={dir} sp={searchParams} />
                   <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wide">Électrodes</th>
-                  <th className="px-3 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">Actions</th>
+                  <th className="sticky right-0 bg-slate-50 px-3 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide shadow-[-8px_0_12px_-4px_rgba(0,0,0,0.06)]">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -486,10 +486,10 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
                           <div className="text-[10px] text-amber-600 font-medium mt-0.5">pédiatriques</div>
                         )}
                       </td>
-                      <td className="px-3 py-3 text-right">
+                      <td className="sticky right-0 bg-white px-3 py-3 text-right shadow-[-8px_0_12px_-4px_rgba(0,0,0,0.06)]">
                         <Link
                           href={`/parc/${dae.id}`}
-                          className="text-xs text-blue-600 hover:text-blue-800 hover:underline font-medium"
+                          className="text-xs font-semibold text-[#AF2125] hover:underline"
                         >
                           Voir →
                         </Link>

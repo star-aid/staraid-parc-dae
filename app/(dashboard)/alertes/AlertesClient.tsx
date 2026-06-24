@@ -309,11 +309,14 @@ export default function AlertesClient({ rows }: { rows: AlertRow[] }) {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50">
-                    {['N° série', 'Marque / Modèle', 'Client', 'Site', 'Territoire', 'Statut', 'Raison', 'Prochaine échéance', 'Actions'].map((h) => (
+                    {['N° série', 'Marque / Modèle', 'Client', 'Site', 'Territoire', 'Statut', 'Raison', 'Prochaine échéance'].map((h) => (
                       <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">
                         {h}
                       </th>
                     ))}
+                    <th className="sticky right-0 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap shadow-[-8px_0_12px_-4px_rgba(0,0,0,0.06)]">
+                      Actions
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
@@ -379,11 +382,11 @@ export default function AlertesClient({ rows }: { rows: AlertRow[] }) {
                           )}
                         </td>
 
-                        {/* Actions */}
-                        <td className="px-4 py-3 whitespace-nowrap">
+                        {/* Actions — sticky droite */}
+                        <td className="sticky right-0 bg-white px-4 py-3 whitespace-nowrap shadow-[-8px_0_12px_-4px_rgba(0,0,0,0.06)]">
                           <Link
                             href={`/parc/${row.id}`}
-                            className="text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline"
+                            className="text-xs font-semibold text-[#AF2125] hover:underline"
                           >
                             Voir la fiche →
                           </Link>
