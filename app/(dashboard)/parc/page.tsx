@@ -408,7 +408,7 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
       {vue === 'tableau' && (
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="min-w-full w-max text-sm">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   <SortTh col="serial_number"         label="N° série"             sort={sort} dir={dir} sp={searchParams} />
