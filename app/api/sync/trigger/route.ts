@@ -25,34 +25,29 @@ export async function GET() {
   const secret = process.env.CRON_SECRET ?? ''
 
   waitUntil(
-    (async () => {
+    Promise.allSettled(
+      TERRITORY_ROUTES.map(({ path, label }) =>
+        fetch(`${baseUrl}${path}`, { method: 'POST', headers: { 'x-cron-secret': secret } })
+          .then((res) => res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`)))
+          .then((body: { equipments?: number; clients?: number; sites?: number; interventions?: number; errors?: string[] }) => ({
+            label,
+            synced: (body.equipments ?? 0) + (body.clients ?? 0) + (body.sites ?? 0) + (body.interventions ?? 0),
+            errors: (body.errors ?? []).map((e) => `[${label}] ${e}`),
+          }))
+          .catch((err: unknown) => ({ label, synced: 0, errors: [`[${label}] ${String(err)}`] }))
+      )
+    ).then(async (results) => {
       let totalSynced = 0
       const allErrors: string[] = []
-
-      for (const { path, label } of TERRITORY_ROUTES) {
-        try {
-          const res = await fetch(`${baseUrl}${path}`, {
-            method: 'POST',
-            headers: { 'x-cron-secret': secret },
-          })
-          if (!res.ok) {
-            allErrors.push(`[${label}] HTTP ${res.status}`)
-            continue
-          }
-          const body = await res.json() as {
-            equipments?: number; clients?: number; sites?: number; interventions?: number; errors?: string[]
-          }
-          totalSynced += (body.equipments ?? 0) + (body.clients ?? 0) + (body.sites ?? 0) + (body.interventions ?? 0)
-          if (body.errors?.length) allErrors.push(...body.errors.map((e) => `[${label}] ${e}`))
-        } catch (err) {
-          allErrors.push(`[${label}] ${String(err)}`)
+      for (const r of results) {
+        if (r.status === 'fulfilled') {
+          totalSynced += r.value.synced
+          allErrors.push(...r.value.errors)
+        } else {
+          allErrors.push(String(r.reason))
         }
       }
-
-      const finalStatus = allErrors.length > 0
-        ? (totalSynced > 0 ? 'partial' : 'error')
-        : 'success'
-
+      const finalStatus = allErrors.length > 0 ? (totalSynced > 0 ? 'partial' : 'error') : 'success'
       if (logId) {
         await supabase.from('sync_logs').update({
           status: finalStatus,
@@ -61,7 +56,7 @@ export async function GET() {
           finished_at: new Date().toISOString(),
         }).eq('id', logId)
       }
-    })()
+    })
   )
 
   return NextResponse.json({ status: 'started', logId, territories: TERRITORY_ROUTES.map((r) => r.label) })
