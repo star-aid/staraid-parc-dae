@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { INTERNAL_FIELDS } from '@/lib/field-mapping'
+import BackButton from '@/components/BackButton'
 
 interface SyncField {
   synchroteam_field_id: number
@@ -121,6 +122,9 @@ export default function FieldMappingPage() {
 
   return (
     <div className="p-8 max-w-5xl">
+      <div className="mb-4">
+        <BackButton label="Tableau de bord" />
+      </div>
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Mapping custom fields</h1>
