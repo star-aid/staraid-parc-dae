@@ -98,7 +98,7 @@ async function buildIdMap(supabase: SupabaseClient, table: string): Promise<Map<
 // ─── Étape 1 : Clients ───────────────────────────────────────────────────────
 
 async function syncClients(
-  client: SynchroteamClient,
+  rawData: Record<string, unknown>[],
   supabase: SupabaseClient,
   territoryMap: Map<string, string>,
   idPrefix: string,
@@ -107,7 +107,7 @@ async function syncClients(
 ): Promise<number> {
   let total = 0
   try {
-    const customers = await client.fetchCustomers()
+    const customers = rawData
     const now = new Date().toISOString()
 
     const rows = customers.map((c) => {
@@ -145,7 +145,7 @@ async function syncClients(
 // ─── Étape 2 : Sites ─────────────────────────────────────────────────────────
 
 async function syncSites(
-  client: SynchroteamClient,
+  rawData: Record<string, unknown>[],
   supabase: SupabaseClient,
   clientMap: Map<string, string>,
   territoryMap: Map<string, string>,
@@ -155,7 +155,7 @@ async function syncSites(
 ): Promise<number> {
   let total = 0
   try {
-    const sites = await client.fetchSites()
+    const sites = rawData
     const now = new Date().toISOString()
 
     const rows = sites.map((s) => {
@@ -199,14 +199,14 @@ async function syncSites(
 // ─── Étape 3 : Techniciens ──────────────────────────────────────────────────
 
 async function syncTechnicians(
-  client: SynchroteamClient,
+  rawData: Record<string, unknown>[],
   supabase: SupabaseClient,
   idPrefix: string,
   errors: string[]
 ): Promise<number> {
   let total = 0
   try {
-    const users = await client.fetchUsers()
+    const users = rawData
     const now = new Date().toISOString()
 
     const rows = users.map((u) => ({
@@ -233,7 +233,7 @@ async function syncTechnicians(
 // ─── Étape 4 : Équipements (DAE) ────────────────────────────────────────────
 
 async function syncEquipments(
-  apiClient: SynchroteamClient,
+  rawData: Record<string, unknown>[],
   supabase: SupabaseClient,
   clientMap: Map<string, string>,
   siteMap: Map<string, string>,
@@ -246,7 +246,7 @@ async function syncEquipments(
 ): Promise<number> {
   let total = 0
   try {
-    const equipments = await apiClient.fetchEquipments()
+    const equipments = rawData
     const now = new Date().toISOString()
 
     const rows = equipments.map((eq) => {
@@ -337,7 +337,7 @@ async function syncEquipments(
 // ─── Étape 5 : Contrats (enrichissement) ────────────────────────────────────
 
 async function syncContracts(
-  apiClient: SynchroteamClient,
+  rawData: Record<string, unknown>[],
   supabase: SupabaseClient,
   daeMap: Map<string, string>,
   idPrefix: string,
@@ -345,7 +345,7 @@ async function syncContracts(
 ): Promise<number> {
   let total = 0
   try {
-    const contracts = await apiClient.fetchContracts()
+    const contracts = rawData
 
     const updates: Array<{ id: string; contract_type: string | null; contract_start: string | null; contract_end: string | null }> = []
 
@@ -632,12 +632,25 @@ export async function runSyncForAccount(
     contracts: 0, interventions: 0, statuses_updated: 0, geocoded: 0, errors: [],
   }
 
+  // Préfetch parallèle : toutes les entités Synchroteam en même temps
+  // Réduit le temps réseau de N×T à max(T) au lieu de sum(T)
+  const safe = <T>(p: Promise<T[]>, label: string): Promise<T[]> =>
+    p.catch((e) => { result.errors.push(`[${idPrefix||'REU'}] fetch ${label}: ${String(e)}`); return [] })
+
+  const [rawCustomers, rawSites, rawTechnicians, rawEquipments, rawContracts] = await Promise.all([
+    safe(apiClient.fetchCustomers(),  'customers'),
+    safe(apiClient.fetchSites(),      'sites'),
+    safe(apiClient.fetchUsers(),      'users'),
+    safe(apiClient.fetchEquipments(), 'equipments'),
+    safe(apiClient.fetchContracts(),  'contracts'),
+  ])
+
   // 1. Clients
-  result.clients = await syncClients(apiClient, supabase, territoryMap, idPrefix, forcedTerritoryCode, result.errors)
+  result.clients = await syncClients(rawCustomers, supabase, territoryMap, idPrefix, forcedTerritoryCode, result.errors)
   const clientMap = await buildIdMap(supabase, 'clients')
 
   // 2. Sites
-  result.sites = await syncSites(apiClient, supabase, clientMap, territoryMap, idPrefix, forcedTerritoryCode, result.errors)
+  result.sites = await syncSites(rawSites, supabase, clientMap, territoryMap, idPrefix, forcedTerritoryCode, result.errors)
   const siteMap = await buildIdMap(supabase, 'sites')
 
   const { data: sitesForClientMap } = await supabase.from('sites').select('synchroteam_id, client_id')
@@ -648,14 +661,14 @@ export async function runSyncForAccount(
   )
 
   // 3. Techniciens
-  result.technicians = await syncTechnicians(apiClient, supabase, idPrefix, result.errors)
+  result.technicians = await syncTechnicians(rawTechnicians, supabase, idPrefix, result.errors)
 
   // 4. Équipements
-  result.equipments = await syncEquipments(apiClient, supabase, clientMap, siteMap, siteClientMap, territoryMap, mappings, idPrefix, forcedTerritoryCode, result.errors)
+  result.equipments = await syncEquipments(rawEquipments, supabase, clientMap, siteMap, siteClientMap, territoryMap, mappings, idPrefix, forcedTerritoryCode, result.errors)
   const daeMap = await buildIdMap(supabase, 'defibrillators')
 
   // 5. Contrats
-  result.contracts = await syncContracts(apiClient, supabase, daeMap, idPrefix, result.errors)
+  result.contracts = await syncContracts(rawContracts, supabase, daeMap, idPrefix, result.errors)
 
   // 6. Interventions (incrémentales si sinceDate fourni)
   result.interventions = await syncInterventions(apiClient, supabase, daeMap, siteMap, clientMap, idPrefix, result.errors, sinceDate)
