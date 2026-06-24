@@ -74,18 +74,6 @@ function HamburgerIcon() {
   )
 }
 
-// Étapes de sync estimées (secondes de début, label)
-const SYNC_STEPS = [
-  { at: 0,   label: 'Connexion aux comptes…' },
-  { at: 15,  label: 'Synchronisation clients…' },
-  { at: 40,  label: 'Synchronisation sites…' },
-  { at: 80,  label: 'Synchronisation équipements…' },
-  { at: 150, label: 'Contrats & interventions…' },
-  { at: 210, label: 'Calcul des statuts…' },
-  { at: 260, label: 'Géocodage & finalisation…' },
-]
-const ESTIMATED_TOTAL = 300 // secondes
-
 export default function Sidebar({ critiqueCount, lastSync }: SidebarProps) {
   const pathname = usePathname()
   const [open, setOpen]       = useState(false)
@@ -105,65 +93,35 @@ export default function Sidebar({ critiqueCount, lastSync }: SidebarProps) {
     setSyncOk(null)
     setElapsed(0)
 
-    // Timer d'affichage — montre que la sync progresse
-    const timerRef = setInterval(() => setElapsed((s) => s + 1), 1000)
+    // Timer d'affichage
+    let t = 0
+    const timerRef = setInterval(() => { t++; setElapsed(t) }, 1000)
 
     try {
-      // Démarre la sync côté serveur — retourne immédiatement avec un logId
-      const startRes = await fetch('/api/sync/trigger')
-      if (!startRes.ok) {
-        setSyncMsg(`Erreur démarrage (${startRes.status})`)
-        return
-      }
-      const { logId } = await startRes.json() as { logId: string | null }
-
-      if (!logId) {
-        setSyncMsg('Erreur : pas de logId')
-        return
+      // Quick sync : interventions incrémentales + recalcul statuts (~5-10s)
+      const res = await fetch('/api/sync/quick')
+      const body = await res.json() as {
+        status: string
+        interventions?: number
+        statuses_updated?: number
+        errors?: string[]
       }
 
-      // Polling toutes les 3 secondes jusqu'à success / partial / error / timeout 400s
-      await new Promise<void>((resolve) => {
-        const POLL_TIMEOUT = 400 // secondes max avant abandon
-        const poll = setInterval(async () => {
-          try {
-            const r = await fetch(`/api/sync/status?id=${logId}`)
-            const body = await r.json() as { status: string; records_synced?: number; error_message?: string; started_at?: string }
-
-            if (body.status === 'success' || body.status === 'partial') {
-              clearInterval(poll)
-              const msg = body.status === 'partial'
-                ? `Terminée avec avertissements (${body.records_synced ?? 0} enreg.)`
-                : `Terminée — ${body.records_synced ?? 0} enregistrements`
-              setSyncOk(body.status === 'success')
-              setSyncMsg(msg)
-              setTimeout(() => window.location.reload(), 1500)
-              resolve()
-            } else if (body.status === 'error' || body.status === 'timeout') {
-              clearInterval(poll)
-              setSyncOk(false)
-              setSyncMsg(body.status === 'timeout'
-                ? 'Sync interrompue (timeout Vercel Hobby — plan Pro requis pour syncs longues)'
-                : `Erreur : ${body.error_message?.slice(0, 80) ?? 'inconnue'}`)
-              resolve()
-            } else if (body.status === 'running') {
-              // Vérifier si le log est trop vieux (fonction tuée côté Vercel)
-              const age = body.started_at
-                ? (Date.now() - new Date(body.started_at).getTime()) / 1000
-                : 0
-              if (age > POLL_TIMEOUT) {
-                clearInterval(poll)
-                setSyncOk(null)
-                setSyncMsg('Sync en cours côté serveur — vérifiez Supabase sync_logs dans quelques minutes')
-                resolve()
-              }
-            }
-          } catch {
-            // Erreur réseau transitoire → on continue de poller
-          }
-        }, 3000)
-      })
+      if (body.status === 'success' || body.status === 'partial') {
+        setSyncOk(body.status === 'success')
+        setSyncMsg(
+          body.status === 'partial'
+            ? `Terminée avec avertissements — ${body.interventions ?? 0} interventions`
+            : `Terminée — ${body.interventions ?? 0} interventions · ${body.statuses_updated ?? 0} statuts`
+        )
+        setTimeout(() => window.location.reload(), 1500)
+      } else {
+        setSyncOk(false)
+        const firstErr = body.errors?.[0]?.slice(0, 100) ?? 'inconnue'
+        setSyncMsg(`Erreur : ${firstErr}`)
+      }
     } catch {
+      setSyncOk(false)
       setSyncMsg('Erreur réseau')
     } finally {
       clearInterval(timerRef)
@@ -276,39 +234,23 @@ export default function Sidebar({ critiqueCount, lastSync }: SidebarProps) {
               'w-full flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-medium transition-colors',
               syncing
                 ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white',
+                : syncOk === false
+                  ? 'bg-slate-800 text-amber-400 hover:bg-slate-700 hover:text-white'
+                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white',
             ].join(' ')}
           >
             <SyncIcon spinning={syncing} />
             {syncing
               ? `Sync en cours… (${elapsed}s)`
-              : syncMsg === null ? 'Synchroniser maintenant' : syncMsg
+              : syncOk === false
+                ? 'Réessayer'
+                : 'Synchroniser maintenant'
             }
           </button>
 
-          {/* Barre de progression */}
-          {syncing && (() => {
-            const pct = Math.min(95, Math.round((elapsed / ESTIMATED_TOTAL) * 100))
-            const step = [...SYNC_STEPS].reverse().find((s) => elapsed >= s.at)
-            return (
-              <div className="mt-2.5 space-y-1.5">
-                <div className="flex justify-between items-center">
-                  <span className="text-[10px] text-slate-500 truncate pr-2">{step?.label}</span>
-                  <span className="text-[10px] text-slate-600 shrink-0">{pct}%</span>
-                </div>
-                <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-[#AF2125] rounded-full transition-all duration-1000 ease-linear"
-                    style={{ width: `${pct}%` }}
-                  />
-                </div>
-              </div>
-            )
-          })()}
-
           {/* Message résultat */}
           {!syncing && syncMsg && (
-            <p className={`mt-2 text-[10px] leading-tight ${syncOk === false ? 'text-red-400' : syncOk === true ? 'text-emerald-400' : 'text-amber-400'}`}>
+            <p className={`mt-2 text-[10px] leading-tight ${syncOk === false ? 'text-red-400' : 'text-emerald-400'}`}>
               {syncMsg}
             </p>
           )}
