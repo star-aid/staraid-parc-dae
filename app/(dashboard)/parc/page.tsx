@@ -407,7 +407,9 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
       {/* ── Vue tableau ──────────────────────────────────────────── */}
       {vue === 'tableau' && (
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
+          {/* rotateX(180deg) fait remonter la barre de défilement sous l'en-tête */}
+          <div className="overflow-x-auto" style={{ transform: 'rotateX(180deg)' }}>
+            <div style={{ transform: 'rotateX(180deg)' }}>
             <table className="min-w-full w-max text-sm">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
@@ -499,6 +501,7 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
                 )}
               </tbody>
             </table>
+            </div>
           </div>
 
           {/* Pagination */}
