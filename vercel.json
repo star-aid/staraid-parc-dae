@@ -1,8 +1,12 @@
 {
   "crons": [
     {
-      "path": "/api/sync/synchroteam",
+      "path": "/api/sync/reu",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/sync/overseas",
+      "schedule": "30 6 * * *"
     }
   ]
 }

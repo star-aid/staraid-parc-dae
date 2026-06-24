@@ -1,74 +1,68 @@
 import { NextResponse } from 'next/server'
 import { waitUntil } from '@vercel/functions'
 import { createServiceClient } from '@/lib/supabase'
-import { createSynchroteamClient } from '@/lib/synchroteam'
-import { runSynchroteamSync } from '@/lib/sync-synchroteam'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 300
+export const maxDuration = 60
+
+const TERRITORY_ROUTES = [
+  { path: '/api/sync/reu', label: 'La Réunion' },
+  { path: '/api/sync/glp', label: 'Guadeloupe' },
+  { path: '/api/sync/myt', label: 'Mayotte' },
+]
 
 export async function GET() {
   const supabase = createServiceClient()
 
   const { data: logEntry } = await supabase
     .from('sync_logs')
-    .insert({ source: 'synchroteam', status: 'running', started_at: new Date().toISOString() })
+    .insert({ source: 'synchroteam_trigger', status: 'running', started_at: new Date().toISOString() })
     .select('id')
     .single()
-
   const logId: string | null = logEntry?.id ?? null
 
-  const accounts = []
-  if (process.env.SYNCHROTEAM_DOMAIN && process.env.SYNCHROTEAM_API_KEY) {
-    accounts.push({ client: createSynchroteamClient(process.env.SYNCHROTEAM_DOMAIN, process.env.SYNCHROTEAM_API_KEY), idPrefix: '', forcedTerritoryCode: null })
-  }
-  if (process.env.SYNCHROTEAM_DOMAIN_GLP && process.env.SYNCHROTEAM_API_KEY_GLP) {
-    accounts.push({ client: createSynchroteamClient(process.env.SYNCHROTEAM_DOMAIN_GLP, process.env.SYNCHROTEAM_API_KEY_GLP), idPrefix: 'GLP_', forcedTerritoryCode: 'GLP' })
-  }
-  if (process.env.SYNCHROTEAM_DOMAIN_MYT && process.env.SYNCHROTEAM_API_KEY_MYT) {
-    accounts.push({ client: createSynchroteamClient(process.env.SYNCHROTEAM_DOMAIN_MYT, process.env.SYNCHROTEAM_API_KEY_MYT), idPrefix: 'MYT_', forcedTerritoryCode: 'MYT' })
-  }
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://staraid-parc-dae.vercel.app'
+  const secret = process.env.CRON_SECRET ?? ''
 
-  // waitUntil garantit que Vercel maintient la lambda en vie après l'envoi de la réponse
   waitUntil(
     (async () => {
-      try {
-        const result = await runSynchroteamSync(supabase, accounts)
+      let totalSynced = 0
+      const allErrors: string[] = []
 
-        const totalSynced =
-          result.clients + result.sites + result.technicians +
-          result.equipments + result.interventions
-
-        const finalStatus = result.errors.length > 0 ? 'partial' : 'success'
-
-        if (logId) {
-          await supabase
-            .from('sync_logs')
-            .update({
-              status: finalStatus,
-              records_synced: totalSynced,
-              error_message: result.errors.length > 0
-                ? result.errors.slice(0, 10).join('\n')
-                : null,
-              finished_at: new Date().toISOString(),
-            })
-            .eq('id', logId)
+      for (const { path, label } of TERRITORY_ROUTES) {
+        try {
+          const res = await fetch(`${baseUrl}${path}`, {
+            method: 'POST',
+            headers: { 'x-cron-secret': secret },
+          })
+          if (!res.ok) {
+            allErrors.push(`[${label}] HTTP ${res.status}`)
+            continue
+          }
+          const body = await res.json() as {
+            equipments?: number; clients?: number; sites?: number; interventions?: number; errors?: string[]
+          }
+          totalSynced += (body.equipments ?? 0) + (body.clients ?? 0) + (body.sites ?? 0) + (body.interventions ?? 0)
+          if (body.errors?.length) allErrors.push(...body.errors.map((e) => `[${label}] ${e}`))
+        } catch (err) {
+          allErrors.push(`[${label}] ${String(err)}`)
         }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        if (logId) {
-          await supabase
-            .from('sync_logs')
-            .update({
-              status: 'error',
-              error_message: message,
-              finished_at: new Date().toISOString(),
-            })
-            .eq('id', logId)
-        }
+      }
+
+      const finalStatus = allErrors.length > 0
+        ? (totalSynced > 0 ? 'partial' : 'error')
+        : 'success'
+
+      if (logId) {
+        await supabase.from('sync_logs').update({
+          status: finalStatus,
+          records_synced: totalSynced,
+          error_message: allErrors.length > 0 ? allErrors.slice(0, 10).join('\n') : null,
+          finished_at: new Date().toISOString(),
+        }).eq('id', logId)
       }
     })()
   )
 
-  return NextResponse.json({ status: 'started', logId, accounts: accounts.length })
+  return NextResponse.json({ status: 'started', logId, territories: TERRITORY_ROUTES.map((r) => r.label) })
 }

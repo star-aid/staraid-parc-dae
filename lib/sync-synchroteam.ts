@@ -563,7 +563,8 @@ async function calculateStatuses(
 
 async function geocodeMissingSites(
   supabase: SupabaseClient,
-  errors: string[]
+  errors: string[],
+  limit = 15
 ): Promise<number> {
   let total = 0
   try {
@@ -572,7 +573,7 @@ async function geocodeMissingSites(
       .select('id, name, address, city, territories(code)')
       .is('latitude', null)
       .eq('active', true)
-      .limit(50)
+      .limit(limit)
 
     if (error || !sites?.length) return 0
 
@@ -596,6 +597,18 @@ async function geocodeMissingSites(
     errors.push(`geocodeMissingSites: ${String(err)}`)
   }
   return total
+}
+
+// ─── Finalisation globale (statuts + géocodage) ──────────────────────────────
+
+export async function runGlobalFinalize(
+  supabase: SupabaseClient,
+  errors: string[]
+): Promise<{ statuses_updated: number; geocoded: number }> {
+  await updateLastMaintenanceDates(supabase, errors)
+  const statuses_updated = await calculateStatuses(supabase, errors)
+  const geocoded = await geocodeMissingSites(supabase, errors, 15)
+  return { statuses_updated, geocoded }
 }
 
 // ─── Pipeline pour un compte Synchroteam ─────────────────────────────────────
