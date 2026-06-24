@@ -221,6 +221,20 @@ export default function Sidebar({ critiqueCount, lastSync }: SidebarProps) {
           </div>
         </nav>
 
+        {/* Règles du dashboard */}
+        <div className="px-4 pb-2">
+          <Link
+            href="/regles"
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-slate-500 hover:bg-slate-800 hover:text-slate-300 transition-colors"
+          >
+            <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>
+            </svg>
+            Règles du dashboard
+          </Link>
+        </div>
+
         {/* Footer sync */}
         <div className="px-4 py-4 border-t border-slate-800">
           <p className="text-[11px] text-slate-500 mb-2">
