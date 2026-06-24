@@ -74,11 +74,24 @@ function HamburgerIcon() {
   )
 }
 
+// Étapes de sync estimées (secondes de début, label)
+const SYNC_STEPS = [
+  { at: 0,   label: 'Connexion aux comptes…' },
+  { at: 15,  label: 'Synchronisation clients…' },
+  { at: 40,  label: 'Synchronisation sites…' },
+  { at: 80,  label: 'Synchronisation équipements…' },
+  { at: 150, label: 'Contrats & interventions…' },
+  { at: 210, label: 'Calcul des statuts…' },
+  { at: 260, label: 'Géocodage & finalisation…' },
+]
+const ESTIMATED_TOTAL = 300 // secondes
+
 export default function Sidebar({ critiqueCount, lastSync }: SidebarProps) {
   const pathname = usePathname()
   const [open, setOpen]       = useState(false)
   const [syncing, setSyncing]  = useState(false)
   const [syncMsg, setSyncMsg]  = useState<string | null>(null)
+  const [syncOk, setSyncOk]    = useState<boolean | null>(null)
   const [elapsed, setElapsed]  = useState(0)
 
   const formatSync = lastSync
@@ -89,6 +102,7 @@ export default function Sidebar({ critiqueCount, lastSync }: SidebarProps) {
     if (syncing) return
     setSyncing(true)
     setSyncMsg(null)
+    setSyncOk(null)
     setElapsed(0)
 
     // Timer d'affichage — montre que la sync progresse
@@ -118,13 +132,15 @@ export default function Sidebar({ critiqueCount, lastSync }: SidebarProps) {
             if (body.status === 'success' || body.status === 'partial') {
               clearInterval(poll)
               const msg = body.status === 'partial'
-                ? `Sync terminée avec avertissements (${body.records_synced ?? 0} enreg.)`
-                : `Sync terminée — ${body.records_synced ?? 0} enregistrements`
+                ? `Terminée avec avertissements (${body.records_synced ?? 0} enreg.)`
+                : `Terminée — ${body.records_synced ?? 0} enregistrements`
+              setSyncOk(body.status === 'success')
               setSyncMsg(msg)
-              setTimeout(() => window.location.reload(), 1200)
+              setTimeout(() => window.location.reload(), 1500)
               resolve()
             } else if (body.status === 'error') {
               clearInterval(poll)
+              setSyncOk(false)
               setSyncMsg(`Erreur : ${body.error_message?.slice(0, 60) ?? 'inconnue'}`)
               resolve()
             }
@@ -252,10 +268,37 @@ export default function Sidebar({ critiqueCount, lastSync }: SidebarProps) {
           >
             <SyncIcon spinning={syncing} />
             {syncing
-              ? `Sync en cours… ${elapsed > 0 ? `(${elapsed}s)` : ''}`
-              : syncMsg ?? 'Synchroniser maintenant'
+              ? `Sync en cours… (${elapsed}s)`
+              : syncMsg === null ? 'Synchroniser maintenant' : syncMsg
             }
           </button>
+
+          {/* Barre de progression */}
+          {syncing && (() => {
+            const pct = Math.min(95, Math.round((elapsed / ESTIMATED_TOTAL) * 100))
+            const step = [...SYNC_STEPS].reverse().find((s) => elapsed >= s.at)
+            return (
+              <div className="mt-2.5 space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] text-slate-500 truncate pr-2">{step?.label}</span>
+                  <span className="text-[10px] text-slate-600 shrink-0">{pct}%</span>
+                </div>
+                <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-[#AF2125] rounded-full transition-all duration-1000 ease-linear"
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </div>
+            )
+          })()}
+
+          {/* Message résultat */}
+          {!syncing && syncMsg && (
+            <p className={`mt-2 text-[10px] leading-tight ${syncOk === false ? 'text-red-400' : syncOk === true ? 'text-emerald-400' : 'text-amber-400'}`}>
+              {syncMsg}
+            </p>
+          )}
         </div>
       </aside>
     </>
