@@ -27,9 +27,22 @@ export async function syncTerritory(
   const started = Date.now()
   const errors: string[] = []
 
-  const [{ data: territories }, { data: cfMappings }] = await Promise.all([
+  // Source sync_logs propre à ce territoire
+  const logSource = forcedTerritoryCode
+    ? `synchroteam_${forcedTerritoryCode.toLowerCase()}`
+    : 'synchroteam_reu'
+
+  const [{ data: territories }, { data: cfMappings }, { data: lastSyncRow }] = await Promise.all([
     supabase.from('territories').select('id, code'),
     supabase.from('custom_field_mapping').select('*'),
+    supabase
+      .from('sync_logs')
+      .select('finished_at')
+      .eq('source', logSource)
+      .eq('status', 'success')
+      .order('finished_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ])
 
   const territoryMap = new Map(
@@ -37,8 +50,16 @@ export async function syncTerritory(
   )
   const mappings: CustomFieldMapping[] = (cfMappings ?? []) as CustomFieldMapping[]
 
+  // Sync incrémentale : on filtre les interventions depuis la dernière sync réussie
+  // moins 30 min de tampon pour éviter les trous en cas de chevauchement
+  let sinceDate: Date | undefined
+  if (lastSyncRow?.finished_at) {
+    sinceDate = new Date(lastSyncRow.finished_at)
+    sinceDate.setMinutes(sinceDate.getMinutes() - 30)
+  }
+
   const res = await runSyncForAccount(
-    apiClient, supabase, territoryMap, mappings, idPrefix, forcedTerritoryCode
+    apiClient, supabase, territoryMap, mappings, idPrefix, forcedTerritoryCode, sinceDate
   )
   errors.push(...res.errors)
 

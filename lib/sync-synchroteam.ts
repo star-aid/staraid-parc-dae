@@ -392,12 +392,12 @@ async function syncInterventions(
   siteMap: Map<string, string>,
   clientMap: Map<string, string>,
   idPrefix: string,
-  errors: string[]
+  errors: string[],
+  sinceDate?: Date
 ): Promise<number> {
   let total = 0
   try {
-    const since = new Date()
-    since.setFullYear(since.getFullYear() - 1)
+    const since = sinceDate ?? (() => { const d = new Date(); d.setFullYear(d.getFullYear() - 1); return d })()
     const dateFrom = since.toISOString().split('T')[0]
 
     const jobs = await apiClient.fetchJobs({ dateFrom })
@@ -529,29 +529,23 @@ async function calculateStatuses(
 
     if (!allDaes.length) return 0
 
+    const ORDER = ['expire', 'a_remplacer', 'ok', 'inconnu']
     const updates = allDaes.map((dae) => {
       const { status, reason } = computeDAEStatus(dae)
       const battery_status = computeConsumableStatus(dae.battery_expiry)
       const ea = computeConsumableStatus(dae.electrodes_adult_expiry)
       const ep = computeConsumableStatus(dae.electrodes_pediatric_expiry)
-      const ORDER = ['expire', 'a_remplacer', 'ok', 'inconnu']
       const electrodes_status = ORDER.indexOf(ea) <= ORDER.indexOf(ep) ? ea : ep
-      return { id: dae.id, status, status_reason: reason, battery_status, electrodes_status }
+      return { id: dae.id, status, status_reason: reason, battery_status, electrodes_status, updated_at: new Date().toISOString() }
     })
 
-    for (const batch of chunk(updates, 20)) {
-      const results = await Promise.all(
-        batch.map((upd) =>
-          supabase
-            .from('defibrillators')
-            .update({ status: upd.status, status_reason: upd.status_reason, battery_status: upd.battery_status, electrodes_status: upd.electrodes_status })
-            .eq('id', upd.id)
-        )
-      )
-      for (const { error } of results) {
-        if (error) errors.push(`status update: ${error.message}`)
-        else total++
-      }
+    // Un seul UPSERT groupé par batch de 500 au lieu de N UPDATE individuels
+    for (const batch of chunk(updates, 500)) {
+      const { error } = await supabase
+        .from('defibrillators')
+        .upsert(batch, { onConflict: 'id' })
+      if (error) errors.push(`calculateStatuses upsert: ${error.message}`)
+      else total += batch.length
     }
   } catch (err) {
     errors.push(`calculateStatuses: ${String(err)}`)
@@ -607,7 +601,8 @@ export async function runGlobalFinalize(
 ): Promise<{ statuses_updated: number; geocoded: number }> {
   await updateLastMaintenanceDates(supabase, errors)
   const statuses_updated = await calculateStatuses(supabase, errors)
-  const geocoded = await geocodeMissingSites(supabase, errors, 15)
+  // Limité à 3 sites par sync (rate-limit Nominatim 1 req/s → 3s max)
+  const geocoded = await geocodeMissingSites(supabase, errors, 3)
   return { statuses_updated, geocoded }
 }
 
@@ -628,7 +623,12 @@ export async function runSyncForAccount(
    * Code territoire forcé pour tout ce compte (null = détection automatique via adresse).
    * Passer 'GLP' ou 'MYT' pour les comptes dédiés.
    */
-  forcedTerritoryCode: string | null
+  forcedTerritoryCode: string | null,
+  /**
+   * Date depuis laquelle filtrer les interventions (sync incrémentale).
+   * Si null, toutes les interventions des 12 derniers mois sont récupérées.
+   */
+  sinceDate?: Date
 ): Promise<SyncResult> {
   const result: SyncResult = {
     clients: 0, sites: 0, technicians: 0, equipments: 0,
@@ -660,8 +660,8 @@ export async function runSyncForAccount(
   // 5. Contrats
   result.contracts = await syncContracts(apiClient, supabase, daeMap, idPrefix, result.errors)
 
-  // 6. Interventions
-  result.interventions = await syncInterventions(apiClient, supabase, daeMap, siteMap, clientMap, idPrefix, result.errors)
+  // 6. Interventions (incrémentales si sinceDate fourni)
+  result.interventions = await syncInterventions(apiClient, supabase, daeMap, siteMap, clientMap, idPrefix, result.errors, sinceDate)
 
   return result
 }
