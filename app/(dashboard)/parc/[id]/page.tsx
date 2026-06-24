@@ -5,6 +5,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import dynamicImport from 'next/dynamic'
 import { DAEStatusBadge } from '@/components/table/StatusBadge'
+import BackButton from '@/components/BackButton'
 
 const DetailMap = dynamicImport(() => import('./DetailMap'), {
   ssr: false,
@@ -254,12 +255,7 @@ export default async function ParcDetailPage({ params }: Props) {
 
       {/* ── Fil d'Ariane + retour ───────────────────────────────────────────── */}
       <div className="flex items-center gap-2 text-sm text-slate-500">
-        <Link href="/parc" className="hover:text-slate-800 transition-colors flex items-center gap-1">
-          <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M15 18l-6-6 6-6" />
-          </svg>
-          Parc DAE
-        </Link>
+        <BackButton label="Parc DAE" />
         <span className="text-slate-300">/</span>
         <span className="text-slate-700 font-medium truncate">
           {d.serial_number ?? `Fiche ${d.id.slice(0, 8)}`}

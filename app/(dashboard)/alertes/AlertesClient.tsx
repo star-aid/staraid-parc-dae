@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import { DAEStatusBadge } from '@/components/table/StatusBadge'
+import BackButton from '@/components/BackButton'
 
 export type AlertRow = {
   id: string
@@ -160,6 +161,10 @@ export default function AlertesClient({ rows }: { rows: AlertRow[] }) {
 
   return (
     <div className="p-6 lg:p-8 max-w-screen-xl mx-auto">
+
+      <div className="mb-4">
+        <BackButton label="Tableau de bord" />
+      </div>
 
       {/* ── En-tête ─────────────────────────────────────────────────────────── */}
       <div className="flex items-start justify-between mb-6 gap-4">
