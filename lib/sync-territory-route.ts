@@ -1,7 +1,44 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { SynchroteamClient } from '@/lib/synchroteam'
 import { runSyncForAccount, runGlobalFinalize } from '@/lib/sync-synchroteam'
+import { guessInternalField } from '@/lib/field-mapping'
 import type { CustomFieldMapping } from '@/types'
+
+/**
+ * Discover les custom fields Synchroteam et met à jour custom_field_mapping.
+ * Appelé en tête de chaque sync territoire pour garantir des mappings à jour.
+ */
+async function discoverAndUpsertMappings(
+  apiClient: SynchroteamClient,
+  supabase: SupabaseClient,
+  errors: string[]
+): Promise<void> {
+  try {
+    const fields = await apiClient.fetchCustomFields()
+    const rows = fields
+      .map((f) => {
+        const guess = guessInternalField(f.label, f.type)
+        if (!guess) return null
+        return {
+          synchroteam_field_id: f.id,
+          synchroteam_label: f.label,
+          internal_field: guess.internal,
+          field_type: guess.type,
+          updated_at: new Date().toISOString(),
+        }
+      })
+      .filter((r): r is NonNullable<typeof r> => r !== null)
+
+    if (!rows.length) return
+
+    const { error } = await supabase
+      .from('custom_field_mapping')
+      .upsert(rows, { onConflict: 'synchroteam_field_id' })
+    if (error) errors.push(`discovery upsert: ${error.message}`)
+  } catch (err) {
+    errors.push(`discovery: ${String(err)}`)
+  }
+}
 
 export type TerritoryRouteResult = {
   status: 'success' | 'partial' | 'error'
@@ -32,9 +69,8 @@ export async function syncTerritory(
     ? `synchroteam_${forcedTerritoryCode.toLowerCase()}`
     : 'synchroteam_reu'
 
-  const [{ data: territories }, { data: cfMappings }, { data: lastSyncRow }] = await Promise.all([
+  const [{ data: territories }, { data: lastSyncRow }] = await Promise.all([
     supabase.from('territories').select('id, code'),
-    supabase.from('custom_field_mapping').select('*'),
     supabase
       .from('sync_logs')
       .select('finished_at')
@@ -44,6 +80,13 @@ export async function syncTerritory(
       .limit(1)
       .maybeSingle(),
   ])
+
+  // Discovery en tête de sync : met à jour custom_field_mapping avec les IDs réels
+  // du compte Synchroteam courant (les IDs diffèrent entre REU / GLP / MYT)
+  await discoverAndUpsertMappings(apiClient, supabase, errors)
+
+  // Relecture après discovery pour avoir les mappings à jour
+  const { data: cfMappings } = await supabase.from('custom_field_mapping').select('*')
 
   const territoryMap = new Map(
     (territories ?? []).map((t: { code: string; id: string }) => [t.code, t.id])
