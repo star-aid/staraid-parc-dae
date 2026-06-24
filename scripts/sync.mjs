@@ -135,6 +135,77 @@ function detectTerritory(text) {
   return 'REU'
 }
 
+// ── Heuristiques de mapping (miroir de lib/field-mapping.ts) ─────────────────
+
+const HEURISTICS = [
+  { keywords: ['mise en place batterie', 'mise en place batt', 'date usine de la batt', 'batterie ou pile', 'battery', 'pile'], internal: 'battery_install_date', type: 'date' },
+  { keywords: ['dlu électrodes adultes', 'péremption des électrodes adultes', 'électrodes adulte'], internal: 'electrodes_adult_expiry', type: 'date' },
+  { keywords: ['dlu électrodes pédiatriques', 'péremption des électrodes pédiat', 'électrodes pédiat'], internal: 'electrodes_pediatric_expiry', type: 'date' },
+  { keywords: ["n° de série du défibrillateur", 'numéro de série du défibrillateur'], internal: 'serial_number', type: 'text' },
+  { keywords: ['marque/modèle', 'marque', 'modèle'], internal: 'model', type: 'text' },
+  { keywords: ['date usine du défibrillateur', 'date usine'], internal: 'manufacture_date', type: 'date' },
+  { keywords: ['emplacement'], internal: 'location_detail', type: 'text' },
+  { keywords: ['code armoire'], internal: 'cabinet_code', type: 'text' },
+  { keywords: ['zone géographique', 'zone geographique'], internal: 'zone_geographique', type: 'text' },
+  { keywords: ['identifiant geo dae', 'geo dae', 'identifiant dae'], internal: 'geo_dae_id', type: 'text' },
+  { keywords: ['type de contrat'], internal: 'contract_type', type: 'text' },
+  { keywords: ['date de fin de contrat', 'fin de contrat'], internal: 'contract_end', type: 'date' },
+  { keywords: ['date de livraison', 'livraison'], internal: 'contract_start', type: 'date' },
+  { keywords: ['kit rcp', 'kit complet', 'kit paire', 'kit rasoir', 'kit protection', 'kit gant'], internal: 'kit_rcp', type: 'text' },
+  { keywords: ["n° de série de l'appareil de prêt", 'appareil de prêt', 'prêt'], internal: 'loan_serial_number', type: 'text' },
+  { keywords: ['registre défibrillateur', 'registre star'], internal: 'registre_star_aid', type: 'text' },
+  { keywords: ['commentaires', 'commentaire', 'notes', 'remarque'], internal: 'notes', type: 'text' },
+]
+
+function guessInternalField(label, syncType) {
+  const lower = label.toLowerCase()
+  for (const h of HEURISTICS) {
+    if (h.keywords.some(k => lower.includes(k))) {
+      return { internal: h.internal, type: syncType === 'date' ? 'date' : h.type }
+    }
+  }
+  return null
+}
+
+// ── Discovery des custom fields d'un compte ───────────────────────────────────
+
+async function discoverCustomFields(api, label) {
+  console.log(`\n🔍 Discovery custom fields — ${label}…`)
+  try {
+    const fields = await api.fetchCustomFields()
+    const mappable = fields
+      .map(f => {
+        const guess = guessInternalField(f.label, f.type)
+        return guess ? {
+          synchroteam_field_id: f.id,
+          synchroteam_label: f.label,
+          internal_field: guess.internal,
+          field_type: guess.type,
+        } : null
+      })
+      .filter(Boolean)
+
+    if (mappable.length > 0) {
+      const { error } = await supabase
+        .from('custom_field_mapping')
+        .upsert(mappable, { onConflict: 'synchroteam_field_id' })
+      if (error) console.error(`  ❌ Upsert mapping: ${error.message}`)
+      else console.log(`  ✅ ${mappable.length}/${fields.length} champs mappés automatiquement`)
+    } else {
+      console.log(`  ⚠️  Aucun champ reconnu parmi ${fields.length} — vérifier les labels Synchroteam`)
+    }
+
+    // Afficher les champs non mappés pour diagnostic
+    const unmapped = fields.filter(f => !guessInternalField(f.label, f.type))
+    if (unmapped.length) {
+      console.log(`  ℹ️  Champs non reconnus (${unmapped.length}) :`)
+      unmapped.forEach(f => console.log(`     [${f.id}] "${f.label}" (${f.type})`))
+    }
+  } catch (e) {
+    console.error(`  ❌ Discovery échouée : ${e}`)
+  }
+}
+
 // ── Pipeline de sync pour un compte ──────────────────────────────────────────
 
 async function syncAccount(acc) {
@@ -146,6 +217,9 @@ async function syncAccount(acc) {
   console.log('─'.repeat(60))
 
   const api = createClient_ST(domain, key)
+
+  // Discovery des custom fields de CE compte (IDs spécifiques à chaque domaine Synchroteam)
+  await discoverCustomFields(api, label)
 
   // Référentiels
   const [{ data: territories }, { data: cfMappings }] = await Promise.all([
