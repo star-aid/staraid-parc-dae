@@ -64,6 +64,29 @@ const ELECTRODES_RULES = [
   { label: 'Cardiac Science', rule: 'Pas d\'électrodes pédiatriques séparées (mode intégré) — ignorées' },
 ]
 
+const CONTRACT_GROUPS = [
+  {
+    label: 'Location',
+    color: 'bg-blue-100 text-blue-700',
+    values: ['Location', 'Contrat de location', 'LOCATION LECLERC'],
+  },
+  {
+    label: 'Maintenance',
+    color: 'bg-violet-100 text-violet-700',
+    values: [
+      'Maintenance préventive',
+      'Contrat de maintenance',
+      'Contrat de maintenance curative',
+      'Contrat de maintenance préventive',
+    ],
+  },
+  {
+    label: 'Autre',
+    color: 'bg-slate-100 text-slate-600',
+    values: ['PDC - Passage Annuel', 'Audit simple', "Contrat d'audit", 'Aucun', '(champ vide / non renseigné)'],
+  },
+]
+
 const BATTERY_RULES = [
   { brand: 'Saver One', years: 4 },
   { brand: 'Stryker / HeartSine / Samaritan / LifePak', years: 4 },
@@ -142,6 +165,32 @@ export default function ReglesPage() {
               ))}
             </tbody>
           </table>
+        </div>
+      </section>
+
+      {/* ── Groupes de contrats ──────────────────────────────────────────────── */}
+      <section>
+        <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-4">Groupes de contrats (filtres)</h2>
+        <p className="text-sm text-slate-500 mb-6">
+          Les boutons <strong>Location</strong>, <strong>Maintenance</strong> et <strong>Autre</strong> dans la barre de filtres regroupent les types de contrats Synchroteam suivants.
+          Plusieurs groupes peuvent être sélectionnés simultanément.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {CONTRACT_GROUPS.map((g) => (
+            <div key={g.label} className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+              <span className={`inline-flex items-center text-xs font-bold px-2.5 py-1 rounded-full mb-4 ${g.color}`}>
+                {g.label}
+              </span>
+              <ul className="space-y-1.5">
+                {g.values.map((v) => (
+                  <li key={v} className="flex items-start gap-2 text-xs text-slate-500">
+                    <span className="mt-0.5 shrink-0 text-slate-300">·</span>
+                    {v}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
       </section>
 
