@@ -68,7 +68,18 @@ function createClient_ST(domain, apiKey) {
   return {
     fetchCustomers: () => fetchAllPages('/Api/v3/customer/list'),
     fetchSites: () => fetchAllPages('/Api/v3/site/list'),
-    fetchEquipments: () => fetchAllPages('/Api/v3/equipment/list'),
+    fetchEquipments: async () => {
+      const [active, inactive] = await Promise.all([
+        fetchAllPages('/Api/v3/equipment/list'),
+        fetchAllPages('/Api/v3/equipment/list', { active: 'false' }),
+      ])
+      const seen = new Set()
+      return [...active, ...inactive].filter(eq => {
+        if (seen.has(eq.id)) return false
+        seen.add(eq.id)
+        return true
+      })
+    },
     fetchContracts: () => fetchAllPages('/Api/v3/contract/list'),
     fetchJobs: (params) => fetchAllPages('/Api/v3/job/list', params),
     fetchUsers: () => fetchAllPages('/Api/v3/user/list'),

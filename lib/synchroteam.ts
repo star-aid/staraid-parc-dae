@@ -75,7 +75,19 @@ export function createSynchroteamClient(domain: string, apiKey: string): Synchro
     fetchAllPages,
     fetchCustomers: () => fetchAllPages<Record<string, unknown>>('/Api/v3/customer/list'),
     fetchSites: () => fetchAllPages<Record<string, unknown>>('/Api/v3/site/list'),
-    fetchEquipments: () => fetchAllPages<Record<string, unknown>>('/Api/v3/equipment/list'),
+    fetchEquipments: async () => {
+      // Sans filtre = actifs seulement. On récupère aussi les inactifs séparément.
+      const [active, inactive] = await Promise.all([
+        fetchAllPages<Record<string, unknown>>('/Api/v3/equipment/list'),
+        fetchAllPages<Record<string, unknown>>('/Api/v3/equipment/list', { active: 'false' }),
+      ])
+      const seen = new Set<unknown>()
+      return [...active, ...inactive].filter(eq => {
+        if (seen.has(eq.id)) return false
+        seen.add(eq.id)
+        return true
+      })
+    },
     fetchEquipmentDetails: (id: string) =>
       apiFetch<Record<string, unknown>>('/Api/v3/equipment/details', { id }),
     fetchContracts: () => fetchAllPages<Record<string, unknown>>('/Api/v3/contract/list'),
