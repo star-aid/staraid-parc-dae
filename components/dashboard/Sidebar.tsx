@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 
 interface SidebarProps {
   critiqueCount: number
@@ -76,6 +76,7 @@ function HamburgerIcon() {
 
 export default function Sidebar({ critiqueCount, lastSync }: SidebarProps) {
   const pathname = usePathname()
+  const router   = useRouter()
   const [open, setOpen]       = useState(false)
   const [syncing, setSyncing]  = useState(false)
   const [syncMsg, setSyncMsg]  = useState<string | null>(null)
@@ -208,8 +209,17 @@ export default function Sidebar({ critiqueCount, lastSync }: SidebarProps) {
           </div>
         </nav>
 
-        {/* Règles du dashboard */}
-        <div className="px-4 pb-2">
+        {/* Retour + Règles du dashboard */}
+        <div className="px-4 pb-2 space-y-0.5">
+          <button
+            onClick={() => { router.back(); setOpen(false) }}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-slate-500 hover:bg-slate-800 hover:text-slate-300 transition-colors"
+          >
+            <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M15 18l-6-6 6-6"/>
+            </svg>
+            Retour
+          </button>
           <Link
             href="/regles"
             onClick={() => setOpen(false)}
@@ -221,6 +231,7 @@ export default function Sidebar({ critiqueCount, lastSync }: SidebarProps) {
             Règles du dashboard
           </Link>
         </div>
+
 
         {/* Footer sync */}
         <div className="px-4 py-4 border-t border-slate-800">
