@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 
 interface SidebarProps {
   critiqueCount: number
@@ -76,7 +76,6 @@ function HamburgerIcon() {
 
 export default function Sidebar({ critiqueCount, lastSync }: SidebarProps) {
   const pathname = usePathname()
-  const router   = useRouter()
   const [open, setOpen]       = useState(false)
   const [syncing, setSyncing]  = useState(false)
   const [syncMsg, setSyncMsg]  = useState<string | null>(null)
@@ -170,17 +169,6 @@ export default function Sidebar({ critiqueCount, lastSync }: SidebarProps) {
 
         {/* Nav */}
         <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-          {/* Bouton Retour */}
-          <button
-            onClick={() => { router.back(); setOpen(false) }}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-slate-500 hover:bg-slate-800 hover:text-slate-300 transition-colors mb-2"
-          >
-            <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M19 12H5M12 5l-7 7 7 7"/>
-            </svg>
-            Retour
-          </button>
-
           {NAV.map(({ href, label, icon, badge }) => {
             const active = pathname.startsWith(href)
             return (

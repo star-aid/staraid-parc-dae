@@ -24,7 +24,7 @@ const ParcMapDynamic = dynamicImport(() => import('@/components/map/ParcMap'), {
 
 const PAGE_SIZE = 50
 
-type SortCol = 'serial_number' | 'model' | 'status' | 'next_maintenance_date' | 'last_maintenance_date' | 'battery_expiry'
+type SortCol = 'serial_number' | 'model' | 'active' | 'status' | 'next_maintenance_date' | 'last_maintenance_date' | 'battery_expiry'
 type SortDir = 'asc' | 'desc'
 
 interface SearchParams {
@@ -45,6 +45,7 @@ type ParcRow = {
   serial_number: string | null
   model: string | null
   brand: string | null
+  active: boolean
   status: string
   status_reason: string | null
   battery_status: string
@@ -153,7 +154,7 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
   const stat      = searchParams.statut?.split(',').filter(Boolean) ?? []
   const actif     = searchParams.actif ?? 'actif'
   const vue       = searchParams.vue === 'carte' ? 'carte' : 'tableau'
-  const sort: SortCol = (['serial_number','model','status','next_maintenance_date','last_maintenance_date','battery_expiry'].includes(searchParams.sort ?? '')
+  const sort: SortCol = (['serial_number','model','active','status','next_maintenance_date','last_maintenance_date','battery_expiry'].includes(searchParams.sort ?? '')
     ? searchParams.sort! : 'next_maintenance_date')
   const dir: SortDir  = searchParams.dir === 'desc' ? 'desc' : 'asc'
   const page      = Math.max(1, parseInt(searchParams.page ?? '1', 10))
@@ -257,7 +258,7 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
   let query = supabase
     .from('defibrillators')
     .select(
-      `id, serial_number, model, brand,
+      `id, serial_number, model, brand, active,
        status, status_reason, battery_status, electrodes_status,
        last_maintenance_date, next_maintenance_date, battery_expiry,
        electrodes_adult_expiry, electrodes_pediatric_expiry,
@@ -425,6 +426,9 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
                   <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wide">Client</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wide">Site</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wide">Territoire</th>
+                  {actif === 'tous' && (
+                    <SortTh col="active" label="Statut parc" sort={sort} dir={dir} sp={searchParams} />
+                  )}
                   <SortTh col="status"                 label="Statut"               sort={sort} dir={dir} sp={searchParams} />
                   <SortTh col="last_maintenance_date"  label="Dernière maintenance"  sort={sort} dir={dir} sp={searchParams} />
                   <SortTh col="next_maintenance_date"  label="Prochaine échéance"    sort={sort} dir={dir} sp={searchParams} />
@@ -436,7 +440,7 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
               <tbody className="divide-y divide-slate-100">
                 {daes.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="px-6 py-12 text-center text-sm text-slate-400">
+                    <td colSpan={actif === 'tous' ? 12 : 11} className="px-6 py-12 text-center text-sm text-slate-400">
                       Aucun DAE ne correspond aux filtres sélectionnés.
                     </td>
                   </tr>
@@ -471,6 +475,21 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
                           </span>
                         ) : '—'}
                       </td>
+                      {actif === 'tous' && (
+                        <td className="px-3 py-3">
+                          {dae.active ? (
+                            <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                              Actif
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full">
+                              <span className="w-1.5 h-1.5 rounded-full bg-slate-400 shrink-0" />
+                              Inactif
+                            </span>
+                          )}
+                        </td>
+                      )}
                       <td className="px-3 py-3">
                         <div><DAEStatusBadge status={dae.status} /></div>
                         {dae.status_reason && (
