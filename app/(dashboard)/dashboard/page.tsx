@@ -271,12 +271,13 @@ function KPICard({ label, value, sub, accent, icon }: KPICardProps) {
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams?: { contrat?: string; client?: string; territoire?: string; [key: string]: string | undefined }
+  searchParams?: { contrat?: string; client?: string; territoire?: string; actif?: string; [key: string]: string | undefined }
 }) {
   const contratFilter = buildContratOrFilter(parseContratParam(searchParams?.contrat))
   const clientId = searchParams?.client ?? null
   const territoryCode = searchParams?.territoire ?? null
-  const { summary, monthly } = await getDashboardData(contratFilter, clientId, territoryCode)
+  const actif = searchParams?.actif ?? 'actif'
+  const { summary, monthly } = await getDashboardData(contratFilter, clientId, territoryCode, actif)
 
   const total     = summary?.total     ?? 0
   const conforme  = summary?.conforme  ?? 0
