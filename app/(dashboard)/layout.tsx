@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Suspense } from 'react'
-import { createServiceClient, createSessionClient, type UserRole } from '@/lib/supabase'
+import { createServiceClient, type UserRole } from '@/lib/supabase'
+import { createSessionClient } from '@/lib/supabase-server'
 import Sidebar from '@/components/dashboard/Sidebar'
 import ContratFilterBar from '@/components/dashboard/ContratFilterBar'
 import ClientFilterBar, { type ClientOption } from '@/components/dashboard/ClientFilterBar'

@@ -89,7 +89,7 @@ function HamburgerIcon() {
   )
 }
 
-export default function Sidebar({ critiqueCount, lastSync, userRole, userName, userEmail }: SidebarProps) {
+export default function Sidebar({ critiqueCount, lastSync, userRole, userName }: SidebarProps) {
   const pathname = usePathname()
   const router   = useRouter()
   const [open, setOpen]       = useState(false)
