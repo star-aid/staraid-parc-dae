@@ -13,28 +13,38 @@ export default function TerritoryFilterBar() {
   const sp = useSearchParams()
   const [isPending, startTransition] = useTransition()
 
-  const active = sp.get('territoire') ?? ''
+  const active    = sp.get('territoire') ?? ''
+  const actif     = sp.get('actif') ?? 'actif'
 
   const navigate = useCallback(
-    (code: string) => {
-      const p = new URLSearchParams(sp.toString())
-      if (code === active || code === '') {
-        p.delete('territoire')
-      } else {
-        p.set('territoire', code)
-      }
-      p.delete('page')
-      startTransition(() => router.push(`?${p.toString()}`, { scroll: false }))
+    (params: URLSearchParams) => {
+      params.delete('page')
+      startTransition(() => router.push(`?${params.toString()}`, { scroll: false }))
     },
-    [router, sp, active]
+    [router]
   )
 
+  function navigateTerr(code: string) {
+    const p = new URLSearchParams(sp.toString())
+    if (code === active || code === '') p.delete('territoire')
+    else p.set('territoire', code)
+    navigate(p)
+  }
+
+  function navigateActif(val: string) {
+    const p = new URLSearchParams(sp.toString())
+    if (val === 'actif') p.delete('actif')
+    else p.set('actif', val)
+    navigate(p)
+  }
+
   return (
-    <div className={`flex items-center gap-2 transition-opacity ${isPending ? 'opacity-50' : ''}`}>
-      <span className="text-xs text-slate-500 font-medium shrink-0">Territoire :</span>
+    <div className={`flex flex-wrap items-center gap-3 transition-opacity ${isPending ? 'opacity-50' : ''}`}>
+      {/* Territoire */}
       <div className="flex items-center gap-1.5">
+        <span className="text-xs text-slate-500 font-medium shrink-0">Territoire :</span>
         <button
-          onClick={() => navigate('')}
+          onClick={() => navigateTerr('')}
           className={`text-xs px-2.5 py-1 rounded-md border font-medium transition-colors ${
             !active
               ? 'bg-slate-700 border-slate-700 text-white'
@@ -46,7 +56,7 @@ export default function TerritoryFilterBar() {
         {TERRITORIES.map(({ code, label, activeClass }) => (
           <button
             key={code}
-            onClick={() => navigate(code)}
+            onClick={() => navigateTerr(code)}
             className={`text-xs px-2.5 py-1 rounded-md border font-medium transition-colors ${
               active === code
                 ? activeClass
@@ -56,6 +66,20 @@ export default function TerritoryFilterBar() {
             {label}
           </button>
         ))}
+      </div>
+
+      {/* Actif / Inactif */}
+      <div className="flex items-center gap-1.5">
+        <span className="text-xs text-slate-500 font-medium shrink-0">Équipements :</span>
+        <select
+          value={actif}
+          onChange={(e) => navigateActif(e.target.value)}
+          className="text-xs border border-slate-200 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-700"
+        >
+          <option value="actif">Actifs uniquement</option>
+          <option value="inactif">Inactifs uniquement</option>
+          <option value="tous">Tous</option>
+        </select>
       </div>
     </div>
   )

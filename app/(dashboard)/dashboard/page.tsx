@@ -26,12 +26,15 @@ function countQ(
   status?: string,
   territoryId?: string,
   contratFilter?: string | null,
-  clientOrFilter?: string | null
+  clientOrFilter?: string | null,
+  actif?: string
 ) {
   let q = supabase
     .from('defibrillators')
     .select('*', { count: 'exact', head: true })
-    .eq('active', true)
+  if (!actif || actif === 'actif') q = q.eq('active', true)
+  else if (actif === 'inactif')    q = q.eq('active', false)
+  // 'tous' → pas de filtre active
   if (status)          q = q.eq('status', status)
   if (territoryId)     q = q.eq('territory_id', territoryId)
   if (contratFilter)   q = q.or(contratFilter)
@@ -39,7 +42,7 @@ function countQ(
   return q
 }
 
-async function getDashboardData(contratFilter: string | null, clientId: string | null, territoryCode: string | null): Promise<{
+async function getDashboardData(contratFilter: string | null, clientId: string | null, territoryCode: string | null, actif: string): Promise<{
   summary: ParkSummary | null
   monthly: MonthlyRow[]
 }> {
@@ -72,11 +75,12 @@ async function getDashboardData(contratFilter: string | null, clientId: string |
     let expQ = supabase
       .from('defibrillators')
       .select('id, serial_number, model, status_reason, battery_expiry, electrodes_adult_expiry, electrodes_pediatric_expiry, next_maintenance_date, clients(name), territories(code)')
-      .eq('active', true)
       .in('status', ['critique', 'vigilance'])
       .order('status', { ascending: false })
       .order('battery_expiry', { ascending: true, nullsFirst: false })
       .limit(5)
+    if (!actif || actif === 'actif') expQ = expQ.eq('active', true)
+    else if (actif === 'inactif')   expQ = expQ.eq('active', false)
     if (selectedTerritoryId) expQ = expQ.eq('territory_id', selectedTerritoryId)
     if (contratFilter)  expQ = expQ.or(contratFilter)
     if (clientOrFilter) expQ = expQ.or(clientOrFilter)
@@ -91,11 +95,11 @@ async function getDashboardData(contratFilter: string | null, clientId: string |
       lastSyncRes,
       expirationsRes,
     ] = await Promise.all([
-      countQ(supabase, undefined,   selectedTerritoryId, contratFilter, clientOrFilter),
-      countQ(supabase, 'conforme',  selectedTerritoryId, contratFilter, clientOrFilter),
-      countQ(supabase, 'vigilance', selectedTerritoryId, contratFilter, clientOrFilter),
-      countQ(supabase, 'critique',  selectedTerritoryId, contratFilter, clientOrFilter),
-      countQ(supabase, 'inconnu',   selectedTerritoryId, contratFilter, clientOrFilter),
+      countQ(supabase, undefined,   selectedTerritoryId, contratFilter, clientOrFilter, actif),
+      countQ(supabase, 'conforme',  selectedTerritoryId, contratFilter, clientOrFilter, actif),
+      countQ(supabase, 'vigilance', selectedTerritoryId, contratFilter, clientOrFilter, actif),
+      countQ(supabase, 'critique',  selectedTerritoryId, contratFilter, clientOrFilter, actif),
+      countQ(supabase, 'inconnu',   selectedTerritoryId, contratFilter, clientOrFilter, actif),
       supabase.from('territories').select('id, code'),
       supabase
         .from('sync_logs')
