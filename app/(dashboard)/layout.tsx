@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Suspense } from 'react'
-import { createServiceClient } from '@/lib/supabase'
+import { createServiceClient, createSessionClient, type UserRole } from '@/lib/supabase'
 import Sidebar from '@/components/dashboard/Sidebar'
 import ContratFilterBar from '@/components/dashboard/ContratFilterBar'
 import ClientFilterBar, { type ClientOption } from '@/components/dashboard/ClientFilterBar'
@@ -41,12 +41,38 @@ async function getSidebarData() {
   }
 }
 
+async function getCurrentUser() {
+  try {
+    const supabase = await createSessionClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return null
+    return {
+      email: user.email ?? '',
+      name:  (user.user_metadata?.name as string | undefined) ?? user.email?.split('@')[0] ?? '',
+      role:  ((user.user_metadata?.role as string | undefined) ?? 'direction') as UserRole,
+    }
+  } catch {
+    return null
+  }
+}
+
 export default async function DashboardLayout({ children }: { children: ReactNode }) {
-  const { critiqueCount, lastSync, clients } = await getSidebarData()
+  const [{ critiqueCount, lastSync, clients }, currentUser] = await Promise.all([
+    getSidebarData(),
+    getCurrentUser(),
+  ])
+
+  const userRole = currentUser?.role ?? 'direction'
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
-      <Sidebar critiqueCount={critiqueCount} lastSync={lastSync} />
+      <Sidebar
+        critiqueCount={critiqueCount}
+        lastSync={lastSync}
+        userRole={userRole}
+        userName={currentUser?.name ?? ''}
+        userEmail={currentUser?.email ?? ''}
+      />
 
       {/* Colonne droite : filtres globaux + contenu scrollable */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">

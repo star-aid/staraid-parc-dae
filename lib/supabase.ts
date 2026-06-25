@@ -1,26 +1,36 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { createBrowserClient, createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
 
-// Client navigateur (session utilisateur) — lazy pour éviter l'erreur au build
-let _browserClient: SupabaseClient | null = null
+export type UserRole = 'administrateur' | 'maintenance' | 'direction'
 
-export function getSupabaseClient(): SupabaseClient {
-  if (!_browserClient) {
-    _browserClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
-  }
-  return _browserClient
+// ── Client navigateur (composants client) ─────────────────────────────────────
+export function getSupabaseBrowserClient() {
+  return createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
 }
 
-// Alias pratique pour les Server Components qui utilisent le client browser
-export const supabase = new Proxy({} as SupabaseClient, {
-  get(_target, prop) {
-    return (getSupabaseClient() as unknown as Record<string | symbol, unknown>)[prop]
-  },
-})
+// Alias rétrocompatibilité
+export const getSupabaseClient = getSupabaseBrowserClient
 
-// Client serveur avec service role (sync, crons — jamais exposé côté client)
+// ── Client serveur avec session utilisateur (Server Components, layouts) ──────
+export async function createSessionClient() {
+  const cookieStore = await cookies()
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll: () => cookieStore.getAll(),
+        setAll: () => { /* lecture seule dans les Server Components */ },
+      },
+    }
+  )
+}
+
+// ── Client serveur avec service role (sync, crons — jamais exposé côté client)
 // global.fetch avec cache:'no-store' court-circuite le Data Cache Next.js
 export function createServiceClient(): SupabaseClient {
   return createClient(
