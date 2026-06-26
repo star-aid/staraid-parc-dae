@@ -4,6 +4,10 @@
 export const LOCATION_TYPES    = ['Location', 'Contrat de location', 'Contrat de Location', 'LOCATION LECLERC']
 export const MAINTENANCE_TYPES = ['Contrat de maintenance', 'Contrat Maintenance Préventive', 'Contrat de maintenance curative', 'Contrat de maintenance préventive']
 
+// Sentinel pour les DAE sans contrat (NULL + valeurs texte équivalentes)
+export const SANS_CONTRAT_SENTINEL = '__sans_contrat__'
+export const SANS_CONTRAT_STRINGS  = ['Aucun', 'Aucun Contrat']
+
 // AUTRES = tout ce qui n'est ni LOCATION ni MAINTENANCE (chargé dynamiquement depuis Supabase)
 
 export type ContratGroup = 'location' | 'maintenance' | 'autre'
@@ -22,7 +26,7 @@ export function parseContratParam(
     .filter((g): g is ContratGroup => g === 'location' || g === 'maintenance' || g === 'autre')
 }
 
-// Parse ?autreTypes=PDC - Passage Annuel|Aucun
+// Parse ?autreTypes=PDC - Passage Annuel|__sans_contrat__
 // Retourne null si tout est sélectionné (pas de param = tous), tableau sinon
 export function parseAutreTypesParam(
   param: string | undefined
@@ -39,7 +43,6 @@ export function isAllSelected(groups: ContratGroup[], autreTypesSelected?: strin
 
 // Échappe une valeur pour PostgREST in.() — entoure de guillemets si elle contient des caractères spéciaux
 function pgEscape(val: string): string {
-  // Valeurs avec espaces, apostrophes ou tirets nécessitent des guillemets doubles
   if (/[\s',()]/.test(val)) return `"${val.replace(/"/g, '\\"')}"`
   return val
 }
@@ -66,9 +69,20 @@ export function buildContratOrFilter(
 
   if (groups.includes('autre')) {
     if (autreTypesSelected && autreTypesSelected.length > 0) {
-      // Sous-sélection spécifique
-      const vals = autreTypesSelected.map(pgEscape).join(',')
-      parts.push(`contract_type.in.(${vals})`)
+      // Sépare le sentinel "Sans contrat" des vraies valeurs texte
+      const hasSansContrat = autreTypesSelected.includes(SANS_CONTRAT_SENTINEL)
+      const realVals = autreTypesSelected.filter(v => v !== SANS_CONTRAT_SENTINEL)
+
+      if (realVals.length > 0) {
+        const vals = realVals.map(pgEscape).join(',')
+        parts.push(`contract_type.in.(${vals})`)
+      }
+      if (hasSansContrat) {
+        // NULL + valeurs texte équivalentes
+        const sansVals = SANS_CONTRAT_STRINGS.map(pgEscape).join(',')
+        parts.push(`contract_type.is.null`)
+        parts.push(`contract_type.in.(${sansVals})`)
+      }
     } else {
       // Tous les AUTRES : NOT IN (location + maintenance) OU NULL
       const excludeVals = [...LOCATION_TYPES, ...MAINTENANCE_TYPES].map(pgEscape).join(',')

@@ -7,6 +7,7 @@ import {
   ALL_GROUPS,
   LOCATION_TYPES,
   MAINTENANCE_TYPES,
+  SANS_CONTRAT_SENTINEL,
   isAllSelected,
   parseContratParam,
   parseAutreTypesParam,
@@ -207,6 +208,8 @@ export default function ContratFilterBar({ autreTypes }: Props) {
                 ) : (
                   autreTypes.map(({ type, count }) => {
                     const checked = !autreTypesSelected || autreTypesSelected.includes(type)
+                    const isSansContrat = type === SANS_CONTRAT_SENTINEL
+                    const label = isSansContrat ? 'Sans contrat' : type
                     return (
                       <label
                         key={type}
@@ -218,8 +221,8 @@ export default function ContratFilterBar({ autreTypes }: Props) {
                           onChange={() => toggleAutreType(type)}
                           className="w-3.5 h-3.5 rounded border-slate-300 text-slate-600 focus:ring-slate-500"
                         />
-                        <span className="flex-1 text-xs text-slate-700 group-hover:text-slate-900 leading-tight">
-                          {type}
+                        <span className={`flex-1 text-xs leading-tight group-hover:text-slate-900 ${isSansContrat ? 'text-slate-400 italic' : 'text-slate-700'}`}>
+                          {label}
                         </span>
                         <span className="text-[10px] text-slate-400 shrink-0">{count}</span>
                       </label>

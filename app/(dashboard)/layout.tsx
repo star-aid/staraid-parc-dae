@@ -11,8 +11,10 @@ export const dynamic = 'force-dynamic'
 async function getSidebarData() {
   try {
     const supabase = createServiceClient()
-    const { LOCATION_TYPES, MAINTENANCE_TYPES } = await import('@/lib/contract-groups')
-    const [critiqueRes, syncRes, clientsRes, autreTypesRes] = await Promise.all([
+    const { LOCATION_TYPES, MAINTENANCE_TYPES, SANS_CONTRAT_SENTINEL, SANS_CONTRAT_STRINGS } = await import('@/lib/contract-groups')
+    // Types exclus des AUTRES (Location + Maintenance + valeurs "sans contrat" gérées séparément)
+    const excludedFromAutre = [...LOCATION_TYPES, ...MAINTENANCE_TYPES, ...SANS_CONTRAT_STRINGS]
+    const [critiqueRes, syncRes, clientsRes, autreTypesRes, sansContratRes] = await Promise.all([
       supabase
         .from('defibrillators')
         .select('id', { count: 'exact', head: true })
@@ -32,16 +34,21 @@ async function getSidebarData() {
         .eq('active', true)
         .order('name')
         .limit(1000),
-      // Récupère les types de contrats "Autres" (hors Location et Maintenance)
+      // Types "Autres" réels (hors Location, Maintenance et sans-contrat)
       supabase
         .from('defibrillators')
         .select('contract_type')
         .not('contract_type', 'is', null)
-        .not('contract_type', 'in', `(${[...LOCATION_TYPES, ...MAINTENANCE_TYPES].join(',')})`)
+        .not('contract_type', 'in', `(${excludedFromAutre.join(',')})`)
         .order('contract_type'),
+      // Compte les DAE sans contrat : NULL + 'Aucun' + 'Aucun Contrat'
+      supabase
+        .from('defibrillators')
+        .select('id', { count: 'exact', head: true })
+        .or(`contract_type.is.null,contract_type.in.(${SANS_CONTRAT_STRINGS.join(',')})`)
     ])
 
-    // Comptage des types "Autres" côté JS
+    // Comptage des types "Autres" réels côté JS
     const autreCountMap = new Map<string, number>()
     for (const row of (autreTypesRes.data ?? [])) {
       const t = row.contract_type as string
@@ -50,6 +57,12 @@ async function getSidebarData() {
     const autreTypes = Array.from(autreCountMap.entries())
       .map(([type, count]) => ({ type, count }))
       .sort((a, b) => a.type.localeCompare(b.type))
+
+    // Ajoute "Sans contrat" en premier si des DAE concernés existent
+    const sansContratCount = sansContratRes.count ?? 0
+    if (sansContratCount > 0) {
+      autreTypes.unshift({ type: SANS_CONTRAT_SENTINEL, count: sansContratCount })
+    }
 
     return {
       critiqueCount: critiqueRes.count ?? 0,
