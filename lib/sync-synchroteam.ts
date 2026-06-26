@@ -462,8 +462,6 @@ async function updateLastMaintenanceDates(
       const { data, error } = await supabase
         .from('interventions')
         .select('defibrillator_id, completed_date')
-        .eq('type', 'maintenance')
-        .eq('status', 'termine')
         .not('defibrillator_id', 'is', null)
         .not('completed_date', 'is', null)
         .order('completed_date', { ascending: false })
@@ -482,15 +480,15 @@ async function updateLastMaintenanceDates(
       }
     }
 
-    // Un seul UPSERT groupé au lieu de N rounds séquentiels de updates individuels
-    const updates = Array.from(lastByDae.entries()).map(([id, date]) => ({
-      id,
-      last_maintenance_date: date,
-      updated_at: new Date().toISOString(),
-    }))
-    for (const batch of chunk(updates, 500)) {
-      const { error } = await supabase.from('defibrillators').upsert(batch, { onConflict: 'id' })
-      if (error) errors.push(`last_maintenance_date upsert: ${error.message}`)
+    // UPDATE individuel — jamais d'INSERT (évite la violation synchroteam_id NOT NULL)
+    const entries = Array.from(lastByDae.entries())
+    for (const batch of chunk(entries, 20)) {
+      await Promise.all(batch.map(([id, date]) =>
+        supabase
+          .from('defibrillators')
+          .update({ last_maintenance_date: date, updated_at: new Date().toISOString() })
+          .eq('id', id)
+      ))
     }
   } catch (err) {
     errors.push(`last_maintenance_date: ${String(err)}`)
@@ -550,13 +548,15 @@ async function calculateStatuses(
       return { id: dae.id, status, status_reason: reason, battery_status, electrodes_status, updated_at: new Date().toISOString() }
     })
 
-    // Un seul UPSERT groupé par batch de 500 au lieu de N UPDATE individuels
-    for (const batch of chunk(updates, 500)) {
-      const { error } = await supabase
-        .from('defibrillators')
-        .upsert(batch, { onConflict: 'id' })
-      if (error) errors.push(`calculateStatuses upsert: ${error.message}`)
-      else total += batch.length
+    // UPDATE individuel — jamais d'INSERT (évite la violation synchroteam_id NOT NULL)
+    for (const batch of chunk(updates, 20)) {
+      await Promise.all(batch.map(u =>
+        supabase
+          .from('defibrillators')
+          .update({ status: u.status, status_reason: u.status_reason, battery_status: u.battery_status, electrodes_status: u.electrodes_status, updated_at: u.updated_at })
+          .eq('id', u.id)
+      ))
+      total += batch.length
     }
   } catch (err) {
     errors.push(`calculateStatuses: ${String(err)}`)
