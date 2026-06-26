@@ -89,14 +89,23 @@ function HamburgerIcon() {
   )
 }
 
+const TERRITORIES = [
+  { key: 'reu', label: 'Réunion',     route: '/api/sync/reu' },
+  { key: 'myt', label: 'Mayotte',     route: '/api/sync/myt' },
+  { key: 'glp', label: 'Guadeloupe',  route: '/api/sync/glp' },
+] as const
+
+type TerritoryKey = typeof TERRITORIES[number]['key']
+type TerritoryStatus = 'pending' | 'running' | 'success' | 'error'
+
 export default function Sidebar({ critiqueCount, lastSync, userRole, userName }: SidebarProps) {
   const pathname = usePathname()
   const router   = useRouter()
-  const [open, setOpen]       = useState(false)
-  const [syncing, setSyncing]  = useState(false)
-  const [syncMsg, setSyncMsg]  = useState<string | null>(null)
-  const [syncOk, setSyncOk]    = useState<boolean | null>(null)
-  const [elapsed, setElapsed]  = useState(0)
+  const [open, setOpen]   = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [territoryStatus, setTerritoryStatus] = useState<Record<TerritoryKey, TerritoryStatus> | null>(null)
+  const [currentStep, setCurrentStep] = useState<number>(0)
+  const [doneMsg, setDoneMsg] = useState<string | null>(null)
 
   const formatSync = lastSync
     ? new Date(lastSync).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })
@@ -114,42 +123,42 @@ export default function Sidebar({ critiqueCount, lastSync, userRole, userName }:
   async function handleSync() {
     if (syncing) return
     setSyncing(true)
-    setSyncMsg(null)
-    setSyncOk(null)
-    setElapsed(0)
+    setDoneMsg(null)
+    setCurrentStep(0)
+    setTerritoryStatus({ reu: 'pending', myt: 'pending', glp: 'pending' })
 
-    let t = 0
-    const timerRef = setInterval(() => { t++; setElapsed(t) }, 1000)
+    const results: Record<TerritoryKey, TerritoryStatus> = { reu: 'pending', myt: 'pending', glp: 'pending' }
 
-    try {
-      const res = await fetch('/api/sync/quick')
-      const body = await res.json() as {
-        status: string
-        interventions?: number
-        statuses_updated?: number
-        errors?: string[]
+    for (let i = 0; i < TERRITORIES.length; i++) {
+      const { key } = TERRITORIES[i]
+      setCurrentStep(i + 1)
+      results[key] = 'running'
+      setTerritoryStatus({ ...results })
+
+      try {
+        const controller = new AbortController()
+        const timeout = setTimeout(() => controller.abort(), 55_000)
+        const res = await fetch(`/api/sync/trigger?territory=${key}`, {
+          method: 'POST',
+          signal: controller.signal,
+        })
+        clearTimeout(timeout)
+        const body = await res.json() as { status?: string }
+        results[key] = (body.status === 'success' || body.status === 'partial') ? 'success' : 'error'
+      } catch {
+        results[key] = 'error'
       }
 
-      if (body.status === 'success') {
-        setSyncOk(true)
-        setSyncMsg(`Terminée — ${body.interventions ?? 0} interventions · ${body.statuses_updated ?? 0} statuts`)
-        setTimeout(() => window.location.reload(), 1500)
-      } else if (body.status === 'partial') {
-        setSyncOk(null)
-        setSyncMsg(`Terminée avec avertissements — ${body.interventions ?? 0} interventions`)
-        setTimeout(() => window.location.reload(), 1500)
-      } else {
-        setSyncOk(false)
-        const firstErr = body.errors?.[0]?.slice(0, 100) ?? 'inconnue'
-        setSyncMsg(`Erreur : ${firstErr}`)
-      }
-    } catch {
-      setSyncOk(false)
-      setSyncMsg('Erreur réseau')
-    } finally {
-      clearInterval(timerRef)
-      setSyncing(false)
+      setTerritoryStatus({ ...results })
     }
+
+    const allOk   = Object.values(results).every(s => s === 'success')
+    const anyOk   = Object.values(results).some(s => s === 'success')
+    const now     = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+    setDoneMsg(allOk ? `Terminée à ${now}` : anyOk ? `Terminée avec erreurs à ${now}` : `Échec à ${now}`)
+    setSyncing(false)
+    setCurrentStep(0)
+    if (anyOk) setTimeout(() => window.location.reload(), 1500)
   }
 
   return (
@@ -295,24 +304,56 @@ export default function Sidebar({ critiqueCount, lastSync, userRole, userName }:
                   'w-full flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-medium transition-colors',
                   syncing
                     ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                    : syncOk === false
-                      ? 'bg-slate-800 text-amber-400 hover:bg-slate-700 hover:text-white'
-                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white',
+                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white',
                 ].join(' ')}
               >
                 <SyncIcon spinning={syncing} />
                 {syncing
-                  ? `Sync en cours… (${elapsed}s)`
-                  : syncOk === false
-                    ? 'Réessayer'
-                    : 'Synchroniser maintenant'
+                  ? (() => {
+                      const t = TERRITORIES[currentStep - 1]
+                      return t ? `${t.label}… (${currentStep}/3)` : 'Sync en cours…'
+                    })()
+                  : 'Synchroniser maintenant'
                 }
               </button>
 
-              {!syncing && syncMsg && (
-                <p className={`mt-2 text-[10px] leading-tight ${syncOk === false ? 'text-red-400' : syncOk === null ? 'text-amber-400' : 'text-emerald-400'}`}>
-                  {syncMsg}
-                </p>
+              {/* Indicateur de progression par territoire */}
+              {syncing && territoryStatus && (
+                <div className="mt-2 flex items-center gap-2">
+                  {TERRITORIES.map(({ key, label }) => {
+                    const s = territoryStatus[key]
+                    return (
+                      <div key={key} className="flex items-center gap-1" title={label}>
+                        {s === 'running'  && <SyncIcon spinning />}
+                        {s === 'success'  && <span className="text-emerald-400 text-xs">✓</span>}
+                        {s === 'error'    && <span className="text-red-400 text-xs">✗</span>}
+                        {s === 'pending'  && <span className="text-slate-600 text-xs">·</span>}
+                        <span className={`text-[10px] ${
+                          s === 'running' ? 'text-slate-300' :
+                          s === 'success' ? 'text-emerald-400' :
+                          s === 'error'   ? 'text-red-400' : 'text-slate-600'
+                        }`}>{label.slice(0, 3)}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              {/* Résultat final avec statut par territoire */}
+              {!syncing && territoryStatus && doneMsg && (
+                <div className="mt-2 space-y-1">
+                  <p className="text-[10px] text-slate-400">{doneMsg}</p>
+                  <div className="flex items-center gap-2">
+                    {TERRITORIES.map(({ key, label }) => {
+                      const s = territoryStatus[key]
+                      return (
+                        <span key={key} className={`text-[10px] ${s === 'success' ? 'text-emerald-400' : s === 'error' ? 'text-red-400' : 'text-slate-500'}`}>
+                          {label.slice(0, 3)} {s === 'success' ? '✅' : s === 'error' ? '❌' : ''}
+                        </span>
+                      )
+                    })}
+                  </div>
+                </div>
               )}
             </>
           )}

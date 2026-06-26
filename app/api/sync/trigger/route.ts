@@ -1,16 +1,21 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { waitUntil } from '@vercel/functions'
 import { createServiceClient } from '@/lib/supabase'
+import { createSessionClient } from '@/lib/supabase-server'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-const TERRITORY_ROUTES = [
-  { path: '/api/sync/reu', label: 'La Réunion' },
-  { path: '/api/sync/glp', label: 'Guadeloupe' },
-  { path: '/api/sync/myt', label: 'Mayotte' },
-]
+const TERRITORY_ROUTES: Record<string, { path: string; label: string }> = {
+  reu: { path: '/api/sync/reu', label: 'La Réunion' },
+  myt: { path: '/api/sync/myt', label: 'Mayotte' },
+  glp: { path: '/api/sync/glp', label: 'Guadeloupe' },
+}
 
+const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://staraid-parc-dae.vercel.app'
+const secret  = process.env.CRON_SECRET ?? ''
+
+// GET /api/sync/trigger — déclenche les 3 territoires en parallèle (usage cron interne)
 export async function GET() {
   const supabase = createServiceClient()
 
@@ -21,13 +26,10 @@ export async function GET() {
     .single()
   const logId: string | null = logEntry?.id ?? null
 
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://staraid-parc-dae.vercel.app'
-  const secret = process.env.CRON_SECRET ?? ''
-
   waitUntil(
     Promise.allSettled(
-      TERRITORY_ROUTES.map(({ path, label }) =>
-        fetch(`${baseUrl}${path}`, { method: 'POST', headers: { 'x-cron-secret': secret } })
+      Object.values(TERRITORY_ROUTES).map(({ path, label }) =>
+        fetch(`${baseUrl}${path}`, { method: 'GET', headers: { 'x-cron-secret': secret } })
           .then((res) => res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`)))
           .then((body: { equipments?: number; clients?: number; sites?: number; interventions?: number; errors?: string[] }) => ({
             label,
@@ -59,5 +61,39 @@ export async function GET() {
     })
   )
 
-  return NextResponse.json({ status: 'started', logId, territories: TERRITORY_ROUTES.map((r) => r.label) })
+  return NextResponse.json({ status: 'started', logId, territories: Object.keys(TERRITORY_ROUTES) })
+}
+
+// POST /api/sync/trigger?territory=reu|myt|glp
+// Appelé depuis la sidebar (session utilisateur) — proxy vers la route territoire avec le secret serveur
+export async function POST(req: NextRequest) {
+  // Vérifie que l'utilisateur est connecté
+  try {
+    const supabase = await createSessionClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 })
+    const role = user.user_metadata?.role as string | undefined
+    if (role !== 'administrateur' && role !== 'maintenance') {
+      return NextResponse.json({ error: 'Accès refusé' }, { status: 403 })
+    }
+  } catch {
+    return NextResponse.json({ error: 'Erreur auth' }, { status: 401 })
+  }
+
+  const territory = req.nextUrl.searchParams.get('territory') ?? ''
+  const route = TERRITORY_ROUTES[territory]
+  if (!route) {
+    return NextResponse.json({ error: `Territoire inconnu: ${territory}` }, { status: 400 })
+  }
+
+  try {
+    const res = await fetch(`${baseUrl}${route.path}`, {
+      method: 'GET',
+      headers: { 'x-cron-secret': secret },
+    })
+    const body = await res.json()
+    return NextResponse.json(body, { status: res.status })
+  } catch (err) {
+    return NextResponse.json({ status: 'error', error: String(err) }, { status: 500 })
+  }
 }
