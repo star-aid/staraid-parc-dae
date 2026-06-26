@@ -122,9 +122,8 @@ async function getDashboardData(contratFilter: string | null, clientId: string |
         let intQ = supabase
           .from('interventions')
           .select('type, completed_date')
-          .eq('status', 'termine')
-          .gte('completed_date', dateFrom)
           .not('completed_date', 'is', null)
+          .gte('completed_date', dateFrom)
           .order('completed_date', { ascending: true })
           .range(page * PAGE, (page + 1) * PAGE - 1)
         // interventions.client_id suit la même logique que defibrillators
