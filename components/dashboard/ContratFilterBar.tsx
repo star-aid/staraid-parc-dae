@@ -5,6 +5,8 @@ import {
   type ContratGroup,
   type AutreType,
   ALL_GROUPS,
+  LOCATION_TYPES,
+  MAINTENANCE_TYPES,
   isAllSelected,
   parseContratParam,
   parseAutreTypesParam,
@@ -14,9 +16,19 @@ interface Props {
   autreTypes: AutreType[]
 }
 
-const FIXED_GROUPS: { code: Exclude<ContratGroup, 'autre'>; label: string; activeClass: string }[] = [
-  { code: 'location',    label: 'Location',               activeClass: 'bg-blue-600 border-blue-600 text-white' },
-  { code: 'maintenance', label: 'Contrat de maintenance',  activeClass: 'bg-amber-600 border-amber-600 text-white' },
+const FIXED_GROUPS: { code: Exclude<ContratGroup, 'autre'>; label: string; activeClass: string; tooltip: string[] }[] = [
+  {
+    code: 'location',
+    label: 'Location',
+    activeClass: 'bg-blue-600 border-blue-600 text-white',
+    tooltip: LOCATION_TYPES,
+  },
+  {
+    code: 'maintenance',
+    label: 'Contrat de maintenance',
+    activeClass: 'bg-amber-600 border-amber-600 text-white',
+    tooltip: MAINTENANCE_TYPES,
+  },
 ]
 
 export default function ContratFilterBar({ autreTypes }: Props) {
@@ -110,18 +122,33 @@ export default function ContratFilterBar({ autreTypes }: Props) {
 
       <div className="flex items-center gap-1.5">
         {/* Boutons LOCATION + CONTRAT DE MAINTENANCE */}
-        {FIXED_GROUPS.map(({ code, label, activeClass }) => {
+        {FIXED_GROUPS.map(({ code, label, activeClass, tooltip }) => {
           const isActive = showAll || activeGroups.includes(code)
           return (
-            <button
-              key={code}
-              onClick={() => toggleFixed(code)}
-              className={`text-xs px-2.5 py-1 rounded-md border font-medium transition-colors ${
-                isActive ? activeClass : 'border-slate-200 text-slate-400 bg-white hover:border-slate-300 hover:text-slate-500'
-              }`}
-            >
-              {label}
-            </button>
+            <div key={code} className="relative group/tip">
+              <button
+                onClick={() => toggleFixed(code)}
+                className={`text-xs px-2.5 py-1 rounded-md border font-medium transition-colors ${
+                  isActive ? activeClass : 'border-slate-200 text-slate-400 bg-white hover:border-slate-300 hover:text-slate-500'
+                }`}
+              >
+                {label}
+              </button>
+              {/* Tooltip au survol */}
+              <div className="pointer-events-none absolute left-0 top-full mt-1.5 z-50 hidden group-hover/tip:block">
+                <div className="bg-slate-800 text-white rounded-lg shadow-xl px-3 py-2 w-max max-w-xs">
+                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Valeurs incluses</p>
+                  <ul className="space-y-0.5">
+                    {tooltip.map(v => (
+                      <li key={v} className="text-xs text-slate-200 flex items-center gap-1.5">
+                        <span className="w-1 h-1 rounded-full bg-slate-500 shrink-0" />
+                        {v}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
           )
         })}
 

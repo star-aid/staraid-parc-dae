@@ -2,7 +2,7 @@
 
 // Valeurs explicites de chaque groupe fixe
 export const LOCATION_TYPES    = ['Location', 'Contrat de location', 'Contrat de Location', 'LOCATION LECLERC']
-export const MAINTENANCE_TYPES = ['Contrat de maintenance', 'Contrat Maintenance Préventive', 'Contrat de maintenance curative']
+export const MAINTENANCE_TYPES = ['Contrat de maintenance', 'Contrat Maintenance Préventive', 'Contrat de maintenance curative', 'Contrat de maintenance préventive']
 
 // AUTRES = tout ce qui n'est ni LOCATION ni MAINTENANCE (chargé dynamiquement depuis Supabase)
 
