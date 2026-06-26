@@ -5,26 +5,31 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { getSupabaseBrowserClient } from '@/lib/supabase'
 import { Suspense } from 'react'
 
+const DOMAIN = '@parc-dae.local'
+
 function LoginForm() {
   const router       = useRouter()
   const searchParams = useSearchParams()
   const redirect     = searchParams.get('redirect') ?? '/dashboard'
 
-  const [email,    setEmail]    = useState('')
-  const [password, setPassword] = useState('')
-  const [error,    setError]    = useState<string | null>(null)
-  const [loading,  setLoading]  = useState(false)
+  const [identifiant, setIdentifiant] = useState('')
+  const [password,    setPassword]    = useState('')
+  const [error,       setError]       = useState<string | null>(null)
+  const [loading,     setLoading]     = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
     setLoading(true)
 
+    // L'utilisateur saisit "admin", on envoie "admin@parc-dae.local"
+    const email = identifiant.trim().toLowerCase() + DOMAIN
+
     const supabase = getSupabaseBrowserClient()
     const { error: authError } = await supabase.auth.signInWithPassword({ email, password })
 
     if (authError) {
-      setError('Identifiants incorrects. Vérifiez votre email et mot de passe.')
+      setError('Identifiant ou mot de passe incorrect.')
       setLoading(false)
       return
     }
@@ -51,15 +56,16 @@ function LoginForm() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1.5">
-                Adresse email
+                Identifiant
               </label>
               <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                type="text"
+                value={identifiant}
+                onChange={(e) => setIdentifiant(e.target.value)}
                 required
-                autoComplete="email"
-                placeholder="prenom.nom@star-aid.fr"
+                autoComplete="username"
+                autoCapitalize="none"
+                placeholder="ex : admin"
                 className="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#AF2125] focus:border-transparent"
               />
             </div>
@@ -89,7 +95,7 @@ function LoginForm() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !identifiant.trim()}
               className="w-full bg-[#AF2125] text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-[#961d21] transition-colors disabled:opacity-60 disabled:cursor-not-allowed mt-2"
             >
               {loading ? 'Connexion…' : 'Se connecter'}
