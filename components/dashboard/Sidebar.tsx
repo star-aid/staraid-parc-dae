@@ -61,8 +61,8 @@ const NAV_ITEMS = [
 
 const ROLE_LABELS: Record<UserRole, string> = {
   administrateur: 'Administrateur',
-  maintenance:    'Maintenance',
-  direction:      'Direction',
+  maintenance:    'Gestionnaire de maintenance',
+  direction:      'Utilisateur (consultation du parc)',
 }
 
 function SyncIcon({ spinning }: { spinning: boolean }) {
