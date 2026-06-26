@@ -4,7 +4,7 @@ import dynamicImport from 'next/dynamic'
 import { createServiceClient } from '@/lib/supabase'
 import type { ParkSummary, TerritoryCode } from '@/types'
 import NextExpirations from '@/components/dashboard/NextExpirations'
-import { parseContratParam, buildContratOrFilter } from '@/lib/contract-groups'
+import { parseContratParam, parseAutreTypesParam, buildContratOrFilter } from '@/lib/contract-groups'
 import TerritoryFilterBar from '@/components/dashboard/TerritoryFilterBar'
 
 const StatusDonut = dynamicImport(() => import('@/components/dashboard/StatusDonut'), { ssr: false })
@@ -271,9 +271,12 @@ function KPICard({ label, value, sub, accent, icon }: KPICardProps) {
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams?: { contrat?: string; client?: string; territoire?: string; actif?: string; [key: string]: string | undefined }
+  searchParams?: { contrat?: string; autreTypes?: string; client?: string; territoire?: string; actif?: string; [key: string]: string | undefined }
 }) {
-  const contratFilter = buildContratOrFilter(parseContratParam(searchParams?.contrat))
+  const contratFilter = buildContratOrFilter(
+    parseContratParam(searchParams?.contrat),
+    parseAutreTypesParam(searchParams?.autreTypes),
+  )
   const clientId = searchParams?.client ?? null
   const territoryCode = searchParams?.territoire ?? null
   const actif = searchParams?.actif ?? 'actif'

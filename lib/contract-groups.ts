@@ -1,27 +1,17 @@
 // Groupes métier pour le filtre "Type de contrat" global
-// Mapping basé sur les valeurs réelles de defibrillators.contract_type en Supabase
 
-export const CONTRACT_GROUPS = {
-  location: ['Location', 'Contrat de location', 'LOCATION LECLERC'],
-  maintenance: [
-    'Maintenance préventive',
-    'Contrat de maintenance',
-    'Contrat de maintenance curative',
-    'Contrat de maintenance préventive',
-  ],
-  // autre = PDC, Audit, Aucun (explicite) + null (aucun contrat renseigné)
-  autre: [
-    'PDC - Passage Annuel',
-    'Audit simple',
-    "Contrat d'audit",
-    'Aucun',
-  ],
-} as const
+// Valeurs explicites de chaque groupe fixe
+export const LOCATION_TYPES    = ['Location', 'Contrat de location', 'Contrat de Location', 'LOCATION LECLERC']
+export const MAINTENANCE_TYPES = ['Contrat de maintenance', 'Contrat Maintenance Préventive', 'Contrat de maintenance curative']
+
+// AUTRES = tout ce qui n'est ni LOCATION ni MAINTENANCE (chargé dynamiquement depuis Supabase)
 
 export type ContratGroup = 'location' | 'maintenance' | 'autre'
 export const ALL_GROUPS: ContratGroup[] = ['location', 'maintenance', 'autre']
 
-// Extrait les groupes actifs depuis le paramètre URL ?contrat=location,maintenance
+export type AutreType = { type: string; count: number }
+
+// Parse ?contrat=location,maintenance
 export function parseContratParam(
   param: string | string[] | undefined
 ): ContratGroup[] {
@@ -32,44 +22,61 @@ export function parseContratParam(
     .filter((g): g is ContratGroup => g === 'location' || g === 'maintenance' || g === 'autre')
 }
 
-// Vrai si aucun filtre actif (0 ou 3 groupes = tout afficher)
-export function isAllSelected(groups: ContratGroup[]): boolean {
-  return groups.length === 0 || groups.length === ALL_GROUPS.length
+// Parse ?autreTypes=PDC - Passage Annuel|Aucun
+// Retourne null si tout est sélectionné (pas de param = tous), tableau sinon
+export function parseAutreTypesParam(
+  param: string | undefined
+): string[] | null {
+  if (!param) return null
+  return param.split('|').filter(Boolean)
+}
+
+// Vrai si aucun filtre actif → afficher tout
+export function isAllSelected(groups: ContratGroup[], autreTypesSelected?: string[] | null): boolean {
+  const groupsAll = groups.length === 0 || groups.length === ALL_GROUPS.length
+  return groupsAll && !autreTypesSelected?.length
+}
+
+// Échappe une valeur pour PostgREST in.() — entoure de guillemets si elle contient des caractères spéciaux
+function pgEscape(val: string): string {
+  // Valeurs avec espaces, apostrophes ou tirets nécessitent des guillemets doubles
+  if (/[\s',()]/.test(val)) return `"${val.replace(/"/g, '\\"')}"`
+  return val
 }
 
 // Construit la chaîne PostgREST pour Supabase .or()
-// Retourne null si aucun filtre à appliquer (affiche tout)
-export function buildContratOrFilter(groups: ContratGroup[]): string | null {
-  if (isAllSelected(groups)) return null
+// autreTypesSelected : null/undefined = tous les types AUTRES, [] = aucun, [...] = sélection spécifique
+export function buildContratOrFilter(
+  groups: ContratGroup[],
+  autreTypesSelected?: string[] | null
+): string | null {
+  if (isAllSelected(groups, autreTypesSelected)) return null
 
   const parts: string[] = []
 
   if (groups.includes('location')) {
-    // Les valeurs avec espaces doivent être entre guillemets dans le .in.()
-    parts.push('contract_type.in.(Location,"Contrat de location","LOCATION LECLERC")')
+    const vals = LOCATION_TYPES.map(pgEscape).join(',')
+    parts.push(`contract_type.in.(${vals})`)
   }
 
   if (groups.includes('maintenance')) {
-    const vals = [
-      '"Maintenance préventive"',
-      '"Contrat de maintenance"',
-      '"Contrat de maintenance curative"',
-      '"Contrat de maintenance préventive"',
-    ].join(',')
+    const vals = MAINTENANCE_TYPES.map(pgEscape).join(',')
     parts.push(`contract_type.in.(${vals})`)
   }
 
   if (groups.includes('autre')) {
-    // PDC, Audit + Aucun (explicite) + null (champ non renseigné)
-    const vals = [
-      '"PDC - Passage Annuel"',
-      '"Audit simple"',
-      `"Contrat d'audit"`,
-      'Aucun',
-    ].join(',')
-    parts.push(`contract_type.in.(${vals})`)
-    parts.push('contract_type.is.null')
+    if (autreTypesSelected && autreTypesSelected.length > 0) {
+      // Sous-sélection spécifique
+      const vals = autreTypesSelected.map(pgEscape).join(',')
+      parts.push(`contract_type.in.(${vals})`)
+    } else {
+      // Tous les AUTRES : NOT IN (location + maintenance) OU NULL
+      const excludeVals = [...LOCATION_TYPES, ...MAINTENANCE_TYPES].map(pgEscape).join(',')
+      parts.push(`contract_type.not.in.(${excludeVals})`)
+      parts.push('contract_type.is.null')
+    }
   }
 
+  if (parts.length === 0) return null
   return parts.join(',')
 }

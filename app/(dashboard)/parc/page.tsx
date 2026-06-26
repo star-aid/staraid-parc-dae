@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic'
 import ParcFiltersBar from '@/components/table/ParcFiltersBar'
 import { DAEStatusBadge, ConsumableStatus } from '@/components/table/StatusBadge'
 import type { MapMarker } from '@/components/map/ParcMap'
-import { parseContratParam, buildContratOrFilter } from '@/lib/contract-groups'
+import { parseContratParam, parseAutreTypesParam, buildContratOrFilter } from '@/lib/contract-groups'
 
 const ParcMapDynamic = dynamicImport(() => import('@/components/map/ParcMap'), {
   ssr: false,
@@ -32,6 +32,7 @@ interface SearchParams {
   territoire?: string
   statut?: string
   contrat?: string
+  autreTypes?: string
   client?: string
   actif?: string
   sort?: SortCol
@@ -95,6 +96,7 @@ function sortUrl(col: string, activeSort: string, activeDir: string, sp: SearchP
   if (sp.territoire) p.set('territoire', sp.territoire)
   if (sp.statut)     p.set('statut', sp.statut)
   if (sp.contrat)    p.set('contrat', sp.contrat)
+  if (sp.autreTypes) p.set('autreTypes', sp.autreTypes)
   if (sp.client)     p.set('client', sp.client)
   if (sp.actif && sp.actif !== 'actif') p.set('actif', sp.actif)
   const nextDir = col === activeSort && activeDir === 'asc' ? 'desc' : 'asc'
@@ -109,6 +111,7 @@ function pageUrl(page: number, sp: SearchParams) {
   if (sp.territoire) p.set('territoire', sp.territoire)
   if (sp.statut)     p.set('statut', sp.statut)
   if (sp.contrat)    p.set('contrat', sp.contrat)
+  if (sp.autreTypes) p.set('autreTypes', sp.autreTypes)
   if (sp.client)     p.set('client', sp.client)
   if (sp.actif && sp.actif !== 'actif') p.set('actif', sp.actif)
   if (sp.sort)       p.set('sort', sp.sort)
@@ -160,7 +163,7 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
   const page      = Math.max(1, parseInt(searchParams.page ?? '1', 10))
   const offset    = (page - 1) * PAGE_SIZE
   const contratGroups = parseContratParam(searchParams.contrat)
-  const contratFilter = buildContratOrFilter(contratGroups)
+  const contratFilter = buildContratOrFilter(contratGroups, parseAutreTypesParam(searchParams.autreTypes))
   const clientId  = searchParams.client ?? null
 
   const supabase = createServiceClient()
