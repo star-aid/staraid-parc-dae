@@ -69,6 +69,15 @@ export async function syncTerritory(
     ? `synchroteam_${forcedTerritoryCode.toLowerCase()}`
     : 'synchroteam_reu'
 
+  // Reset des syncs bloquées en "running" depuis plus de 30 min pour cette source
+  const staleThreshold = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+  await supabase
+    .from('sync_logs')
+    .update({ status: 'error', error_message: 'Timeout — reset automatique (running > 30 min)', finished_at: new Date().toISOString() })
+    .eq('source', logSource)
+    .eq('status', 'running')
+    .lt('started_at', staleThreshold)
+
   const [{ data: territories }, { data: lastSyncRow }] = await Promise.all([
     supabase.from('territories').select('id, code'),
     supabase
