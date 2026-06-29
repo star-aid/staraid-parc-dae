@@ -66,7 +66,7 @@ export default function ClientFilterBar({ clients }: Props) {
     <div className={`relative shrink-0 ${isPending ? 'opacity-60' : ''}`} ref={wrapRef}>
       {/* Champ de saisie / affichage */}
       <div
-        onClick={() => { setOpen((o) => !o); if (!open) inputRef.current?.focus() }}
+        onClick={() => inputRef.current?.focus()}
         className={`flex items-center gap-1.5 h-7 pl-2.5 pr-1.5 border rounded-lg bg-white cursor-text transition-colors ${
           selectedClient
             ? 'border-blue-400 ring-1 ring-blue-200'
@@ -80,10 +80,11 @@ export default function ClientFilterBar({ clients }: Props) {
         <input
           ref={inputRef}
           type="text"
-          placeholder={selectedClient ? selectedClient.name : 'Filtrer par client…'}
-          value={open ? query : ''}
-          onChange={(e) => setQuery(e.target.value)}
+          placeholder={selectedClient && !open ? selectedClient.name : 'Filtrer par client…'}
+          value={query}
+          onChange={(e) => { setQuery(e.target.value); setOpen(true) }}
           onFocus={() => { setOpen(true); setQuery('') }}
+          onBlur={() => { setTimeout(() => { setOpen(false); setQuery('') }, 150) }}
           className={`text-xs w-40 outline-none bg-transparent ${
             selectedClient && !open
               ? 'text-blue-700 font-medium placeholder:text-blue-700'
