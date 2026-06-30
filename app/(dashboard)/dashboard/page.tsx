@@ -281,6 +281,13 @@ export default async function DashboardPage({
   const actif = searchParams?.actif ?? 'actif'
   const { summary, monthly } = await getDashboardData(contratFilter, clientId, territoryCode, actif)
 
+  let selectedClientName: string | null = null
+  if (clientId) {
+    const supabase = createServiceClient()
+    const { data: cl } = await supabase.from('clients').select('name').eq('id', clientId).maybeSingle()
+    selectedClientName = cl?.name ?? null
+  }
+
   const total     = summary?.total     ?? 0
   const conforme  = summary?.conforme  ?? 0
   const vigilance = summary?.vigilance ?? 0
@@ -293,6 +300,9 @@ export default async function DashboardPage({
       <div className="mb-8 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Tableau de bord</h1>
+          {selectedClientName && (
+            <p className="text-sm font-medium text-blue-700 mt-0.5">{selectedClientName}</p>
+          )}
           <p className="text-sm text-slate-500 mt-0.5">
             Vue d&apos;ensemble du parc DAE STAR aid — données temps réel
           </p>
