@@ -172,9 +172,14 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
   // Nécessaire car defibrillators.client_id peut être NULL quand l'association
   // est portée par le site et non l'équipement dans Synchroteam.
   let clientSiteIds: string[] = []
+  let selectedClientName: string | null = null
   if (clientId) {
-    const { data: cs } = await supabase.from('sites').select('id').eq('client_id', clientId).limit(100)
+    const [{ data: cs }, { data: cl }] = await Promise.all([
+      supabase.from('sites').select('id').eq('client_id', clientId).limit(100),
+      supabase.from('clients').select('name').eq('id', clientId).maybeSingle(),
+    ])
     clientSiteIds = (cs ?? []).map((s: { id: string }) => s.id)
+    selectedClientName = cl?.name ?? null
   }
   function buildClientOrFilter(): string | null {
     if (!clientId) return null
@@ -338,6 +343,9 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Parc DAE</h1>
+          {selectedClientName && (
+            <p className="text-sm font-medium text-blue-700 mt-0.5">{selectedClientName}</p>
+          )}
           <p className="text-sm text-slate-500 mt-0.5">
             {vue === 'tableau'
               ? <>{total.toLocaleString('fr-FR')} équipements actifs{(terr.length > 0 || stat.length > 0 || q) && ' — filtrés'}</>
