@@ -158,7 +158,7 @@ export default function Sidebar({ critiqueCount, lastSync, userRole, userName }:
     setDoneMsg(allOk ? `Terminée à ${now}` : anyOk ? `Terminée avec erreurs à ${now}` : `Échec à ${now}`)
     setSyncing(false)
     setCurrentStep(0)
-    if (anyOk) setTimeout(() => window.location.reload(), 1500)
+    if (anyOk) setTimeout(() => router.refresh(), 1500)
   }
 
   return (

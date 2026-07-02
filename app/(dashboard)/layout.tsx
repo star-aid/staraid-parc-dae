@@ -23,7 +23,7 @@ async function getSidebarData() {
       supabase
         .from('sync_logs')
         .select('finished_at')
-        .eq('source', 'synchroteam')
+        .in('source', ['synchroteam_reu', 'synchroteam_myt', 'synchroteam_glp', 'synchroteam'])
         .eq('status', 'success')
         .order('finished_at', { ascending: false })
         .limit(1)
