@@ -117,7 +117,6 @@ export default function AlertesClient({ rows, initInconnu = false }: { rows: Ale
 
   const nCritique  = useMemo(() => rows.filter((r) => r.status === 'critique').length,  [rows])
   const nVigilance = useMemo(() => rows.filter((r) => r.status === 'vigilance').length, [rows])
-  const nInconnu   = useMemo(() => rows.filter((r) => r.status === 'inconnu').length,   [rows])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -149,7 +148,7 @@ export default function AlertesClient({ rows, initInconnu = false }: { rows: Ale
         if (!db) return -1
         return da.localeCompare(db)
       })
-  }, [rows, actif, territory, showCritique, showVigilance, raison, search])
+  }, [rows, actif, territory, showCritique, showVigilance, showInconnu, raison, search])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const safePage   = Math.min(page, totalPages)

@@ -22,7 +22,7 @@ type RawRow = {
   territories: { code: string; name: string } | null
 }
 
-async function getAlerts(contratFilter: string | null, clientId: string | null, includeInconnu: boolean): Promise<AlertRow[]> {
+async function getAlerts(contratFilter: string | null, clientId: string | null): Promise<AlertRow[]> {
   try {
     const supabase = createServiceClient()
 
@@ -87,8 +87,7 @@ export default async function AlertesPage({
     parseAutreTypesParam(searchParams?.autreTypes),
   )
   const clientId = searchParams?.client ?? null
-  const initStatut = searchParams?.statut ?? null
-  const includeInconnu = initStatut === 'inconnu'
-  const rows = await getAlerts(contratFilter, clientId, includeInconnu)
-  return <AlertesClient rows={rows} initInconnu={includeInconnu} />
+  const initInconnu = searchParams?.statut === 'inconnu'
+  const rows = await getAlerts(contratFilter, clientId)
+  return <AlertesClient rows={rows} initInconnu={initInconnu} />
 }
