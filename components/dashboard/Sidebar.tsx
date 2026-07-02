@@ -143,8 +143,11 @@ export default function Sidebar({ critiqueCount, lastSync, userRole, userName }:
           signal: controller.signal,
         })
         clearTimeout(timeout)
-        const body = await res.json() as { status?: string }
-        results[key] = (body.status === 'success' || body.status === 'partial') ? 'success' : 'error'
+        const body = await res.json() as { status?: string; equipments?: number; errors?: string[] }
+        // 'partial' = sync réussie avec quelques erreurs non bloquantes → on affiche succès
+        results[key] = (body.status === 'success' || body.status === 'partial') ? 'success'
+          : (body.equipments && body.equipments > 0) ? 'success'  // équipements synchro = sync OK malgré statut error
+          : 'error'
       } catch {
         results[key] = 'error'
       }
