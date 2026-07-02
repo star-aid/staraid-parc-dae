@@ -293,17 +293,15 @@ export default function AlertesClient({ rows, initInconnu = false }: { rows: Ale
                 />
                 <span className="text-sm text-slate-700">Vigilance</span>
               </label>
-              {nInconnu > 0 && (
-                <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={showInconnu}
-                    onChange={(e) => { setShowInconnu(e.target.checked); resetPage() }}
-                    className="w-3.5 h-3.5 accent-slate-500 cursor-pointer"
-                  />
-                  <span className="text-sm text-slate-700">Inconnu</span>
-                </label>
-              )}
+              <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={showInconnu}
+                  onChange={(e) => { setShowInconnu(e.target.checked); resetPage() }}
+                  className="w-3.5 h-3.5 accent-slate-500 cursor-pointer"
+                />
+                <span className="text-sm text-slate-700">Inconnu</span>
+              </label>
             </div>
           </div>
 

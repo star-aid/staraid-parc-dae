@@ -46,7 +46,7 @@ async function getAlerts(contratFilter: string | null, clientId: string | null, 
         sites(name),
         territories(code, name)
       `)
-      .in('status', includeInconnu ? ['critique', 'vigilance', 'inconnu'] : ['critique', 'vigilance'])
+      .in('status', ['critique', 'vigilance', 'inconnu'])
       .limit(1000)
     if (contratFilter)  q = q.or(contratFilter)
     if (clientOrFilter) q = q.or(clientOrFilter)
