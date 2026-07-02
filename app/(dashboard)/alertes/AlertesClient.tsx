@@ -10,7 +10,7 @@ export type AlertRow = {
   serial_number: string | null
   model: string | null
   brand: string | null
-  status: 'critique' | 'vigilance'
+  status: 'critique' | 'vigilance' | 'inconnu'
   status_reason: string | null
   battery_expiry: string | null
   electrodes_adult_expiry: string | null
@@ -105,10 +105,11 @@ function exportCSV(rows: AlertRow[]) {
   URL.revokeObjectURL(url)
 }
 
-export default function AlertesClient({ rows }: { rows: AlertRow[] }) {
+export default function AlertesClient({ rows, initInconnu = false }: { rows: AlertRow[]; initInconnu?: boolean }) {
   const [territory, setTerritory] = useState<string>('all')
-  const [showCritique, setShowCritique] = useState(true)
-  const [showVigilance, setShowVigilance] = useState(true)
+  const [showCritique, setShowCritique] = useState(!initInconnu)
+  const [showVigilance, setShowVigilance] = useState(!initInconnu)
+  const [showInconnu, setShowInconnu] = useState(initInconnu)
   const [raison, setRaison] = useState<RaisonFilter>('all')
   const [actif, setActif] = useState<'actif' | 'inactif' | 'tous'>('actif')
   const [search, setSearch] = useState('')
@@ -116,6 +117,7 @@ export default function AlertesClient({ rows }: { rows: AlertRow[] }) {
 
   const nCritique  = useMemo(() => rows.filter((r) => r.status === 'critique').length,  [rows])
   const nVigilance = useMemo(() => rows.filter((r) => r.status === 'vigilance').length, [rows])
+  const nInconnu   = useMemo(() => rows.filter((r) => r.status === 'inconnu').length,   [rows])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -126,6 +128,7 @@ export default function AlertesClient({ rows }: { rows: AlertRow[] }) {
         if (territory !== 'all' && r.territory_code !== territory) return false
         if (!showCritique  && r.status === 'critique')  return false
         if (!showVigilance && r.status === 'vigilance') return false
+        if (!showInconnu   && r.status === 'inconnu')   return false
         if (!matchesRaison(r, raison)) return false
         if (q) {
           const hay = [r.serial_number, r.client_name, r.site_name]
@@ -290,11 +293,22 @@ export default function AlertesClient({ rows }: { rows: AlertRow[] }) {
                 />
                 <span className="text-sm text-slate-700">Vigilance</span>
               </label>
+              {nInconnu > 0 && (
+                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={showInconnu}
+                    onChange={(e) => { setShowInconnu(e.target.checked); resetPage() }}
+                    className="w-3.5 h-3.5 accent-slate-500 cursor-pointer"
+                  />
+                  <span className="text-sm text-slate-700">Inconnu</span>
+                </label>
+              )}
             </div>
           </div>
 
           {/* Reset */}
-          {(territory !== 'all' || raison !== 'all' || actif !== 'actif' || !showCritique || !showVigilance || search) && (
+          {(territory !== 'all' || raison !== 'all' || actif !== 'actif' || !showCritique || !showVigilance || showInconnu || search) && (
             <button
               onClick={() => {
                 setTerritory('all')
@@ -302,6 +316,7 @@ export default function AlertesClient({ rows }: { rows: AlertRow[] }) {
                 setActif('actif')
                 setShowCritique(true)
                 setShowVigilance(true)
+                setShowInconnu(false)
                 setSearch('')
                 setPage(1)
               }}

@@ -22,7 +22,7 @@ type RawRow = {
   territories: { code: string; name: string } | null
 }
 
-async function getAlerts(contratFilter: string | null, clientId: string | null): Promise<AlertRow[]> {
+async function getAlerts(contratFilter: string | null, clientId: string | null, includeInconnu: boolean): Promise<AlertRow[]> {
   try {
     const supabase = createServiceClient()
 
@@ -46,7 +46,7 @@ async function getAlerts(contratFilter: string | null, clientId: string | null):
         sites(name),
         territories(code, name)
       `)
-      .in('status', ['critique', 'vigilance'])
+      .in('status', includeInconnu ? ['critique', 'vigilance', 'inconnu'] : ['critique', 'vigilance'])
       .limit(1000)
     if (contratFilter)  q = q.or(contratFilter)
     if (clientOrFilter) q = q.or(clientOrFilter)
@@ -59,7 +59,7 @@ async function getAlerts(contratFilter: string | null, clientId: string | null):
       serial_number:            d.serial_number,
       model:                    d.model,
       brand:                    d.brand,
-      status:                   d.status as 'critique' | 'vigilance',
+      status:                   d.status as 'critique' | 'vigilance' | 'inconnu',
       status_reason:            d.status_reason,
       battery_expiry:           d.battery_expiry,
       electrodes_adult_expiry:  d.electrodes_adult_expiry,
@@ -80,13 +80,15 @@ async function getAlerts(contratFilter: string | null, clientId: string | null):
 export default async function AlertesPage({
   searchParams,
 }: {
-  searchParams?: { contrat?: string; autreTypes?: string; client?: string; [key: string]: string | undefined }
+  searchParams?: { contrat?: string; autreTypes?: string; client?: string; statut?: string; [key: string]: string | undefined }
 }) {
   const contratFilter = buildContratOrFilter(
     parseContratParam(searchParams?.contrat),
     parseAutreTypesParam(searchParams?.autreTypes),
   )
   const clientId = searchParams?.client ?? null
-  const rows = await getAlerts(contratFilter, clientId)
-  return <AlertesClient rows={rows} />
+  const initStatut = searchParams?.statut ?? null
+  const includeInconnu = initStatut === 'inconnu'
+  const rows = await getAlerts(contratFilter, clientId, includeInconnu)
+  return <AlertesClient rows={rows} initInconnu={includeInconnu} />
 }

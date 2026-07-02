@@ -4,8 +4,10 @@ import dynamicImport from 'next/dynamic'
 import { createServiceClient } from '@/lib/supabase'
 import type { ParkSummary, TerritoryCode } from '@/types'
 import NextExpirations from '@/components/dashboard/NextExpirations'
+import Link from 'next/link'
 import { parseContratParam, parseAutreTypesParam, buildContratOrFilter } from '@/lib/contract-groups'
 import TerritoryFilterBar from '@/components/dashboard/TerritoryFilterBar'
+import { createSessionClient } from '@/lib/supabase-server'
 
 const StatusDonut = dynamicImport(() => import('@/components/dashboard/StatusDonut'), { ssr: false })
 const TerritoryBars = dynamicImport(() => import('@/components/dashboard/TerritoryBars'), { ssr: false })
@@ -288,6 +290,14 @@ export default async function DashboardPage({
     selectedClientName = cl?.name ?? null
   }
 
+  // Rôle utilisateur — pour afficher le bandeau inconnu aux admins/maintenance uniquement
+  let userRole: string = 'direction'
+  try {
+    const sessionClient = await createSessionClient()
+    const { data: { user } } = await sessionClient.auth.getUser()
+    userRole = (user?.user_metadata?.role as string | undefined) ?? 'direction'
+  } catch { /* non authentifié → rôle par défaut */ }
+
   const total     = summary?.total     ?? 0
   const conforme  = summary?.conforme  ?? 0
   const vigilance = summary?.vigilance ?? 0
@@ -410,18 +420,24 @@ export default async function DashboardPage({
         </div>
       </div>
 
-      {/* Bandeau données inconnu */}
-      {inconnu > 0 && (
+      {/* Bandeau données inconnu — visible admins et maintenance uniquement */}
+      {inconnu > 0 && (userRole === 'administrateur' || userRole === 'maintenance') && (
         <div className="rounded-lg border border-slate-200 bg-slate-50 px-5 py-3 flex items-center gap-3 text-sm text-slate-600">
           <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0 text-slate-400" fill="none" stroke="currentColor" strokeWidth="2">
             <circle cx="12" cy="12" r="10"/>
             <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
             <line x1="12" y1="17" x2="12.01" y2="17"/>
           </svg>
-          <span>
+          <span className="flex-1">
             <strong>{inconnu.toLocaleString('fr-FR')} DAE</strong> ont un statut inconnu — données
             insuffisantes (batterie, électrodes ou maintenance non renseignées dans Synchroteam).
           </span>
+          <Link
+            href="/alertes?statut=inconnu"
+            className="shrink-0 text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-3 py-1.5 hover:bg-slate-100 transition-colors whitespace-nowrap"
+          >
+            Voir la liste →
+          </Link>
         </div>
       )}
     </div>
