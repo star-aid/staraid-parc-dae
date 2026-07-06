@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { getSupabaseBrowserClient, type UserRole } from '@/lib/supabase'
@@ -98,6 +98,8 @@ const TERRITORIES = [
 type TerritoryKey = typeof TERRITORIES[number]['key']
 type TerritoryStatus = 'pending' | 'running' | 'success' | 'error'
 
+type PollStatus = { status: string; records_synced: number; finished_at: string | null } | null
+
 export default function Sidebar({ critiqueCount, lastSync, userRole, userName }: SidebarProps) {
   const pathname = usePathname()
   const router   = useRouter()
@@ -106,6 +108,9 @@ export default function Sidebar({ critiqueCount, lastSync, userRole, userName }:
   const [territoryStatus, setTerritoryStatus] = useState<Record<TerritoryKey, TerritoryStatus> | null>(null)
   const [currentStep, setCurrentStep] = useState<number>(0)
   const [doneMsg, setDoneMsg] = useState<string | null>(null)
+  const pollingRef = useRef(false)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pollStartRef = useRef<number>(0)
 
   const formatSync = lastSync
     ? new Date(lastSync).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })
@@ -120,48 +125,60 @@ export default function Sidebar({ critiqueCount, lastSync, userRole, userName }:
     router.refresh()
   }
 
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+    pollingRef.current = false
+  }, [])
+
+  const startPolling = useCallback(() => {
+    pollStartRef.current = Date.now()
+    pollingRef.current = true
+    pollRef.current = setInterval(async () => {
+      // Arrêt après 5 min
+      if (Date.now() - pollStartRef.current > 5 * 60 * 1000) { stopPolling(); return }
+
+      try {
+        const res = await fetch('/api/sync/status?territories=1')
+        const data = await res.json() as Record<string, PollStatus>
+        const map: Record<TerritoryKey, TerritoryStatus> = { reu: 'pending', myt: 'pending', glp: 'pending' }
+        let allDone = true
+        for (const key of ['reu', 'myt', 'glp'] as TerritoryKey[]) {
+          const row = data[key]
+          if (!row || row.status === 'running') { map[key] = 'running'; allDone = false }
+          else if (row.status === 'success' || row.status === 'partial') map[key] = 'success'
+          else map[key] = 'error'
+        }
+        setTerritoryStatus({ ...map })
+        if (allDone) {
+          stopPolling()
+          const allOk = Object.values(map).every(s => s === 'success')
+          const anyOk = Object.values(map).some(s => s === 'success')
+          const now = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+          setDoneMsg(allOk ? `Terminée à ${now}` : anyOk ? `Terminée avec erreurs à ${now}` : `Échec à ${now}`)
+          setSyncing(false)
+          setCurrentStep(0)
+          if (anyOk) setTimeout(() => router.refresh(), 1500)
+        }
+      } catch { /* silencieux */ }
+    }, 10_000)
+  }, [stopPolling, router])
+
   async function handleSync() {
     if (syncing) return
     setSyncing(true)
     setDoneMsg(null)
     setCurrentStep(0)
-    setTerritoryStatus({ reu: 'pending', myt: 'pending', glp: 'pending' })
+    setTerritoryStatus({ reu: 'running', myt: 'running', glp: 'running' })
 
-    const results: Record<TerritoryKey, TerritoryStatus> = { reu: 'pending', myt: 'pending', glp: 'pending' }
+    // Déclenche les 3 syncs en parallèle
+    await Promise.allSettled(
+      TERRITORIES.map(({ key }) =>
+        fetch(`/api/sync/trigger?territory=${key}`, { method: 'POST' })
+      )
+    )
 
-    for (let i = 0; i < TERRITORIES.length; i++) {
-      const { key } = TERRITORIES[i]
-      setCurrentStep(i + 1)
-      results[key] = 'running'
-      setTerritoryStatus({ ...results })
-
-      try {
-        const controller = new AbortController()
-        const timeout = setTimeout(() => controller.abort(), 55_000)
-        const res = await fetch(`/api/sync/trigger?territory=${key}`, {
-          method: 'POST',
-          signal: controller.signal,
-        })
-        clearTimeout(timeout)
-        const body = await res.json() as { status?: string; equipments?: number; errors?: string[] }
-        results[key] = (body.status === 'success' || body.status === 'partial' || body.status === 'started')
-          ? 'success'
-          : (body.equipments && body.equipments > 0) ? 'success'
-          : 'error'
-      } catch {
-        results[key] = 'error'
-      }
-
-      setTerritoryStatus({ ...results })
-    }
-
-    const allOk   = Object.values(results).every(s => s === 'success')
-    const anyOk   = Object.values(results).some(s => s === 'success')
-    const now     = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
-    setDoneMsg(allOk ? `Terminée à ${now}` : anyOk ? `Terminée avec erreurs à ${now}` : `Échec à ${now}`)
-    setSyncing(false)
-    setCurrentStep(0)
-    if (anyOk) setTimeout(() => router.refresh(), 1500)
+    // Démarre le polling pour suivre la progression réelle
+    startPolling()
   }
 
   return (
