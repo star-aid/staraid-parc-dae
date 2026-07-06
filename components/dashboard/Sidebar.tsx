@@ -144,9 +144,9 @@ export default function Sidebar({ critiqueCount, lastSync, userRole, userName }:
         })
         clearTimeout(timeout)
         const body = await res.json() as { status?: string; equipments?: number; errors?: string[] }
-        // 'partial' = sync réussie avec quelques erreurs non bloquantes → on affiche succès
-        results[key] = (body.status === 'success' || body.status === 'partial') ? 'success'
-          : (body.equipments && body.equipments > 0) ? 'success'  // équipements synchro = sync OK malgré statut error
+        results[key] = (body.status === 'success' || body.status === 'partial' || body.status === 'started')
+          ? 'success'
+          : (body.equipments && body.equipments > 0) ? 'success'
           : 'error'
       } catch {
         results[key] = 'error'
