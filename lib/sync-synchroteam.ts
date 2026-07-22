@@ -402,6 +402,25 @@ async function syncInterventions(
 
     const jobs = await apiClient.fetchJobs({ dateFrom })
 
+    // Carte site_id → dae_id pour les sites avec exactement 1 DAE actif
+    // Permet de relier les interventions sans équipement direct via le site
+    const { data: siteOneDae } = await supabase
+      .from('defibrillators')
+      .select('id, site_id')
+      .eq('active', true)
+      .not('site_id', 'is', null)
+    const siteDaeCount = new Map<string, string[]>()
+    for (const row of siteOneDae ?? []) {
+      const arr = siteDaeCount.get(row.site_id) ?? []
+      arr.push(row.id)
+      siteDaeCount.set(row.site_id, arr)
+    }
+    // Ne garder que les sites avec exactement 1 DAE
+    const siteToSingleDae = new Map<string, string>()
+    siteDaeCount.forEach((daeIds, siteId) => {
+      if (daeIds.length === 1) siteToSingleDae.set(siteId, daeIds[0])
+    })
+
     const rows = jobs
       .map((j) => {
         const equipment   = j.equipment   as Record<string, unknown> | null
@@ -419,10 +438,16 @@ async function syncInterventions(
         const durationRaw  = g(j, 'duration', 'durationMinutes')
         const techName = str(g(technician, 'name', 'lastName', 'last_name')) ?? ''
 
+        const siteUuid = siteSyncId ? (siteMap.get(siteSyncId) ?? null) : null
+        // Résolution DAE : équipement direct en priorité, sinon via site unique
+        const defibrillator_id = equipSyncId
+          ? (daeMap.get(equipSyncId) ?? null)
+          : (siteUuid ? (siteToSingleDae.get(siteUuid) ?? null) : null)
+
         return {
           synchroteam_id: `${idPrefix}${String(j.id)}`,
-          defibrillator_id: equipSyncId ? (daeMap.get(equipSyncId) ?? null) : null,
-          site_id: siteSyncId ? (siteMap.get(siteSyncId) ?? null) : null,
+          defibrillator_id,
+          site_id: siteUuid,
           client_id: customerSyncId ? (clientMap.get(customerSyncId) ?? null) : null,
           type: mapJobType(typeObj?.name ?? g(j, 'typeName')),
           status: mapJobStatus(g(j, 'status', 'jobStatus')),

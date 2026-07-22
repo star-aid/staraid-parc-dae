@@ -212,36 +212,40 @@ interface Props {
 export default async function ParcDetailPage({ params }: Props) {
   const supabase = createServiceClient()
 
-  const [daeRes, interventionsRes] = await Promise.all([
-    supabase
-      .from('defibrillators')
-      .select(`
-        id, serial_number, model, brand, status, status_reason,
-        last_maintenance_date, next_maintenance_date,
-        battery_install_date, battery_expiry, battery_status,
-        electrodes_adult_expiry, electrodes_pediatric_expiry, electrodes_status,
-        contract_type, contract_start, contract_end,
-        manufacture_date, location_detail, zone_geographique, cabinet_code,
-        kit_rcp, registre_star_aid,
-        clients(name, address, city, contact_email, contact_phone),
-        sites(name, address, city, latitude, longitude),
-        territories(code, name)
-      `)
-      .eq('id', params.id)
-      .single(),
-
-    supabase
-      .from('interventions')
-      .select('id, type, status, scheduled_date, completed_date, technician_name, duration_minutes, report')
-      .eq('defibrillator_id', params.id)
-      .order('completed_date', { ascending: false, nullsFirst: false })
-      .order('scheduled_date', { ascending: false })
-      .limit(20),
-  ])
+  const daeRes = await supabase
+    .from('defibrillators')
+    .select(`
+      id, serial_number, model, brand, status, status_reason,
+      last_maintenance_date, next_maintenance_date,
+      battery_install_date, battery_expiry, battery_status,
+      electrodes_adult_expiry, electrodes_pediatric_expiry, electrodes_status,
+      contract_type, contract_start, contract_end,
+      manufacture_date, location_detail, zone_geographique, cabinet_code,
+      kit_rcp, registre_star_aid, site_id,
+      clients(name, address, city, contact_email, contact_phone),
+      sites(name, address, city, latitude, longitude),
+      territories(code, name)
+    `)
+    .eq('id', params.id)
+    .single()
 
   if (daeRes.error || !daeRes.data) notFound()
 
-  const d  = daeRes.data as unknown as DaeDetail
+  const d  = daeRes.data as unknown as DaeDetail & { site_id: string | null }
+
+  // Interventions : par DAE direct OU par site (jobs Synchroteam souvent liés au site, pas à l'équipement)
+  const orFilter = d.site_id
+    ? `defibrillator_id.eq.${params.id},site_id.eq.${d.site_id}`
+    : `defibrillator_id.eq.${params.id}`
+
+  const interventionsRes = await supabase
+    .from('interventions')
+    .select('id, type, status, scheduled_date, completed_date, technician_name, duration_minutes, report')
+    .or(orFilter)
+    .order('completed_date', { ascending: false, nullsFirst: false })
+    .order('scheduled_date', { ascending: false })
+    .limit(50)
+
   const ivs = (interventionsRes.data ?? []) as Intervention[]
 
   const client    = d.clients as DaeDetail['clients']
