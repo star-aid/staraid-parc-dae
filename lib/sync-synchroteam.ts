@@ -93,9 +93,36 @@ function mapJobStatus(raw: unknown): 'planifie' | 'en_cours' | 'termine' | 'annu
   return 'planifie'
 }
 
+/**
+ * Récupère toutes les lignes d'une table en paginant.
+ * PostgREST plafonne chaque requête à 1 000 lignes : sans pagination, les tables
+ * volumineuses (sites, defibrillators) sont tronquées silencieusement et les
+ * rattachements par clé étrangère échouent en masse.
+ */
+async function fetchAllRows<T>(
+  supabase: SupabaseClient,
+  table: string,
+  columns: string
+): Promise<T[]> {
+  const PAGE = 1000
+  const out: T[] = []
+  for (let page = 0; ; page++) {
+    const { data, error } = await supabase
+      .from(table)
+      .select(columns)
+      .range(page * PAGE, (page + 1) * PAGE - 1)
+    if (error || !data?.length) break
+    out.push(...(data as T[]))
+    if (data.length < PAGE) break
+  }
+  return out
+}
+
 async function buildIdMap(supabase: SupabaseClient, table: string): Promise<Map<string, string>> {
-  const { data } = await supabase.from(table).select('id, synchroteam_id')
-  return new Map((data ?? []).map((r: { id: string; synchroteam_id: string }) => [r.synchroteam_id, r.id]))
+  const rows = await fetchAllRows<{ id: string; synchroteam_id: string }>(
+    supabase, table, 'id, synchroteam_id'
+  )
+  return new Map(rows.map((r) => [r.synchroteam_id, r.id]))
 }
 
 // ─── Étape 1 : Clients ───────────────────────────────────────────────────────
@@ -404,13 +431,12 @@ async function syncInterventions(
 
     // Carte site_id → dae_id pour les sites avec exactement 1 DAE actif
     // Permet de relier les interventions sans équipement direct via le site
-    const { data: siteOneDae } = await supabase
-      .from('defibrillators')
-      .select('id, site_id')
-      .eq('active', true)
-      .not('site_id', 'is', null)
+    const siteOneDae = await fetchAllRows<{ id: string; site_id: string | null; active: boolean }>(
+      supabase, 'defibrillators', 'id, site_id, active'
+    )
     const siteDaeCount = new Map<string, string[]>()
-    for (const row of siteOneDae ?? []) {
+    for (const row of siteOneDae) {
+      if (!row.site_id || !row.active) continue
       const arr = siteDaeCount.get(row.site_id) ?? []
       arr.push(row.id)
       siteDaeCount.set(row.site_id, arr)
@@ -690,12 +716,14 @@ export async function runSyncForAccount(
 
   // 2. Sites
   result.sites = await syncSites(rawSites, supabase, clientMap, territoryMap, idPrefix, forcedTerritoryCode, result.errors)
-  const [siteMap, { data: sitesForClientMap }] = await Promise.all([
+  const [siteMap, sitesForClientMap] = await Promise.all([
     buildIdMap(supabase, 'sites'),
-    supabase.from('sites').select('synchroteam_id, client_id'),
+    fetchAllRows<{ synchroteam_id: string; client_id: string | null }>(
+      supabase, 'sites', 'synchroteam_id, client_id'
+    ),
   ])
   const siteClientMap = new Map<string, string>(
-    ((sitesForClientMap ?? []) as Array<{ synchroteam_id: string; client_id: string | null }>)
+    sitesForClientMap
       .filter((s) => !!s.client_id)
       .map((s) => [s.synchroteam_id, s.client_id as string])
   )
