@@ -485,10 +485,13 @@ async function syncInterventions(
         const techName = str(g(technician, 'name', 'lastName', 'last_name')) ?? ''
 
         const siteUuid = siteSyncId ? (siteMap.get(siteSyncId) ?? null) : null
-        // Résolution DAE : équipement direct en priorité, sinon via site unique
-        const defibrillator_id = equipSyncId
-          ? (daeMap.get(equipSyncId) ?? null)
-          : (siteUuid ? (siteToSingleDae.get(siteUuid) ?? null) : null)
+        // Résolution DAE : équipement direct en priorité, sinon repli sur le site unique
+        // (le repli s'applique aussi si l'équipement est présent dans le job mais absent
+        // de daeMap — équipement pas encore synchronisé/mappé à cet instant)
+        const defibrillator_id =
+          (equipSyncId ? daeMap.get(equipSyncId) : undefined) ??
+          (siteUuid ? siteToSingleDae.get(siteUuid) : undefined) ??
+          null
 
         return {
           synchroteam_id: `${idPrefix}${String(j.id)}`,
