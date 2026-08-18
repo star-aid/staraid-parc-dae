@@ -18,31 +18,34 @@ const STATUTS = [
 interface Props {
   total: number
   shown: number
-  csvData: Record<string, string | null>[]
 }
 
-function csvEscape(v: string | null | undefined): string {
-  if (v == null) return ''
-  const s = String(v)
-  if (s.includes(',') || s.includes('"') || s.includes('\n')) return `"${s.replace(/"/g, '""')}"`
-  return s
-}
-
-function downloadCSV(rows: Record<string, string | null>[], filename: string) {
-  if (rows.length === 0) return
-  const cols = Object.keys(rows[0])
-  const lines = [cols.join(','), ...rows.map((r) => cols.map((c) => csvEscape(r[c])).join(','))]
-  const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url; a.download = filename; a.click()
-  URL.revokeObjectURL(url)
-}
-
-export default function ParcFiltersBar({ total, shown, csvData }: Props) {
+export default function ParcFiltersBar({ total, shown }: Props) {
   const router = useRouter()
   const sp = useSearchParams()
   const [isPending, startTransition] = useTransition()
+  const [exporting, setExporting] = useState(false)
+
+  async function exportAllCSV() {
+    if (exporting) return
+    setExporting(true)
+    try {
+      const res = await fetch(`/api/parc/export?${sp.toString()}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const blob = await res.blob()
+      const disposition = res.headers.get('Content-Disposition') ?? ''
+      const match = disposition.match(/filename="([^"]+)"/)
+      const filename = match?.[1] ?? 'parc-dae.csv'
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = filename; a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      alert("Échec de l'export CSV — réessayez.")
+    } finally {
+      setExporting(false)
+    }
+  }
 
   const currentQ     = sp.get('q') ?? ''
   const currentTerr  = sp.get('territoire')?.split(',').filter(Boolean) ?? []
@@ -187,15 +190,16 @@ export default function ParcFiltersBar({ total, shown, csvData }: Props) {
             {shown.toLocaleString('fr-FR')} / {total.toLocaleString('fr-FR')} DAE
           </span>
           <button
-            onClick={() => downloadCSV(csvData, 'parc-dae.csv')}
-            disabled={csvData.length === 0}
+            onClick={exportAllCSV}
+            disabled={exporting || total === 0}
+            title={`Exporter les ${total.toLocaleString('fr-FR')} DAE filtrés (pas seulement la page affichée)`}
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors disabled:opacity-40"
           >
-            <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg viewBox="0 0 24 24" className={`w-3.5 h-3.5 ${exporting ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
               <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
             </svg>
-            CSV
+            {exporting ? 'Export…' : `CSV (${total.toLocaleString('fr-FR')})`}
           </button>
         </div>
       </div>

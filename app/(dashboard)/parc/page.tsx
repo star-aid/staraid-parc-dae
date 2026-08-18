@@ -319,24 +319,6 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
   const total  = count ?? 0
   const pages  = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
-  const csvData = daes.map((d) => ({
-    'N° série':             d.serial_number ?? '',
-    'Modèle':               d.model ?? '',
-    'Marque':               d.brand ?? '',
-    'Client':               d.clients?.name ?? '',
-    'Site':                 d.sites?.name ?? '',
-    'Territoire':           d.territories?.code ?? '',
-    'Statut':               d.status,
-    'Raison statut':        d.status_reason ?? '',
-    'Dernière maintenance': fmtDate(d.last_maintenance_date),
-    'Prochaine échéance':   fmtDate(d.next_maintenance_date),
-    'Batterie':             d.battery_status,
-    'DLU batterie':         fmtDate(d.battery_expiry),
-    'Électrodes':           d.electrodes_status,
-    'DLU électrodes':       fmtDate(criticalDate(d.electrodes_adult_expiry, d.electrodes_pediatric_expiry)),
-    'Type électrodes':      isPediatricMoreCritical(d.electrodes_adult_expiry, d.electrodes_pediatric_expiry) ? 'Pédiatriques' : 'Adultes',
-  }))
-
   return (
     <div className="p-6 lg:p-8 max-w-screen-2xl mx-auto">
       {/* En-tête */}
@@ -389,7 +371,6 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
       <ParcFiltersBar
         total={vue === 'tableau' ? total : mapMarkers.length}
         shown={vue === 'tableau' ? daes.length : mapMarkers.length}
-        csvData={vue === 'tableau' ? csvData : []}
       />
 
       {error && vue === 'tableau' && (
