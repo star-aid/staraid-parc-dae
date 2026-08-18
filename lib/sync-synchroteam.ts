@@ -546,6 +546,82 @@ async function updateLastMaintenanceDates(
   }
 }
 
+// ─── Étape 7bis : Mise à jour next_maintenance_date ──────────────────────────
+/**
+ * Prochaine échéance de maintenance par DAE, dans l'ordre de priorité :
+ *   1. Job Synchroteam de type maintenance déjà planifié dans le futur (le plus proche).
+ *   2. À défaut : dernière maintenance + 1 an (règle STAR aid par défaut, tous contrats confondus).
+ */
+async function updateNextMaintenanceDates(
+  supabase: SupabaseClient,
+  errors: string[]
+): Promise<void> {
+  try {
+    const nowIso = new Date().toISOString()
+
+    // 1. Prochains jobs de maintenance planifiés (futurs, non annulés)
+    type FutureRow = { defibrillator_id: string; scheduled_date: string }
+    const futureRows: FutureRow[] = []
+    for (let page = 0; ; page++) {
+      const { data, error } = await supabase
+        .from('interventions')
+        .select('defibrillator_id, scheduled_date')
+        .not('defibrillator_id', 'is', null)
+        .not('scheduled_date', 'is', null)
+        .eq('type', 'maintenance')
+        .neq('status', 'annule')
+        .gt('scheduled_date', nowIso)
+        .order('scheduled_date', { ascending: true })
+        .range(page * 1000, (page + 1) * 1000 - 1)
+      if (error || !data?.length) break
+      futureRows.push(...(data as FutureRow[]))
+      if (data.length < 1000) break
+    }
+    const nextByDae = new Map<string, string>()
+    for (const row of futureRows) {
+      if (!nextByDae.has(row.defibrillator_id)) {
+        nextByDae.set(row.defibrillator_id, row.scheduled_date.split('T')[0])
+      }
+    }
+
+    // 2. Fallback : DAE actifs avec last_maintenance_date mais sans job futur → +1 an
+    type DaeLastRow = { id: string; last_maintenance_date: string }
+    const withLastMaint: DaeLastRow[] = []
+    for (let page = 0; ; page++) {
+      const { data, error } = await supabase
+        .from('defibrillators')
+        .select('id, last_maintenance_date')
+        .eq('active', true)
+        .not('last_maintenance_date', 'is', null)
+        .range(page * 1000, (page + 1) * 1000 - 1)
+      if (error || !data?.length) break
+      withLastMaint.push(...(data as DaeLastRow[]))
+      if (data.length < 1000) break
+    }
+    for (const dae of withLastMaint) {
+      if (!nextByDae.has(dae.id)) {
+        const d = new Date(dae.last_maintenance_date)
+        d.setFullYear(d.getFullYear() + 1)
+        nextByDae.set(dae.id, d.toISOString().split('T')[0])
+      }
+    }
+
+    if (!nextByDae.size) return
+
+    const entries = Array.from(nextByDae.entries())
+    for (const batch of chunk(entries, 20)) {
+      await Promise.all(batch.map(([id, date]) =>
+        supabase
+          .from('defibrillators')
+          .update({ next_maintenance_date: date, updated_at: new Date().toISOString() })
+          .eq('id', id)
+      ))
+    }
+  } catch (err) {
+    errors.push(`next_maintenance_date: ${String(err)}`)
+  }
+}
+
 // ─── Étape 8 : Calcul des statuts ────────────────────────────────────────────
 
 type DaeRow = {
@@ -662,6 +738,7 @@ export async function runGlobalFinalize(
   errors: string[]
 ): Promise<{ statuses_updated: number; geocoded: number }> {
   await updateLastMaintenanceDates(supabase, errors)
+  await updateNextMaintenanceDates(supabase, errors)
   const statuses_updated = await calculateStatuses(supabase, errors)
   // Limité à 3 sites par sync (rate-limit Nominatim 1 req/s → 3s max)
   const geocoded = await geocodeMissingSites(supabase, errors, 3)
@@ -783,6 +860,7 @@ export async function runSynchroteamSync(
 
   // Étapes globales (après tous les comptes)
   await updateLastMaintenanceDates(supabase, combined.errors)
+  await updateNextMaintenanceDates(supabase, combined.errors)
   combined.statuses_updated = await calculateStatuses(supabase, combined.errors)
   combined.geocoded = await geocodeMissingSites(supabase, combined.errors)
 
