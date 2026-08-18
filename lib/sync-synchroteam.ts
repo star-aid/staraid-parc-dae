@@ -70,6 +70,26 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return chunks
 }
 
+/**
+ * Met à jour un lot de DAE en un seul aller-retour réseau via la fonction SQL
+ * bulk_update_defibrillators (UPDATE ... FROM jsonb_array_elements).
+ * Remplace les boucles de .update().eq('id') individuelles — sur les gros
+ * territoires (~2000 DAE), ces boucles ajoutaient des centaines de requêtes
+ * séquentielles et faisaient dépasser la limite de 60s des routes Vercel.
+ */
+async function bulkUpdateDefibrillators(
+  supabase: SupabaseClient,
+  updates: Array<Record<string, unknown> & { id: string }>,
+  errors: string[],
+  label: string
+): Promise<void> {
+  if (!updates.length) return
+  for (const batch of chunk(updates, 1000)) {
+    const { error } = await supabase.rpc('bulk_update_defibrillators', { updates: batch })
+    if (error) errors.push(`${label} bulk update: ${error.message}`)
+  }
+}
+
 function parseBrandModel(val: string | null): { brand: string | null; model: string | null } {
   if (!val) return { brand: null, model: null }
   const sep = val.indexOf(' - ')
@@ -531,16 +551,8 @@ async function updateLastMaintenanceDates(
       }
     }
 
-    // UPDATE individuel — jamais d'INSERT (évite la violation synchroteam_id NOT NULL)
-    const entries = Array.from(lastByDae.entries())
-    for (const batch of chunk(entries, 20)) {
-      await Promise.all(batch.map(([id, date]) =>
-        supabase
-          .from('defibrillators')
-          .update({ last_maintenance_date: date, updated_at: new Date().toISOString() })
-          .eq('id', id)
-      ))
-    }
+    const updates = Array.from(lastByDae.entries()).map(([id, date]) => ({ id, last_maintenance_date: date }))
+    await bulkUpdateDefibrillators(supabase, updates, errors, 'last_maintenance_date')
   } catch (err) {
     errors.push(`last_maintenance_date: ${String(err)}`)
   }
@@ -606,17 +618,8 @@ async function updateNextMaintenanceDates(
       }
     }
 
-    if (!nextByDae.size) return
-
-    const entries = Array.from(nextByDae.entries())
-    for (const batch of chunk(entries, 20)) {
-      await Promise.all(batch.map(([id, date]) =>
-        supabase
-          .from('defibrillators')
-          .update({ next_maintenance_date: date, updated_at: new Date().toISOString() })
-          .eq('id', id)
-      ))
-    }
+    const updates = Array.from(nextByDae.entries()).map(([id, date]) => ({ id, next_maintenance_date: date }))
+    await bulkUpdateDefibrillators(supabase, updates, errors, 'next_maintenance_date')
   } catch (err) {
     errors.push(`next_maintenance_date: ${String(err)}`)
   }
@@ -675,16 +678,14 @@ async function calculateStatuses(
       return { id: dae.id, status, status_reason: reason, battery_status, electrodes_status, updated_at: new Date().toISOString() }
     })
 
-    // UPDATE individuel — jamais d'INSERT (évite la violation synchroteam_id NOT NULL)
-    for (const batch of chunk(updates, 20)) {
-      await Promise.all(batch.map(u =>
-        supabase
-          .from('defibrillators')
-          .update({ status: u.status, status_reason: u.status_reason, battery_status: u.battery_status, electrodes_status: u.electrodes_status, updated_at: u.updated_at })
-          .eq('id', u.id)
-      ))
-      total += batch.length
-    }
+    await bulkUpdateDefibrillators(
+      supabase,
+      updates.map(({ id, status, status_reason, battery_status, electrodes_status }) =>
+        ({ id, status, status_reason, battery_status, electrodes_status })),
+      errors,
+      'calculateStatuses'
+    )
+    total = updates.length
   } catch (err) {
     errors.push(`calculateStatuses: ${String(err)}`)
   }
