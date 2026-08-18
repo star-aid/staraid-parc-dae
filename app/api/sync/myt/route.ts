@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { waitUntil } from '@vercel/functions'
 import { createServiceClient } from '@/lib/supabase'
 import { createSynchroteamClient } from '@/lib/synchroteam'
-import { syncTerritory, buildAccounts } from '@/lib/sync-territory-route'
+import { syncTerritory, buildAccounts, claimSyncSlot } from '@/lib/sync-territory-route'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -20,11 +20,15 @@ async function handle(req: NextRequest): Promise<NextResponse> {
   if (!acc) return NextResponse.json({ error: 'SYNCHROTEAM_DOMAIN_MYT / API_KEY_MYT non configurés' }, { status: 500 })
 
   const supabase = createServiceClient()
-  const { data: logEntry } = await supabase
-    .from('sync_logs')
-    .insert({ source: 'synchroteam_myt', status: 'running', started_at: new Date().toISOString() })
-    .select('id').single()
-  const logId = logEntry?.id ?? null
+  const slot = await claimSyncSlot(supabase, 'synchroteam_myt')
+  if (!slot.claimed) {
+    return NextResponse.json({
+      status: 'already_running',
+      territory: 'MYT',
+      message: `Une synchronisation MYT est déjà en cours depuis ${slot.alreadyRunningSince}`,
+    }, { status: 409 })
+  }
+  const logId = slot.logId
 
   waitUntil(
     syncTerritory(

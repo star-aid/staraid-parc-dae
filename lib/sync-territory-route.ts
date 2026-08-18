@@ -55,6 +55,48 @@ export type TerritoryRouteResult = {
   duration_ms: number
 }
 
+/**
+ * Réserve un "créneau" de synchronisation pour un territoire donné.
+ * Empêche deux syncs du même territoire de tourner en parallèle (ex. clic manuel
+ * + cron simultanés) — ce qui provoquait des collisions d'écriture et des durées
+ * anormalement longues.
+ *
+ * Réinitialise d'abord les entrées "running" bloquées depuis plus de 30 min, puis
+ * vérifie qu'aucune sync n'est encore active avant de créer la nouvelle entrée.
+ */
+export async function claimSyncSlot(
+  supabase: SupabaseClient,
+  logSource: string
+): Promise<{ claimed: boolean; logId: string | null; alreadyRunningSince?: string }> {
+  const staleThreshold = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+  await supabase
+    .from('sync_logs')
+    .update({ status: 'error', error_message: 'Timeout — reset automatique (running > 30 min)', finished_at: new Date().toISOString() })
+    .eq('source', logSource)
+    .eq('status', 'running')
+    .lt('started_at', staleThreshold)
+
+  const { data: active } = await supabase
+    .from('sync_logs')
+    .select('started_at')
+    .eq('source', logSource)
+    .eq('status', 'running')
+    .order('started_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (active) {
+    return { claimed: false, logId: null, alreadyRunningSince: active.started_at }
+  }
+
+  const { data: logEntry } = await supabase
+    .from('sync_logs')
+    .insert({ source: logSource, status: 'running', started_at: new Date().toISOString() })
+    .select('id').single()
+
+  return { claimed: true, logId: logEntry?.id ?? null }
+}
+
 export async function syncTerritory(
   supabase: SupabaseClient,
   apiClient: SynchroteamClient,
@@ -68,15 +110,6 @@ export async function syncTerritory(
   const logSource = forcedTerritoryCode
     ? `synchroteam_${forcedTerritoryCode.toLowerCase()}`
     : 'synchroteam_reu'
-
-  // Reset des syncs bloquées en "running" depuis plus de 30 min pour cette source
-  const staleThreshold = new Date(Date.now() - 30 * 60 * 1000).toISOString()
-  await supabase
-    .from('sync_logs')
-    .update({ status: 'error', error_message: 'Timeout — reset automatique (running > 30 min)', finished_at: new Date().toISOString() })
-    .eq('source', logSource)
-    .eq('status', 'running')
-    .lt('started_at', staleThreshold)
 
   const [{ data: territories }, { data: lastSyncRow }] = await Promise.all([
     supabase.from('territories').select('id, code'),
