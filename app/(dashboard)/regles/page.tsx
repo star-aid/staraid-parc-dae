@@ -1,11 +1,11 @@
 import BackButton from '@/components/BackButton'
+import { DAEStatusBadge } from '@/components/table/StatusBadge'
+import { LOCATION_TYPES, MAINTENANCE_TYPES } from '@/lib/contract-groups'
+import { Card, PageContainer, PageHeader, tableClass, tbodyClass, tdClass, thClass, theadClass } from '@/components/ui/primitives'
 
 const STATUS_RULES = [
   {
     status: 'conforme',
-    label: 'Conforme',
-    color: 'bg-emerald-100 text-emerald-700 ring-emerald-200',
-    dot: 'bg-emerald-500',
     description: 'Toutes les échéances sont à jour et à plus de 30 jours.',
     conditions: [
       'Date de prochaine maintenance > aujourd\'hui + 30 jours (ou non renseignée)',
@@ -15,10 +15,7 @@ const STATUS_RULES = [
   },
   {
     status: 'vigilance',
-    label: 'Vigilance',
-    color: 'bg-amber-100 text-amber-700 ring-amber-200',
-    dot: 'bg-amber-500',
-    description: 'Au moins une échéance arrive dans moins de 30 jours, mais n\'est pas encore dépassée.',
+    description: 'Au moins une échéance arrive dans moins de 30 jours, sans être dépassée.',
     conditions: [
       'Date de prochaine maintenance ≤ aujourd\'hui + 30 jours',
       'Date d\'expiration batterie ≤ aujourd\'hui + 30 jours',
@@ -27,21 +24,15 @@ const STATUS_RULES = [
   },
   {
     status: 'critique',
-    label: 'Critique',
-    color: 'bg-red-100 text-red-700 ring-red-200',
-    dot: 'bg-red-500',
     description: 'Au moins une échéance est dépassée. Le DAE est hors conformité.',
     conditions: [
-      'Date de prochaine maintenance < aujourd\'hui → "Maintenance échue"',
-      'Date d\'expiration batterie < aujourd\'hui → "Batterie expirée"',
-      'Date d\'expiration électrodes (adultes ou pédiatriques) < aujourd\'hui → "Électrodes expirées"',
+      'Date de prochaine maintenance < aujourd\'hui : « Maintenance échue »',
+      'Date d\'expiration batterie < aujourd\'hui : « Batterie expirée »',
+      'Date d\'expiration électrodes (adultes ou pédiatriques) < aujourd\'hui : « Électrodes expirées »',
     ],
   },
   {
     status: 'inconnu',
-    label: 'Inconnu',
-    color: 'bg-slate-100 text-slate-500 ring-slate-200',
-    dot: 'bg-slate-400',
     description: 'Aucune donnée disponible pour calculer le statut.',
     conditions: [
       'Aucune date de maintenance renseignée dans Synchroteam',
@@ -52,39 +43,24 @@ const STATUS_RULES = [
 ]
 
 const CONSUMABLE_RULES = [
-  { label: 'OK', color: 'text-emerald-600 bg-emerald-50', rule: 'Date d\'expiration > aujourd\'hui + 30 jours' },
-  { label: 'À remplacer', color: 'text-amber-600 bg-amber-50', rule: 'Date d\'expiration ≤ aujourd\'hui + 30 jours (mais pas encore dépassée)' },
-  { label: 'Expiré', color: 'text-red-600 bg-red-50', rule: 'Date d\'expiration < aujourd\'hui' },
-  { label: 'Inconnu', color: 'text-slate-500 bg-slate-50', rule: 'Date d\'expiration non renseignée dans Synchroteam' },
+  { label: 'OK',          cls: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20', rule: 'Date d\'expiration > aujourd\'hui + 30 jours' },
+  { label: 'À remplacer', cls: 'bg-amber-50 text-amber-800 ring-amber-500/30',       rule: 'Date d\'expiration ≤ aujourd\'hui + 30 jours, sans être dépassée' },
+  { label: 'Expirée',     cls: 'bg-red-50 text-red-700 ring-red-600/20',             rule: 'Date d\'expiration < aujourd\'hui' },
+  { label: 'Inconnu',     cls: 'bg-slate-100 text-slate-600 ring-slate-300',         rule: 'Date d\'expiration non renseignée dans Synchroteam' },
 ]
 
 const ELECTRODES_RULES = [
   { label: 'DLU pédiatrique renseignée', rule: 'Utilise la date pédiatrique telle quelle' },
-  { label: 'DLU pédiatrique vide', rule: 'Utilise la même date que les électrodes adultes' },
-  { label: 'Cardiac Science', rule: 'Pas d\'électrodes pédiatriques séparées (mode intégré) — ignorées' },
+  { label: 'DLU pédiatrique vide',       rule: 'Utilise la même date que les électrodes adultes' },
+  { label: 'Cardiac Science',            rule: 'Pas d\'électrodes pédiatriques séparées (mode intégré), ignorées' },
 ]
 
+// Les groupes Location et Maintenance lisent les mêmes listes que les filtres :
+// impossible que la documentation et le comportement divergent.
 const CONTRACT_GROUPS = [
-  {
-    label: 'Location',
-    color: 'bg-blue-100 text-blue-700',
-    values: ['Location', 'Contrat de location', 'LOCATION LECLERC'],
-  },
-  {
-    label: 'Maintenance',
-    color: 'bg-violet-100 text-violet-700',
-    values: [
-      'Maintenance préventive',
-      'Contrat de maintenance',
-      'Contrat de maintenance curative',
-      'Contrat de maintenance préventive',
-    ],
-  },
-  {
-    label: 'Autre',
-    color: 'bg-slate-100 text-slate-600',
-    values: ['PDC - Passage Annuel', 'Audit simple', "Contrat d'audit", 'Aucun', '(champ vide / non renseigné)'],
-  },
+  { label: 'Location',    values: LOCATION_TYPES,    note: null },
+  { label: 'Maintenance', values: MAINTENANCE_TYPES, note: null },
+  { label: 'Autres',      values: ['PDC - Passage Annuel', 'Audit simple', 'Contrat d\'audit', 'Aucun'], note: 'Tout type qui n\'est ni Location ni Maintenance, ainsi que les DAE sans type de contrat. Exemples ci-dessous.' },
 ]
 
 const BATTERY_RULES = [
@@ -99,153 +75,125 @@ const BATTERY_RULES = [
   { brand: 'Autres', years: 5 },
 ]
 
+function SectionHeading({ children, description }: { children: React.ReactNode; description?: React.ReactNode }) {
+  return (
+    <div className="mb-3">
+      <h2 className="text-13 font-semibold uppercase tracking-wider text-slate-500">{children}</h2>
+      {description && <p className="mt-1 text-13 text-slate-500">{description}</p>}
+    </div>
+  )
+}
+
+function RuleTable({ head, rows }: { head: [string, string]; rows: Array<[React.ReactNode, React.ReactNode]> }) {
+  return (
+    <Card padded={false}>
+      <table className={tableClass}>
+        <thead className={theadClass}>
+          <tr>
+            <th className={thClass}>{head[0]}</th>
+            <th className={thClass}>{head[1]}</th>
+          </tr>
+        </thead>
+        <tbody className={tbodyClass}>
+          {rows.map(([a, b], i) => (
+            <tr key={i}>
+              <td className={`${tdClass} whitespace-nowrap`}>{a}</td>
+              <td className={`${tdClass} text-slate-600`}>{b}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Card>
+  )
+}
+
 export default function ReglesPage() {
   return (
-    <div className="p-6 lg:p-8 max-w-screen-lg mx-auto space-y-10">
+    <PageContainer className="max-w-5xl">
+      <PageHeader
+        eyebrow={<BackButton label="Retour" />}
+        title="Règles du dashboard"
+        subtitle="Logique de calcul des statuts et des indicateurs appliquée à chaque DAE du parc STAR aid."
+      />
 
-      <div>
-        <div className="mb-4">
-          <BackButton label="Retour" />
-        </div>
-        <h1 className="text-2xl font-bold text-slate-800">Règles du dashboard</h1>
-        <p className="text-sm text-slate-500 mt-1">
-          Logique de calcul des statuts et des indicateurs appliquée à chaque DAE du parc STAR aid.
-        </p>
+      <div className="space-y-8">
+        {/* ── Statuts DAE ───────────────────────────────────────────────────── */}
+        <section>
+          <SectionHeading description="Le statut est recalculé à chaque synchronisation Synchroteam. La règle la plus sévère l'emporte : critique, puis vigilance, puis conforme, puis inconnu.">
+            Statuts DAE
+          </SectionHeading>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {STATUS_RULES.map((s) => (
+              <Card key={s.status}>
+                <div className="mb-2"><DAEStatusBadge status={s.status} /></div>
+                <p className="text-13 text-slate-800">{s.description}</p>
+                <ul className="mt-2 space-y-1">
+                  {s.conditions.map((c, i) => (
+                    <li key={i} className="flex items-start gap-2 text-xs text-slate-500">
+                      <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-300" aria-hidden />
+                      {c}
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            ))}
+          </div>
+        </section>
+
+        {/* ── Consommables ──────────────────────────────────────────────────── */}
+        <section>
+          <SectionHeading>Statuts consommables, batterie et électrodes</SectionHeading>
+          <RuleTable
+            head={['Statut', 'Condition']}
+            rows={CONSUMABLE_RULES.map((r) => [
+              <span key={r.label} className={`inline-flex rounded-md px-1.5 py-0.5 text-2xs font-semibold ring-1 ring-inset ${r.cls}`}>{r.label}</span>,
+              r.rule,
+            ])}
+          />
+        </section>
+
+        {/* ── Groupes de contrats ───────────────────────────────────────────── */}
+        <section>
+          <SectionHeading description="Les puces Location, Maintenance et Autres de la barre de filtres regroupent les types de contrat Synchroteam suivants. Plusieurs groupes peuvent être sélectionnés en même temps.">
+            Groupes de contrats (filtres)
+          </SectionHeading>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            {CONTRACT_GROUPS.map((g) => (
+              <Card key={g.label} title={g.label}>
+                {g.note && <p className="mb-2 text-xs text-slate-500">{g.note}</p>}
+                <ul className="space-y-1">
+                  {g.values.map((v) => (
+                    <li key={v} className="flex items-start gap-2 text-xs text-slate-600">
+                      <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-300" aria-hidden />
+                      {v}
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            ))}
+          </div>
+        </section>
+
+        {/* ── Électrodes pédiatriques ───────────────────────────────────────── */}
+        <section>
+          <SectionHeading>Règle électrodes pédiatriques</SectionHeading>
+          <RuleTable
+            head={['Cas', 'Règle appliquée']}
+            rows={ELECTRODES_RULES.map((r) => [<span key={r.label} className="font-medium text-slate-800">{r.label}</span>, r.rule])}
+          />
+        </section>
+
+        {/* ── Batterie par marque ───────────────────────────────────────────── */}
+        <section>
+          <SectionHeading description="La date d'expiration batterie est calculée depuis la date de mise en place de la batterie (champ Synchroteam). Source : tableau officiel STAR aid, juin 2026.">
+            Durée de vie batterie par marque
+          </SectionHeading>
+          <RuleTable
+            head={['Marque / modèle', 'Durée de vie']}
+            rows={BATTERY_RULES.map((r) => [<span key={r.brand} className="text-slate-800">{r.brand}</span>, <span key={`${r.brand}-y`} className="font-semibold text-slate-900 tabular-nums">{r.years} ans</span>])}
+          />
+        </section>
       </div>
-
-      {/* ── Statuts DAE ──────────────────────────────────────────────────────── */}
-      <section>
-        <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-4">Statuts DAE</h2>
-        <p className="text-sm text-slate-500 mb-6">
-          Le statut est calculé automatiquement à chaque synchronisation Synchroteam.
-          La règle la plus sévère l&apos;emporte (critique &gt; vigilance &gt; conforme &gt; inconnu).
-        </p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {STATUS_RULES.map((s) => (
-            <div key={s.status} className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-              <div className="flex items-center gap-2 mb-3">
-                <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ring-1 ${s.color}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
-                  {s.label}
-                </span>
-              </div>
-              <p className="text-sm text-slate-700 mb-3">{s.description}</p>
-              <ul className="space-y-1.5">
-                {s.conditions.map((c, i) => (
-                  <li key={i} className="flex items-start gap-2 text-xs text-slate-500">
-                    <span className="mt-0.5 shrink-0 text-slate-300">→</span>
-                    {c}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ── Statuts consommables ─────────────────────────────────────────────── */}
-      <section>
-        <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-4">Statuts consommables (batterie &amp; électrodes)</h2>
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 border-b border-slate-100">
-              <tr>
-                <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Statut</th>
-                <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Condition</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {CONSUMABLE_RULES.map((r) => (
-                <tr key={r.label}>
-                  <td className="px-5 py-3">
-                    <span className={`text-xs font-semibold px-2 py-0.5 rounded ${r.color}`}>{r.label}</span>
-                  </td>
-                  <td className="px-5 py-3 text-sm text-slate-600">{r.rule}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {/* ── Groupes de contrats ──────────────────────────────────────────────── */}
-      <section>
-        <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-4">Groupes de contrats (filtres)</h2>
-        <p className="text-sm text-slate-500 mb-6">
-          Les boutons <strong>Location</strong>, <strong>Maintenance</strong> et <strong>Autre</strong> dans la barre de filtres regroupent les types de contrats Synchroteam suivants.
-          Plusieurs groupes peuvent être sélectionnés simultanément.
-        </p>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {CONTRACT_GROUPS.map((g) => (
-            <div key={g.label} className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-              <span className={`inline-flex items-center text-xs font-bold px-2.5 py-1 rounded-full mb-4 ${g.color}`}>
-                {g.label}
-              </span>
-              <ul className="space-y-1.5">
-                {g.values.map((v) => (
-                  <li key={v} className="flex items-start gap-2 text-xs text-slate-500">
-                    <span className="mt-0.5 shrink-0 text-slate-300">·</span>
-                    {v}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ── Règle électrodes pédiatriques ────────────────────────────────────── */}
-      <section>
-        <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-4">Règle électrodes pédiatriques</h2>
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 border-b border-slate-100">
-              <tr>
-                <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Cas</th>
-                <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Règle appliquée</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {ELECTRODES_RULES.map((r) => (
-                <tr key={r.label}>
-                  <td className="px-5 py-3 text-sm font-medium text-slate-700">{r.label}</td>
-                  <td className="px-5 py-3 text-sm text-slate-600">{r.rule}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {/* ── Durée de vie batterie par marque ─────────────────────────────────── */}
-      <section>
-        <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-4">Durée de vie batterie par marque</h2>
-        <p className="text-sm text-slate-500 mb-4">
-          La date d&apos;expiration batterie est calculée depuis la date de mise en place de la batterie (champ Synchroteam).
-          Source : tableau officiel STAR aid — juin 2026.
-        </p>
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 border-b border-slate-100">
-              <tr>
-                <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Marque / Modèle</th>
-                <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Durée de vie batterie</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {BATTERY_RULES.map((r) => (
-                <tr key={r.brand}>
-                  <td className="px-5 py-3 text-sm text-slate-700">{r.brand}</td>
-                  <td className="px-5 py-3">
-                    <span className="text-sm font-semibold text-slate-800">{r.years} ans</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-    </div>
+    </PageContainer>
   )
 }

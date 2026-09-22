@@ -7,6 +7,7 @@ import NextExpirations from '@/components/dashboard/NextExpirations'
 import Link from 'next/link'
 import { parseContratParam, parseAutreTypesParam, buildContratOrFilter } from '@/lib/contract-groups'
 import TerritoryFilterBar from '@/components/dashboard/TerritoryFilterBar'
+import { Card, EmptyState, LinkButton, PageContainer, PageHeader } from '@/components/ui/primitives'
 import { createSessionClient } from '@/lib/supabase-server'
 
 const StatusDonut = dynamicImport(() => import('@/components/dashboard/StatusDonut'), { ssr: false })
@@ -231,43 +232,59 @@ function pct(n: number, total: number) {
   return `${Math.round((n / total) * 100)} %`
 }
 
+// ─── Tuile indicateur ─────────────────────────────────────────────────────────
+
+type Accent = 'brand' | 'emerald' | 'amber' | 'red' | 'slate'
+
+const ACCENT_TILE: Record<Accent, string> = {
+  brand:   'bg-brand-soft text-brand',
+  emerald: 'bg-emerald-50 text-emerald-600',
+  amber:   'bg-amber-50 text-amber-600',
+  red:     'bg-red-50 text-red-600',
+  slate:   'bg-slate-100 text-slate-500',
+}
+
+const ACCENT_VALUE: Record<Accent, string> = {
+  brand:   'text-slate-900',
+  emerald: 'text-emerald-700',
+  amber:   'text-amber-700',
+  red:     'text-red-700',
+  slate:   'text-slate-700',
+}
+
 interface KPICardProps {
   label: string
   value: string | number
   sub?: string
-  accent: 'blue' | 'emerald' | 'amber' | 'red' | 'slate'
+  accent: Accent
   icon: ReactNode
+  /** Cible au clic (liste filtrée correspondante) */
+  href?: string
 }
 
-function KPICard({ label, value, sub, accent, icon }: KPICardProps) {
-  const ACCENT = {
-    blue:    'bg-blue-50 text-blue-600 ring-blue-100',
-    emerald: 'bg-emerald-50 text-emerald-600 ring-emerald-100',
-    amber:   'bg-amber-50 text-amber-600 ring-amber-100',
-    red:     'bg-red-50 text-red-600 ring-red-100',
-    slate:   'bg-slate-100 text-slate-500 ring-slate-200',
-  }
-  const VALUE_COLOR = {
-    blue: 'text-slate-800', emerald: 'text-emerald-700',
-    amber: 'text-amber-700', red: 'text-red-700', slate: 'text-slate-600',
-  }
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">{label}</p>
-          <p className={`text-3xl font-bold mt-1.5 leading-none ${VALUE_COLOR[accent]}`}>
-            {typeof value === 'number' ? value.toLocaleString('fr-FR') : value}
-          </p>
-          {sub && <p className="text-xs text-slate-400 mt-1.5">{sub}</p>}
-        </div>
-        <div className={`p-2.5 rounded-lg ring-1 ${ACCENT[accent]}`}>
-          {icon}
-        </div>
+function KPICard({ label, value, sub, accent, icon, href }: KPICardProps) {
+  const body = (
+    <>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-2xs font-medium uppercase tracking-wider text-slate-500">{label}</p>
+        <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${ACCENT_TILE[accent]}`}>{icon}</span>
       </div>
-    </div>
+      <p className={`mt-2 text-2xl font-semibold leading-none tracking-tight tabular-nums ${ACCENT_VALUE[accent]}`}>
+        {typeof value === 'number' ? value.toLocaleString('fr-FR') : value}
+      </p>
+      {sub && <p className="mt-1.5 truncate text-xs text-slate-500">{sub}</p>}
+    </>
+  )
+  const base = 'block rounded-lg border border-slate-200 bg-white p-4 shadow-card'
+  if (!href) return <div className={base}>{body}</div>
+  return (
+    <Link href={href} className={`${base} transition-colors hover:border-slate-300 hover:bg-slate-50/60`}>
+      {body}
+    </Link>
   )
 }
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function DashboardPage({
   searchParams,
@@ -304,33 +321,37 @@ export default async function DashboardPage({
   const critique  = summary?.critique  ?? 0
   const inconnu   = summary?.inconnu   ?? 0
 
-  return (
-    <div className="p-6 lg:p-8 max-w-screen-xl mx-auto">
-      {/* En-tête */}
-      <div className="mb-8 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Tableau de bord</h1>
-          {selectedClientName && (
-            <p className="text-sm font-medium text-blue-700 mt-0.5">{selectedClientName}</p>
-          )}
-          <p className="text-sm text-slate-500 mt-0.5">
-            Vue d&apos;ensemble du parc DAE STAR aid — données temps réel
-          </p>
-        </div>
-        <Suspense>
-          <TerritoryFilterBar />
-        </Suspense>
-      </div>
+  // Les liens des tuiles conservent le contexte d'équipements actifs / inactifs
+  const actifParam = actif !== 'actif' ? `&actif=${actif}` : ''
+  const scopeLabel = actif === 'inactif' ? 'équipements inactifs' : actif === 'tous' ? 'tous les équipements' : 'équipements actifs'
+  const nbExpirations = summary?.next_expirations?.length ?? 0
 
-      {/* KPI cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+  return (
+    <PageContainer>
+      <PageHeader
+        title="Tableau de bord"
+        subtitle={
+          selectedClientName
+            ? <>Client : <span className="font-medium text-slate-700">{selectedClientName}</span></>
+            : 'Vue d’ensemble du parc DAE, données de la dernière synchronisation'
+        }
+        actions={
+          <Suspense>
+            <TerritoryFilterBar />
+          </Suspense>
+        }
+      />
+
+      {/* Indicateurs */}
+      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <KPICard
           label="Total DAE"
           value={total || '—'}
-          sub="équipements actifs"
-          accent="blue"
+          sub={scopeLabel}
+          accent="brand"
+          href={actif !== 'actif' ? `/parc?actif=${actif}` : '/parc'}
           icon={
-            <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
             </svg>
           }
@@ -340,8 +361,9 @@ export default async function DashboardPage({
           value={conforme || '—'}
           sub={total ? `${pct(conforme, total)} du parc` : undefined}
           accent="emerald"
+          href={`/parc?statut=conforme${actifParam}`}
           icon={
-            <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
             </svg>
           }
@@ -349,10 +371,11 @@ export default async function DashboardPage({
         <KPICard
           label="Vigilance"
           value={vigilance || '—'}
-          sub={vigilance > 0 ? 'échéance < 30 jours' : 'aucune alerte'}
+          sub={vigilance > 0 ? 'échéance sous 30 jours' : 'aucune échéance proche'}
           accent="amber"
+          href={`/parc?statut=vigilance${actifParam}`}
           icon={
-            <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
               <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
             </svg>
@@ -361,10 +384,11 @@ export default async function DashboardPage({
         <KPICard
           label="Critiques"
           value={critique || '—'}
-          sub={critique > 0 ? 'intervention urgente' : 'aucun critique'}
+          sub={critique > 0 ? 'intervention urgente' : 'aucun DAE critique'}
           accent={critique > 0 ? 'red' : 'slate'}
+          href="/alertes"
           icon={
-            <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <circle cx="12" cy="12" r="10"/>
               <line x1="12" y1="8" x2="12" y2="12"/>
               <line x1="12" y1="16" x2="12.01" y2="16"/>
@@ -373,73 +397,48 @@ export default async function DashboardPage({
         />
       </div>
 
-      {/* Graphiques — ligne 1 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
-          <h2 className="text-sm font-semibold text-slate-700 mb-4">Répartition des statuts</h2>
+      {/* Graphiques */}
+      <div className="mb-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <Card title="Répartition des statuts">
           {total > 0 ? (
-            <StatusDonut
-              conforme={conforme}
-              vigilance={vigilance}
-              critique={critique}
-              inconnu={inconnu}
-              total={total}
-            />
+            <StatusDonut conforme={conforme} vigilance={vigilance} critique={critique} inconnu={inconnu} total={total} />
           ) : (
-            <div className="h-56 flex items-center justify-center text-sm text-slate-400">
-              Aucune donnée
-            </div>
+            <EmptyState className="flex h-44 items-center justify-center py-0">Aucune donnée</EmptyState>
           )}
-        </div>
-
-        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
-          <h2 className="text-sm font-semibold text-slate-700 mb-4">DAE par territoire</h2>
+        </Card>
+        <Card title="DAE par territoire et statut">
           <TerritoryBars byTerritory={summary?.by_territory ?? {}} />
-        </div>
+        </Card>
       </div>
 
-      {/* Graphiques — ligne 2 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
-          <h2 className="text-sm font-semibold text-slate-700 mb-4">
-            Interventions — 12 mois glissants
-          </h2>
+      <div className="mb-4 grid grid-cols-1 gap-4 xl:grid-cols-5">
+        <Card title="Interventions réalisées, 12 mois glissants" className="xl:col-span-2">
           <InterventionsLine data={monthly} />
-        </div>
-
-        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold text-slate-700">Prochaines échéances urgentes</h2>
-            {(summary?.next_expirations?.length ?? 0) > 0 && (
-              <a href="/alertes" className="text-xs text-blue-600 hover:underline">
-                Voir tout →
-              </a>
-            )}
-          </div>
+        </Card>
+        <Card
+          title="Prochaines échéances urgentes"
+          className="xl:col-span-3"
+          actions={nbExpirations > 0 ? <LinkButton href="/alertes" variant="ghost" size="sm">Toutes les alertes</LinkButton> : undefined}
+        >
           <NextExpirations items={summary?.next_expirations ?? []} />
-        </div>
+        </Card>
       </div>
 
-      {/* Bandeau données inconnu — visible admins et maintenance uniquement */}
+      {/* Données incomplètes — visible admins et maintenance uniquement */}
       {inconnu > 0 && (userRole === 'administrateur' || userRole === 'maintenance') && (
-        <div className="rounded-lg border border-slate-200 bg-slate-50 px-5 py-3 flex items-center gap-3 text-sm text-slate-600">
-          <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0 text-slate-400" fill="none" stroke="currentColor" strokeWidth="2">
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-13 text-slate-600 shadow-card">
+          <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-slate-400" fill="none" stroke="currentColor" strokeWidth="2">
             <circle cx="12" cy="12" r="10"/>
             <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
             <line x1="12" y1="17" x2="12.01" y2="17"/>
           </svg>
-          <span className="flex-1">
-            <strong>{inconnu.toLocaleString('fr-FR')} DAE</strong> ont un statut inconnu — données
-            insuffisantes (batterie, électrodes ou maintenance non renseignées dans Synchroteam).
+          <span className="flex-1 min-w-[200px]">
+            <strong className="font-semibold text-slate-800 tabular-nums">{inconnu.toLocaleString('fr-FR')} DAE</strong> ont un statut
+            inconnu : batterie, électrodes ou maintenance non renseignées dans Synchroteam.
           </span>
-          <Link
-            href="/alertes?statut=inconnu"
-            className="shrink-0 text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-3 py-1.5 hover:bg-slate-100 transition-colors whitespace-nowrap"
-          >
-            Voir la liste →
-          </Link>
+          <LinkButton href="/alertes?statut=inconnu" variant="secondary" size="sm">Voir la liste</LinkButton>
         </div>
       )}
-    </div>
+    </PageContainer>
   )
 }

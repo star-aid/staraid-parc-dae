@@ -2,26 +2,52 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Thème clair uniquement. Le gabarit Next.js d'origine basculait --foreground en gris
+   clair quand le système est en mode sombre : tout texte sans couleur Tailwind explicite
+   devenait illisible sur les fonds blancs (tableaux, champs de connexion). */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f8fafc; /* slate-50 : fond de l'application */
+  --foreground: #0f172a; /* slate-900 */
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  /* Geist (chargée par next/font dans app/layout.tsx) ; la variable est posée sur <body> */
+  font-family: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-feature-settings: "cv11", "ss01"; /* chiffres et glyphes Geist plus lisibles */
+}
+
+/* Chiffres alignés dans tout ce qui ressemble à une donnée */
+table, .tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Barres de défilement discrètes (zones scrollables internes) */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(203 213 225) transparent;
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
   }
+}
+
+/* Fenêtres d'information Leaflet : même rayon et même ombre que les cartes de l'interface */
+.leaflet-popup-content-wrapper {
+  border-radius: 8px;
+  box-shadow: 0 8px 24px -8px rgb(15 23 42 / 0.25), 0 0 0 1px rgb(15 23 42 / 0.06);
+}
+.leaflet-popup-content {
+  margin: 10px 12px;
+}
+.leaflet-container {
+  font-family: inherit;
 }

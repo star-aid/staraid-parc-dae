@@ -3,6 +3,10 @@
 import { useEffect, useState, useCallback } from 'react'
 import { INTERNAL_FIELDS } from '@/lib/field-mapping'
 import BackButton from '@/components/BackButton'
+import {
+  Button, Card, EmptyState, PageContainer, PageHeader, cx, selectClass,
+  tableClass, tbodyClass, tdClass, thClass, theadClass, trClass,
+} from '@/components/ui/primitives'
 
 interface SyncField {
   synchroteam_field_id: number
@@ -43,9 +47,7 @@ export default function FieldMappingPage() {
   const [error, setError]             = useState<string | null>(null)
 
   // État local pour les champs non mappés en cours d'édition
-  const [pendingMappings, setPendingMappings] = useState<
-    Record<number, { internal: string; type: string }>
-  >({})
+  const [pendingMappings, setPendingMappings] = useState<Record<number, { internal: string; type: string }>>({})
 
   const loadMappings = useCallback(async () => {
     setLoading(true)
@@ -120,90 +122,75 @@ export default function FieldMappingPage() {
     await loadMappings()
   }
 
+  const internalLabel = (value: string) => INTERNAL_FIELDS.find((f) => f.value === value)?.label ?? value
+
   return (
-    <div className="p-8 max-w-5xl">
-      <div className="mb-4">
-        <BackButton label="Tableau de bord" />
-      </div>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Mapping custom fields</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Associe les champs Synchroteam aux champs internes du parc DAE.
-          </p>
-        </div>
-        <button
-          onClick={handleDiscover}
-          disabled={discovering}
-          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
-        >
-          {discovering ? '⏳ Discovery en cours…' : '🔍 Lancer la discovery'}
-        </button>
-      </div>
+    <PageContainer className="max-w-5xl">
+      <PageHeader
+        eyebrow={<BackButton label="Tableau de bord" />}
+        title="Mapping des champs Synchroteam"
+        subtitle="Associe chaque champ personnalisé Synchroteam à un champ interne du parc DAE. La discovery lit les champs du compte et propose un mapping automatique."
+        actions={
+          <Button variant="primary" onClick={handleDiscover} disabled={discovering}>
+            <svg viewBox="0 0 24 24" className={cx('h-3.5 w-3.5', discovering && 'animate-spin')} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M23 4v6h-6" /><path d="M1 20v-6h6" />
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+            </svg>
+            {discovering ? 'Discovery en cours…' : 'Lancer la discovery'}
+          </Button>
+        }
+      />
 
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-          {error}
-        </div>
+        <div role="alert" className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-2.5 text-13 text-red-700">{error}</div>
       )}
 
       {discoverResult && (
-        <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg text-sm">
-          <strong className="text-green-800">Discovery terminée :</strong>
-          <span className="text-green-700 ml-2">
-            {discoverResult.total} champ(s) trouvé(s) — {discoverResult.auto_mapped} mappé(s) automatiquement.
-          </span>
+        <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-13 text-emerald-800 tabular-nums">
+          <strong className="font-semibold">Discovery terminée.</strong>{' '}
+          {discoverResult.total} champ{discoverResult.total > 1 ? 's' : ''} trouvé{discoverResult.total > 1 ? 's' : ''}, {discoverResult.auto_mapped} mappé{discoverResult.auto_mapped > 1 ? 's' : ''} automatiquement.
         </div>
       )}
 
-      {/* Mappings existants */}
-      <section className="mb-8">
-        <h2 className="text-base font-semibold text-gray-800 mb-3">
-          Mappings actifs ({mappings.length})
-        </h2>
-
+      {/* ── Mappings actifs ─────────────────────────────────────────────────── */}
+      <Card title={`Mappings actifs (${mappings.length})`} className="mb-4" padded={false}>
         {loading ? (
-          <div className="space-y-2">
-            {[...Array(3)].map((_, i) => (
-              <div key={i} className="h-12 bg-gray-100 rounded-lg animate-pulse" />
-            ))}
+          <div className="space-y-2 p-4">
+            {[0, 1, 2].map((i) => <div key={i} className="h-9 animate-pulse rounded-md bg-slate-100" />)}
           </div>
         ) : mappings.length === 0 ? (
-          <p className="text-sm text-gray-400">Aucun mapping. Lancer la discovery ou ajouter manuellement.</p>
+          <EmptyState>Aucun mapping. Lancez la discovery ou ajoutez-en manuellement ci-dessous.</EmptyState>
         ) : (
-          <div className="border border-gray-200 rounded-lg overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-gray-600 text-xs uppercase tracking-wide">
+          <div className="overflow-x-auto">
+            <table className={tableClass}>
+              <thead className={theadClass}>
                 <tr>
-                  <th className="px-4 py-3 text-left">ID Synchroteam</th>
-                  <th className="px-4 py-3 text-left">Label Synchroteam</th>
-                  <th className="px-4 py-3 text-left">Champ interne</th>
-                  <th className="px-4 py-3 text-left">Type</th>
-                  <th className="px-4 py-3 text-left">Mis à jour</th>
-                  <th className="px-4 py-3" />
+                  <th className={thClass}>ID</th>
+                  <th className={thClass}>Libellé Synchroteam</th>
+                  <th className={thClass}>Champ interne</th>
+                  <th className={thClass}>Type</th>
+                  <th className={thClass}>Mis à jour</th>
+                  <th className={thClass} />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className={tbodyClass}>
                 {mappings.map((m) => (
-                  <tr key={m.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-mono text-gray-500">{m.synchroteam_field_id}</td>
-                    <td className="px-4 py-3 text-gray-900">{m.synchroteam_label}</td>
-                    <td className="px-4 py-3">
-                      <code className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded text-xs">
-                        {m.internal_field}
-                      </code>
+                  <tr key={m.id} className={trClass}>
+                    <td className={cx(tdClass, 'font-mono text-xs text-slate-400')}>{m.synchroteam_field_id}</td>
+                    <td className={cx(tdClass, 'text-slate-800')}>{m.synchroteam_label}</td>
+                    <td className={tdClass}>
+                      <span className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-1.5 py-0.5 text-xs text-slate-700">
+                        <code className="font-mono text-2xs text-slate-500">{m.internal_field}</code>
+                        <span className="text-slate-300">·</span>
+                        {internalLabel(m.internal_field)}
+                      </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-500">{m.field_type}</td>
-                    <td className="px-4 py-3 text-gray-400 text-xs">
-                      {new Date(m.updated_at).toLocaleDateString('fr-FR')}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() => handleDelete(m.synchroteam_field_id)}
-                        className="text-red-500 hover:text-red-700 text-xs"
-                      >
+                    <td className={cx(tdClass, 'text-xs text-slate-500')}>{m.field_type}</td>
+                    <td className={cx(tdClass, 'text-xs text-slate-400 tabular-nums')}>{new Date(m.updated_at).toLocaleDateString('fr-FR')}</td>
+                    <td className={cx(tdClass, 'text-right')}>
+                      <Button variant="ghost" size="sm" onClick={() => handleDelete(m.synchroteam_field_id)} className="text-red-600 hover:bg-red-50 hover:text-red-700">
                         Supprimer
-                      </button>
+                      </Button>
                     </td>
                   </tr>
                 ))}
@@ -211,57 +198,55 @@ export default function FieldMappingPage() {
             </table>
           </div>
         )}
-      </section>
+      </Card>
 
-      {/* Champs non mappés */}
+      {/* ── Champs non mappés ───────────────────────────────────────────────── */}
       {unmapped.length > 0 && (
-        <section>
-          <h2 className="text-base font-semibold text-gray-800 mb-3">
-            Champs non mappés ({unmapped.length})
-          </h2>
-          <div className="border border-amber-200 rounded-lg overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-amber-50 text-amber-700 text-xs uppercase tracking-wide">
+        <Card
+          title={`Champs non mappés (${unmapped.length})`}
+          actions={<span className="text-xs text-amber-700">Choisissez le champ interne, puis enregistrez</span>}
+          padded={false}
+        >
+          <div className="overflow-x-auto">
+            <table className={tableClass}>
+              <thead className={theadClass}>
                 <tr>
-                  <th className="px-4 py-3 text-left">ID</th>
-                  <th className="px-4 py-3 text-left">Label Synchroteam</th>
-                  <th className="px-4 py-3 text-left">Type Synchroteam</th>
-                  <th className="px-4 py-3 text-left">Champ interne</th>
-                  <th className="px-4 py-3 text-left">Type interne</th>
-                  <th className="px-4 py-3" />
+                  <th className={thClass}>ID</th>
+                  <th className={thClass}>Libellé Synchroteam</th>
+                  <th className={thClass}>Type Synchroteam</th>
+                  <th className={thClass}>Champ interne</th>
+                  <th className={thClass}>Type interne</th>
+                  <th className={thClass} />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-amber-100">
+              <tbody className={tbodyClass}>
                 {unmapped.map((f) => {
                   const pending = pendingMappings[f.id]
                   return (
-                    <tr key={f.id} className="bg-white hover:bg-amber-50/40">
-                      <td className="px-4 py-3 font-mono text-gray-500">{f.id}</td>
-                      <td className="px-4 py-3 text-gray-900">{f.label}</td>
-                      <td className="px-4 py-3 text-gray-500">{f.type}</td>
-                      <td className="px-4 py-3">
+                    <tr key={f.id} className={trClass}>
+                      <td className={cx(tdClass, 'font-mono text-xs text-slate-400')}>{f.id}</td>
+                      <td className={cx(tdClass, 'text-slate-800')}>{f.label}</td>
+                      <td className={cx(tdClass, 'text-xs text-slate-500')}>{f.type}</td>
+                      <td className={tdClass}>
                         <select
-                          className="border border-gray-200 rounded px-2 py-1 text-xs w-full"
+                          className={cx(selectClass, 'h-7 w-full min-w-[220px] text-xs')}
                           value={pending?.internal ?? ''}
                           onChange={(e) =>
                             setPendingMappings((prev) => ({
                               ...prev,
-                              [f.id]: {
-                                internal: e.target.value,
-                                type: prev[f.id]?.type ?? f.type ?? 'text',
-                              },
+                              [f.id]: { internal: e.target.value, type: prev[f.id]?.type ?? f.type ?? 'text' },
                             }))
                           }
                         >
-                          <option value="">— Choisir —</option>
+                          <option value="">Choisir…</option>
                           {INTERNAL_FIELDS.map((opt) => (
                             <option key={opt.value} value={opt.value}>{opt.label}</option>
                           ))}
                         </select>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className={tdClass}>
                         <select
-                          className="border border-gray-200 rounded px-2 py-1 text-xs"
+                          className={cx(selectClass, 'h-7 text-xs')}
                           value={pending?.type ?? f.type ?? 'text'}
                           onChange={(e) =>
                             setPendingMappings((prev) => ({
@@ -275,14 +260,10 @@ export default function FieldMappingPage() {
                           <option value="number">number</option>
                         </select>
                       </td>
-                      <td className="px-4 py-3 text-right">
-                        <button
-                          disabled={!pending?.internal || saving}
-                          onClick={() => handleSaveMapping(f.id, f.label)}
-                          className="bg-blue-600 text-white text-xs px-3 py-1 rounded hover:bg-blue-700 disabled:opacity-40 transition-colors"
-                        >
-                          Sauvegarder
-                        </button>
+                      <td className={cx(tdClass, 'text-right')}>
+                        <Button variant="primary" size="sm" disabled={!pending?.internal || saving} onClick={() => handleSaveMapping(f.id, f.label)}>
+                          Enregistrer
+                        </Button>
                       </td>
                     </tr>
                   )
@@ -290,8 +271,8 @@ export default function FieldMappingPage() {
               </tbody>
             </table>
           </div>
-        </section>
+        </Card>
       )}
-    </div>
+    </PageContainer>
   )
 }

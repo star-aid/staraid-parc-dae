@@ -3,6 +3,7 @@ import { useState, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { getSupabaseBrowserClient, type UserRole } from '@/lib/supabase'
+import { cx } from '@/components/ui/primitives'
 
 interface SidebarProps {
   critiqueCount: number
@@ -19,7 +20,7 @@ const NAV_ITEMS = [
     label: 'Tableau de bord',
     roles: ['administrateur', 'maintenance', 'direction'] as UserRole[],
     icon: (
-      <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
         <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
         <rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>
       </svg>
@@ -30,7 +31,7 @@ const NAV_ITEMS = [
     label: 'Parc DAE',
     roles: ['administrateur', 'maintenance', 'direction'] as UserRole[],
     icon: (
-      <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
         <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
       </svg>
     ),
@@ -41,7 +42,7 @@ const NAV_ITEMS = [
     badge: true,
     roles: ['administrateur', 'maintenance'] as UserRole[],
     icon: (
-      <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
         <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
         <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
       </svg>
@@ -52,7 +53,7 @@ const NAV_ITEMS = [
     label: "Contrôle Géo'DAE",
     roles: ['administrateur', 'maintenance'] as UserRole[],
     icon: (
-      <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/>
         <path d="M9 10l2 2 4-4"/>
       </svg>
@@ -63,7 +64,7 @@ const NAV_ITEMS = [
     label: 'Analyse IA',
     roles: ['administrateur'] as UserRole[],
     icon: (
-      <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
         <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 1 1 7.072 0l-.548.547A3.374 3.374 0 0 0 14 18.469V19a2 2 0 1 1-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
       </svg>
     ),
@@ -73,54 +74,57 @@ const NAV_ITEMS = [
 const ROLE_LABELS: Record<UserRole, string> = {
   administrateur: 'Administrateur',
   maintenance:    'Gestionnaire de maintenance',
-  direction:      'Utilisateur (consultation du parc)',
+  direction:      'Consultation du parc',
 }
 
 function SyncIcon({ spinning }: { spinning: boolean }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      className={`w-3.5 h-3.5 shrink-0 ${spinning ? 'animate-spin' : ''}`}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-    >
+    <svg viewBox="0 0 24 24" className={cx('h-3.5 w-3.5 shrink-0', spinning && 'animate-spin')} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
       <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
       <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
     </svg>
   )
 }
 
-function HamburgerIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-      <path d="M3 6h18M3 12h18M3 18h18"/>
-    </svg>
-  )
-}
-
 const TERRITORIES = [
-  { key: 'reu', label: 'Réunion',     route: '/api/sync/reu' },
-  { key: 'myt', label: 'Mayotte',     route: '/api/sync/myt' },
-  { key: 'glp', label: 'Guadeloupe',  route: '/api/sync/glp' },
+  { key: 'reu', label: 'Réunion',    route: '/api/sync/reu' },
+  { key: 'myt', label: 'Mayotte',    route: '/api/sync/myt' },
+  { key: 'glp', label: 'Guadeloupe', route: '/api/sync/glp' },
 ] as const
 
 type TerritoryKey = typeof TERRITORIES[number]['key']
 type TerritoryStatus = 'pending' | 'running' | 'success' | 'error'
-
 type PollStatus = { status: string; records_synced: number; finished_at: string | null } | null
+
+// Lien secondaire (configuration, règles) : plus discret que la navigation principale
+function SecondaryLink({ href, active, onClick, icon, children }: {
+  href: string; active: boolean; onClick: () => void; icon: React.ReactNode; children: React.ReactNode
+}) {
+  return (
+    <Link
+      href={href}
+      onClick={onClick}
+      aria-current={active ? 'page' : undefined}
+      className={cx(
+        'flex h-8 items-center gap-2.5 rounded-md px-2.5 text-xs transition-colors',
+        active ? 'bg-white/[0.08] text-slate-100' : 'text-slate-500 hover:bg-white/[0.05] hover:text-slate-200'
+      )}
+    >
+      <span className="shrink-0 text-slate-500">{icon}</span>
+      <span className="truncate">{children}</span>
+    </Link>
+  )
+}
 
 export default function Sidebar({ critiqueCount, lastSync, userRole, userName }: SidebarProps) {
   const pathname = usePathname()
   const router   = useRouter()
-  const [open, setOpen]   = useState(false)
+  const [open, setOpen]       = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [territoryStatus, setTerritoryStatus] = useState<Record<TerritoryKey, TerritoryStatus> | null>(null)
-  const [currentStep, setCurrentStep] = useState<number>(0)
   const [doneMsg, setDoneMsg] = useState<string | null>(null)
-  const pollingRef = useRef(false)
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pollingRef   = useRef(false)
+  const pollRef      = useRef<ReturnType<typeof setInterval> | null>(null)
   const pollStartRef = useRef<number>(0)
 
   const formatSync = lastSync
@@ -128,6 +132,8 @@ export default function Sidebar({ critiqueCount, lastSync, userRole, userName }:
     : null
 
   const visibleNav = NAV_ITEMS.filter((item) => item.roles.includes(userRole))
+  const canSync = userRole === 'administrateur' || userRole === 'maintenance'
+  const close = () => setOpen(false)
 
   async function handleLogout() {
     const supabase = getSupabaseBrowserClient()
@@ -162,12 +168,11 @@ export default function Sidebar({ critiqueCount, lastSync, userRole, userName }:
         setTerritoryStatus({ ...map })
         if (allDone) {
           stopPolling()
-          const allOk = Object.values(map).every(s => s === 'success')
-          const anyOk = Object.values(map).some(s => s === 'success')
+          const allOk = Object.values(map).every((s) => s === 'success')
+          const anyOk = Object.values(map).some((s) => s === 'success')
           const now = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
           setDoneMsg(allOk ? `Terminée à ${now}` : anyOk ? `Terminée avec erreurs à ${now}` : `Échec à ${now}`)
           setSyncing(false)
-          setCurrentStep(0)
           if (anyOk) setTimeout(() => router.refresh(), 1500)
         }
       } catch { /* silencieux */ }
@@ -178,216 +183,199 @@ export default function Sidebar({ critiqueCount, lastSync, userRole, userName }:
     if (syncing) return
     setSyncing(true)
     setDoneMsg(null)
-    setCurrentStep(0)
     setTerritoryStatus({ reu: 'running', myt: 'running', glp: 'running' })
 
     // Déclenche les 3 syncs en parallèle
     await Promise.allSettled(
-      TERRITORIES.map(({ key }) =>
-        fetch(`/api/sync/trigger?territory=${key}`, { method: 'POST' })
-      )
+      TERRITORIES.map(({ key }) => fetch(`/api/sync/trigger?territory=${key}`, { method: 'POST' }))
     )
 
-    // Démarre le polling pour suivre la progression réelle
+    // Suit la progression réelle
     startPolling()
+  }
+
+  const STATUS_CLASS: Record<TerritoryStatus, string> = {
+    running: 'text-slate-300',
+    success: 'text-emerald-400',
+    error:   'text-red-400',
+    pending: 'text-slate-600',
   }
 
   return (
     <>
-      {/* Mobile top bar */}
-      <div className="lg:hidden fixed top-0 inset-x-0 z-30 h-14 bg-slate-900 flex items-center px-4 gap-3">
+      {/* Barre supérieure mobile */}
+      <div className="fixed inset-x-0 top-0 z-30 flex h-12 items-center gap-3 border-b border-white/10 bg-slate-900 px-3 lg:hidden">
         <button
           onClick={() => setOpen(true)}
-          className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-          aria-label="Menu"
+          className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
+          aria-label="Ouvrir le menu"
         >
-          <HamburgerIcon />
+          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <path d="M3 6h18M3 12h18M3 18h18"/>
+          </svg>
         </button>
-        <span className="text-white font-semibold text-sm tracking-wide">STAR <span className="font-light">aid</span> · Parc DAE</span>
+        <span className="text-13 font-semibold text-white">
+          STAR aid <span className="font-normal text-slate-400">· Parc DAE</span>
+        </span>
       </div>
 
-      {/* Overlay mobile */}
+      {/* Voile mobile */}
       {open && (
-        <div
-          className="lg:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
-          onClick={() => setOpen(false)}
-        />
+        <div className="fixed inset-0 z-40 bg-slate-950/60 backdrop-blur-sm lg:hidden" onClick={close} />
       )}
 
-      {/* Sidebar */}
+      {/* Barre latérale */}
       <aside
-        className={[
-          'fixed lg:relative inset-y-0 left-0 z-50 w-64 flex flex-col bg-slate-900 text-white',
-          'transition-transform duration-200 ease-in-out',
-          open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
-        ].join(' ')}
+        className={cx(
+          'fixed inset-y-0 left-0 z-50 flex w-56 flex-col border-r border-white/[0.06] bg-slate-900 text-slate-200 lg:relative',
+          'transition-transform duration-200 ease-out',
+          open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+        )}
       >
-        {/* Logo */}
-        <div className="px-5 pt-5 pb-4 border-b border-slate-800">
+        {/* Logo — présentation d'origine conservée : logo entier, mention en dessous */}
+        <div className="border-b border-slate-800 px-4 pb-4 pt-5">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/Logo STAR aid.png" alt="STAR aid" className="h-28 w-auto object-contain" />
-          <p className="text-[10px] text-slate-500 mt-2 tracking-wide uppercase">Parc DAE · Réunion · Mayotte · Guadeloupe</p>
+          <img src="/Logo STAR aid.png" alt="STAR aid" className="h-28 w-auto max-w-full object-contain" />
+          <p className="mt-2 text-[10px] uppercase tracking-wide text-slate-500">Parc DAE · Réunion · Mayotte · Guadeloupe</p>
         </div>
 
-        {/* Nav */}
-        <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-          {visibleNav.map(({ href, label, icon, badge }) => {
-            const active = pathname.startsWith(href)
-            return (
-              <Link
-                key={href}
-                href={href}
-                onClick={() => setOpen(false)}
-                className={[
-                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-base font-bold transition-colors group',
-                  active
-                    ? 'bg-[#AF2125] text-white shadow-sm'
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-white',
-                ].join(' ')}
-              >
-                {icon}
-                <span className="flex-1">{label}</span>
-                {badge && critiqueCount > 0 && (
-                  <span className="bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 leading-none">
-                    {critiqueCount > 999 ? '999+' : critiqueCount}
-                  </span>
-                )}
-              </Link>
-            )
-          })}
+        {/* Navigation */}
+        <nav className="scrollbar-thin flex-1 overflow-y-auto px-2 py-2" aria-label="Navigation principale">
+          <ul className="space-y-0.5">
+            {visibleNav.map(({ href, label, icon, badge }) => {
+              const active = pathname.startsWith(href)
+              return (
+                <li key={href}>
+                  <Link
+                    href={href}
+                    onClick={close}
+                    aria-current={active ? 'page' : undefined}
+                    className={cx(
+                      'group relative flex h-9 items-center gap-2.5 rounded-md px-2.5 text-13 font-medium transition-colors',
+                      active ? 'bg-white/[0.08] text-white' : 'text-slate-400 hover:bg-white/[0.05] hover:text-slate-100'
+                    )}
+                  >
+                    {active && <span className="absolute bottom-2 left-0 top-2 w-0.5 rounded-full bg-brand-light" aria-hidden />}
+                    <span className={cx('shrink-0', active ? 'text-brand-light' : 'text-slate-500 group-hover:text-slate-300')}>
+                      {icon}
+                    </span>
+                    <span className="flex-1 truncate">{label}</span>
+                    {badge && critiqueCount > 0 && (
+                      <span className="min-w-[18px] rounded-full bg-red-500 px-1.5 text-center text-2xs font-semibold leading-[18px] text-white tabular-nums">
+                        {critiqueCount > 999 ? '999+' : critiqueCount}
+                      </span>
+                    )}
+                  </Link>
+                </li>
+              )
+            })}
+          </ul>
 
-          <div className="pt-4 mt-2 border-t border-slate-800">
-            {/* Mapping champs — administrateur uniquement */}
-            {userRole === 'administrateur' && (
-              <Link
-                href="/admin/field-mapping"
-                onClick={() => setOpen(false)}
-                className="flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-slate-600 hover:bg-slate-800 hover:text-slate-300 transition-colors"
-              >
-                <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
-                </svg>
-                Mapping champs
-              </Link>
-            )}
+          <div className="mt-4 border-t border-white/[0.06] pt-3">
+            <p className="px-2.5 pb-1 text-2xs font-medium uppercase tracking-wider text-slate-600">Configuration</p>
+            <ul className="space-y-0.5">
+              {userRole === 'administrateur' && (
+                <li>
+                  <SecondaryLink
+                    href="/admin/field-mapping"
+                    active={pathname.startsWith('/admin/field-mapping')}
+                    onClick={close}
+                    icon={
+                      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                      </svg>
+                    }
+                  >
+                    Mapping des champs
+                  </SecondaryLink>
+                </li>
+              )}
+              <li>
+                <SecondaryLink
+                  href="/regles"
+                  active={pathname.startsWith('/regles')}
+                  onClick={close}
+                  icon={
+                    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                      <circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>
+                    </svg>
+                  }
+                >
+                  Règles du dashboard
+                </SecondaryLink>
+              </li>
+            </ul>
           </div>
         </nav>
 
-        {/* Retour + Règles du dashboard */}
-        <div className="px-4 pb-2 space-y-0.5">
-          <button
-            onClick={() => { router.back(); setOpen(false) }}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-slate-500 hover:bg-slate-800 hover:text-slate-300 transition-colors"
-          >
-            <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M15 18l-6-6 6-6"/>
-            </svg>
-            Retour
-          </button>
-          <Link
-            href="/regles"
-            onClick={() => setOpen(false)}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-slate-500 hover:bg-slate-800 hover:text-slate-300 transition-colors"
-          >
-            <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>
-            </svg>
-            Règles du dashboard
-          </Link>
-        </div>
-
-        {/* Utilisateur connecté + déconnexion */}
-        <div className="px-4 py-3 border-t border-slate-800">
-          <div className="flex items-center gap-2.5 mb-3">
-            <div className="w-7 h-7 rounded-full bg-[#AF2125] flex items-center justify-center text-white text-xs font-bold shrink-0">
-              {userName.slice(0, 1).toUpperCase()}
-            </div>
-            <div className="min-w-0">
-              <p className="text-xs font-semibold text-slate-200 truncate">{ROLE_LABELS[userRole]}</p>
-              <p className="text-[10px] text-slate-500 truncate">{userName}</p>
-            </div>
-            <button
-              onClick={handleLogout}
-              title="Se déconnecter"
-              className="ml-auto p-1.5 rounded-md text-slate-500 hover:bg-slate-800 hover:text-slate-300 transition-colors shrink-0"
-            >
-              <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-                <polyline points="16 17 21 12 16 7"/>
-                <line x1="21" y1="12" x2="9" y2="12"/>
-              </svg>
-            </button>
-          </div>
-        </div>
-
-        {/* Footer sync */}
-        <div className="px-4 py-4 border-t border-slate-800">
-          <p className="text-[11px] text-slate-500 mb-2">
-            {formatSync ? `Dernière sync : ${formatSync}` : 'Aucune synchronisation'}
+        {/* Synchronisation */}
+        <div className="border-t border-white/[0.06] px-3 py-3">
+          <p className="mb-2 flex items-center justify-between gap-2 text-2xs text-slate-500">
+            <span>Dernière synchro</span>
+            <span className="truncate font-medium text-slate-400 tabular-nums">{formatSync ?? 'aucune'}</span>
           </p>
-          {/* Sync uniquement pour administrateur et maintenance */}
-          {(userRole === 'administrateur' || userRole === 'maintenance') && (
+
+          {canSync && (
             <>
               <button
                 onClick={handleSync}
                 disabled={syncing}
-                className={[
-                  'w-full flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-medium transition-colors',
+                className={cx(
+                  'flex h-8 w-full items-center justify-center gap-2 rounded-md text-xs font-medium transition-colors',
                   syncing
-                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white',
-                ].join(' ')}
+                    ? 'cursor-not-allowed bg-white/[0.04] text-slate-500'
+                    : 'bg-white/[0.06] text-slate-300 hover:bg-white/[0.1] hover:text-white'
+                )}
               >
                 <SyncIcon spinning={syncing} />
-                {syncing
-                  ? (() => {
-                      const t = TERRITORIES[currentStep - 1]
-                      return t ? `${t.label}… (${currentStep}/3)` : 'Sync en cours…'
-                    })()
-                  : 'Synchroniser maintenant'
-                }
+                {syncing ? 'Synchronisation en cours…' : 'Synchroniser maintenant'}
               </button>
 
-              {/* Indicateur de progression par territoire */}
-              {syncing && territoryStatus && (
-                <div className="mt-2 flex items-center gap-2">
-                  {TERRITORIES.map(({ key, label }) => {
-                    const s = territoryStatus[key]
-                    return (
-                      <div key={key} className="flex items-center gap-1" title={label}>
-                        {s === 'running'  && <SyncIcon spinning />}
-                        {s === 'success'  && <span className="text-emerald-400 text-xs">✓</span>}
-                        {s === 'error'    && <span className="text-red-400 text-xs">✗</span>}
-                        {s === 'pending'  && <span className="text-slate-600 text-xs">·</span>}
-                        <span className={`text-[10px] ${
-                          s === 'running' ? 'text-slate-300' :
-                          s === 'success' ? 'text-emerald-400' :
-                          s === 'error'   ? 'text-red-400' : 'text-slate-600'
-                        }`}>{label.slice(0, 3)}</span>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-
-              {/* Résultat final avec statut par territoire */}
-              {!syncing && territoryStatus && doneMsg && (
-                <div className="mt-2 space-y-1">
-                  <p className="text-[10px] text-slate-400">{doneMsg}</p>
-                  <div className="flex items-center gap-2">
+              {/* Progression / résultat par territoire */}
+              {territoryStatus && (syncing || doneMsg) && (
+                <div className="mt-2 flex items-center justify-between gap-2 text-2xs">
+                  <div className="flex items-center gap-2.5">
                     {TERRITORIES.map(({ key, label }) => {
                       const s = territoryStatus[key]
                       return (
-                        <span key={key} className={`text-[10px] ${s === 'success' ? 'text-emerald-400' : s === 'error' ? 'text-red-400' : 'text-slate-500'}`}>
-                          {label.slice(0, 3)} {s === 'success' ? '✅' : s === 'error' ? '❌' : ''}
+                        <span key={key} className={cx('inline-flex items-center gap-1 font-medium', STATUS_CLASS[s])} title={label}>
+                          {s === 'running' && <SyncIcon spinning />}
+                          {s === 'success' && '✓'}
+                          {s === 'error'   && '✗'}
+                          {s === 'pending' && '·'}
+                          {key.toUpperCase()}
                         </span>
                       )
                     })}
                   </div>
+                  {!syncing && doneMsg && <span className="truncate text-slate-400">{doneMsg}</span>}
                 </div>
               )}
             </>
           )}
+        </div>
+
+        {/* Utilisateur */}
+        <div className="flex items-center gap-2.5 border-t border-white/[0.06] px-3 py-2.5">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand text-xs font-semibold text-white">
+            {userName.slice(0, 1).toUpperCase()}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs font-medium text-slate-200">{userName}</p>
+            <p className="truncate text-2xs text-slate-500">{ROLE_LABELS[userRole]}</p>
+          </div>
+          <button
+            onClick={handleLogout}
+            title="Se déconnecter"
+            aria-label="Se déconnecter"
+            className="shrink-0 rounded-md p-1.5 text-slate-500 transition-colors hover:bg-white/10 hover:text-white"
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+              <polyline points="16 17 21 12 16 7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+          </button>
         </div>
       </aside>
     </>

@@ -1,6 +1,7 @@
 'use client'
 import { useState, useRef, useEffect, useCallback, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { cx } from '@/components/ui/primitives'
 
 export type ClientOption = { id: string; name: string }
 
@@ -53,7 +54,7 @@ export default function ClientFilterBar({ clients }: Props) {
     setOpen(false)
   }
 
-  // Fermer le dropdown au clic extérieur
+  // Fermer le menu au clic extérieur
   useEffect(() => {
     function handler(e: MouseEvent) {
       if (!wrapRef.current?.contains(e.target as Node)) setOpen(false)
@@ -63,17 +64,15 @@ export default function ClientFilterBar({ clients }: Props) {
   }, [])
 
   return (
-    <div className={`relative shrink-0 ${isPending ? 'opacity-60' : ''}`} ref={wrapRef}>
-      {/* Champ de saisie / affichage */}
+    <div className={cx('relative shrink-0 transition-opacity', isPending && 'opacity-60')} ref={wrapRef}>
       <div
         onClick={() => inputRef.current?.focus()}
-        className={`flex items-center gap-1.5 h-7 pl-2.5 pr-1.5 border rounded-lg bg-white cursor-text transition-colors ${
-          selectedClient
-            ? 'border-blue-400 ring-1 ring-blue-200'
-            : 'border-slate-200 hover:border-slate-300'
-        }`}
+        className={cx(
+          'flex h-7 cursor-text items-center gap-1.5 rounded-md border bg-white pl-2 pr-1 shadow-card transition-colors',
+          selectedClient ? 'border-slate-900' : 'border-slate-200 hover:border-slate-300'
+        )}
       >
-        <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" stroke="currentColor" strokeWidth="2">
+        <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0 text-slate-400" fill="none" stroke="currentColor" strokeWidth="2">
           <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
         </svg>
 
@@ -85,49 +84,56 @@ export default function ClientFilterBar({ clients }: Props) {
           onChange={(e) => { setQuery(e.target.value); setOpen(true) }}
           onFocus={() => { setOpen(true); setQuery('') }}
           onBlur={() => { setTimeout(() => { setOpen(false); setQuery('') }, 150) }}
-          className={`text-xs w-40 outline-none bg-transparent ${
+          aria-label="Filtrer par client"
+          className={cx(
+            'w-44 bg-transparent text-xs outline-none',
             selectedClient && !open
-              ? 'text-blue-700 font-medium placeholder:text-blue-700'
+              ? 'font-medium text-slate-900 placeholder:text-slate-900'
               : 'text-slate-700 placeholder:text-slate-400'
-          }`}
+          )}
         />
 
         {selectedClient ? (
-          <button onClick={clear} className="p-0.5 text-slate-400 hover:text-red-500 shrink-0 transition-colors" title="Retirer le filtre client">
-            <svg viewBox="0 0 24 24" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <button
+            type="button"
+            onClick={clear}
+            className="shrink-0 rounded p-0.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-red-600"
+            title="Retirer le filtre client"
+            aria-label="Retirer le filtre client"
+          >
+            <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.5">
               <path d="M18 6 6 18M6 6l12 12"/>
             </svg>
           </button>
         ) : (
-          <svg viewBox="0 0 24 24" className="w-3 h-3 text-slate-300 shrink-0" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg viewBox="0 0 24 24" className="mr-0.5 h-3 w-3 shrink-0 text-slate-300" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="m6 9 6 6 6-6"/>
           </svg>
         )}
       </div>
 
-      {/* Dropdown */}
       {open && (
-        <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-64 overflow-y-auto">
+        <div className="scrollbar-thin absolute left-0 top-full z-50 mt-1.5 max-h-64 w-72 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-pop">
           {displayed.length === 0 ? (
-            <p className="px-3 py-3 text-xs text-slate-400 text-center">Aucun client trouvé</p>
+            <p className="px-3 py-3 text-center text-xs text-slate-400">Aucun client trouvé</p>
           ) : (
             displayed.map((client) => (
               <button
                 key={client.id}
+                type="button"
                 onClick={() => select(client)}
-                className={`w-full text-left px-3 py-2 text-xs transition-colors ${
-                  client.id === selectedId
-                    ? 'bg-blue-50 text-blue-700 font-medium'
-                    : 'text-slate-700 hover:bg-slate-50'
-                }`}
+                className={cx(
+                  'w-full px-3 py-1.5 text-left text-xs transition-colors',
+                  client.id === selectedId ? 'bg-slate-100 font-medium text-slate-900' : 'text-slate-700 hover:bg-slate-50'
+                )}
               >
                 {client.name}
               </button>
             ))
           )}
           {overflow && (
-            <p className="px-3 py-1.5 text-[11px] text-slate-400 border-t border-slate-100 text-center">
-              {matchingClients.length - 20} autres — affinez la recherche
+            <p className="border-t border-slate-100 px-3 py-1.5 text-center text-2xs text-slate-400">
+              {matchingClients.length - 20} autres, affinez la recherche
             </p>
           )}
         </div>

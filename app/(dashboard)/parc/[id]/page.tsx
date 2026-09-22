@@ -5,11 +5,15 @@ import { notFound } from 'next/navigation'
 import dynamicImport from 'next/dynamic'
 import { DAEStatusBadge } from '@/components/table/StatusBadge'
 import BackButton from '@/components/BackButton'
+import {
+  Card, EmptyState, PageContainer, cx,
+  tableClass, tbodyClass, tdClass, thClass, theadClass, trClass,
+} from '@/components/ui/primitives'
 
 const DetailMap = dynamicImport(() => import('./DetailMap'), {
   ssr: false,
   loading: () => (
-    <div className="h-full min-h-[220px] bg-slate-100 rounded-lg animate-pulse flex items-center justify-center text-xs text-slate-400">
+    <div className="flex h-full min-h-[260px] animate-pulse items-center justify-center bg-slate-100 text-xs text-slate-400">
       Chargement de la carte…
     </div>
   ),
@@ -79,7 +83,7 @@ function progressPct(installDate: string | null, expiryDate: string | null): num
   const today  = Date.now()
   const start  = installDate
     ? new Date(installDate).getTime()
-    : expiry - 2 * 365.25 * 24 * 3600 * 1000  // fallback : durée de vie 2 ans
+    : expiry - 2 * 365.25 * 24 * 3600 * 1000  // repli : durée de vie 2 ans
 
   if (today >= expiry) return 100
   if (today <= start)  return 0
@@ -89,18 +93,25 @@ function progressPct(installDate: string | null, expiryDate: string | null): num
 function barColor(expiryDate: string | null): string {
   const days = daysUntil(expiryDate)
   if (days === null)  return 'bg-slate-300'
-  if (days < 0)       return 'bg-red-500'
-  if (days < 30)      return 'bg-red-400'
-  if (days < 180)     return 'bg-amber-400'
-  return 'bg-emerald-400'
+  if (days < 30)      return 'bg-red-500'
+  if (days < 180)     return 'bg-amber-500'
+  return 'bg-emerald-500'
 }
 
 function daysBadge(days: number | null): { label: string; cls: string } | null {
   if (days === null) return null
-  if (days < 0)   return { label: `${Math.abs(days)} j de dépassement`, cls: 'bg-red-100 text-red-700' }
-  if (days < 30)  return { label: `${days} j restants`, cls: 'bg-amber-100 text-amber-700' }
-  if (days < 180) return { label: `${days} j restants`, cls: 'bg-amber-50 text-amber-600' }
-  return { label: `${days} j restants`, cls: 'bg-emerald-50 text-emerald-600' }
+  if (days < 0)   return { label: `${Math.abs(days)} j de dépassement`, cls: 'bg-red-50 text-red-700 ring-red-600/20' }
+  if (days < 30)  return { label: `${days} j restants`, cls: 'bg-amber-50 text-amber-800 ring-amber-500/30' }
+  if (days < 180) return { label: `${days} j restants`, cls: 'bg-slate-100 text-slate-600 ring-slate-300' }
+  return { label: `${days} j restants`, cls: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20' }
+}
+
+function dateTone(d: string | null): string {
+  const days = daysUntil(d)
+  if (days === null) return ''
+  if (days < 0)  return 'text-red-700'
+  if (days < 30) return 'text-amber-700'
+  return ''
 }
 
 const JOB_TYPE_LABEL: Record<string, string> = {
@@ -110,11 +121,12 @@ const JOB_TYPE_LABEL: Record<string, string> = {
   autre:        'Autre',
 }
 
-const JOB_TYPE_COLOR: Record<string, string> = {
-  maintenance:  'bg-blue-100 text-blue-700',
-  depannage:    'bg-red-100 text-red-700',
-  installation: 'bg-emerald-100 text-emerald-700',
-  autre:        'bg-slate-100 text-slate-600',
+// Types d'intervention : couleurs catégorielles, distinctes des couleurs de statut
+const JOB_TYPE_CLASS: Record<string, string> = {
+  maintenance:  'bg-blue-50 text-blue-700 ring-blue-600/20',
+  depannage:    'bg-orange-50 text-orange-700 ring-orange-600/20',
+  installation: 'bg-teal-50 text-teal-700 ring-teal-600/20',
+  autre:        'bg-slate-100 text-slate-600 ring-slate-300',
 }
 
 const JOB_STATUS_LABEL: Record<string, string> = {
@@ -124,80 +136,67 @@ const JOB_STATUS_LABEL: Record<string, string> = {
   annule:   'Annulée',
 }
 
-const JOB_STATUS_COLOR: Record<string, string> = {
-  termine:  'bg-emerald-100 text-emerald-700',
-  planifie: 'bg-blue-100 text-blue-700',
-  en_cours: 'bg-amber-100 text-amber-700',
-  annule:   'bg-slate-100 text-slate-500 line-through',
+const JOB_STATUS_CLASS: Record<string, string> = {
+  termine:  'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
+  planifie: 'bg-blue-50 text-blue-700 ring-blue-600/20',
+  en_cours: 'bg-amber-50 text-amber-800 ring-amber-500/30',
+  annule:   'bg-slate-100 text-slate-500 ring-slate-300 line-through',
 }
 
 // ─── Sous-composants ──────────────────────────────────────────────────────────
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
+function Pill({ className, children }: { className: string; children: React.ReactNode }) {
   return (
-    <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-4">
+    <span className={cx('inline-flex items-center whitespace-nowrap rounded-md px-1.5 py-0.5 text-2xs font-semibold ring-1 ring-inset', className)}>
       {children}
-    </h2>
+    </span>
   )
 }
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-3 py-2 border-b border-slate-50 last:border-0">
-      <span className="text-xs text-slate-500 shrink-0">{label}</span>
-      <span className="text-sm text-slate-800 font-medium text-right">{value ?? '—'}</span>
+    <div className="flex items-start justify-between gap-3 border-b border-slate-100 py-1.5 last:border-0">
+      <dt className="shrink-0 text-xs text-slate-500">{label}</dt>
+      <dd className="text-right text-13 font-medium text-slate-800">{value ?? <span className="text-slate-300">—</span>}</dd>
     </div>
   )
 }
 
-function ConsumableBar({
-  label,
-  installDate,
-  expiryDate,
-}: {
-  label: string
-  installDate?: string | null
-  expiryDate?: string | null
-}) {
-  const pct  = progressPct(installDate ?? null, expiryDate ?? null)
-  const days = daysUntil(expiryDate ?? null)
+function YesNo({ value }: { value: boolean | null }) {
+  if (value === null) return null
+  return value ? <span className="text-emerald-700">Oui</span> : <span className="text-slate-400">Non</span>
+}
+
+function ConsumableBar({ label, installDate, expiryDate }: { label: string; installDate?: string | null; expiryDate?: string | null }) {
+  const pct   = progressPct(installDate ?? null, expiryDate ?? null)
+  const days  = daysUntil(expiryDate ?? null)
   const badge = daysBadge(days)
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-medium text-slate-700">{label}</span>
-        {badge && (
-          <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${badge.cls}`}>
-            {badge.label}
-          </span>
-        )}
+        <span className="text-13 font-medium text-slate-800">{label}</span>
+        {badge && <Pill className={cx(badge.cls, 'tabular-nums')}>{badge.label}</Pill>}
       </div>
 
       {expiryDate ? (
         <>
-          <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all ${barColor(expiryDate ?? null)}`}
-              style={{ width: `${pct}%` }}
-            />
+          <div className="h-1.5 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+            <div className={cx('h-full rounded-full', barColor(expiryDate))} style={{ width: `${pct}%` }} />
           </div>
-          <div className="flex items-center justify-between text-[11px] text-slate-400">
+          <div className="flex items-center justify-between text-2xs text-slate-400 tabular-nums">
             {installDate
-              ? <span>Installation : {fmtDate(installDate)}</span>
-              : <span className="italic">Date d&apos;installation inconnue</span>
-            }
-            <span className={`font-medium ${(days ?? 1) < 0 ? 'text-red-600' : (days ?? 999) < 30 ? 'text-amber-600' : 'text-slate-600'}`}>
-              Exp. {fmtDate(expiryDate ?? null)}
-            </span>
+              ? <span>Installée le {fmtDate(installDate)}</span>
+              : <span className="italic">Date d&apos;installation inconnue</span>}
+            <span className={cx('font-medium', dateTone(expiryDate) || 'text-slate-600')}>Expire le {fmtDate(expiryDate)}</span>
           </div>
         </>
       ) : installDate ? (
-        <p className="text-[11px] text-slate-400">
-          Installation : {fmtDate(installDate)} · <span className="italic">Date d&apos;expiration non renseignée dans Synchroteam</span>
+        <p className="text-2xs text-slate-400">
+          Installée le {fmtDate(installDate)} · <span className="italic">date d&apos;expiration non renseignée dans Synchroteam</span>
         </p>
       ) : (
-        <p className="text-sm text-slate-400 italic">Non renseigné</p>
+        <p className="text-xs italic text-slate-400">Non renseigné</p>
       )}
     </div>
   )
@@ -231,7 +230,7 @@ export default async function ParcDetailPage({ params }: Props) {
 
   if (daeRes.error || !daeRes.data) notFound()
 
-  const d  = daeRes.data as unknown as DaeDetail & { site_id: string | null }
+  const d = daeRes.data as unknown as DaeDetail & { site_id: string | null }
 
   // Interventions : par DAE direct OU par site (jobs Synchroteam souvent liés au site, pas à l'équipement)
   const orFilter = d.site_id
@@ -257,336 +256,215 @@ export default async function ParcDetailPage({ params }: Props) {
   // Technicien le plus récent (depuis les interventions de maintenance)
   const lastMaintTech = ivs.find((i) => i.type === 'maintenance' && i.technician_name)?.technician_name ?? null
 
-  return (
-    <div className="p-6 lg:p-8 max-w-screen-xl mx-auto space-y-6">
+  const lastMaintDays = daysUntil(d.last_maintenance_date)
+  const pediatricFirst = !!d.electrodes_pediatric_expiry &&
+    (!d.electrodes_adult_expiry || d.electrodes_pediatric_expiry < d.electrodes_adult_expiry)
 
-      {/* ── Fil d'Ariane + retour ───────────────────────────────────────────── */}
-      <div className="flex items-center gap-2 text-sm text-slate-500">
+  return (
+    <PageContainer>
+      {/* ── Fil d'Ariane ────────────────────────────────────────────────────── */}
+      <div className="mb-3 flex items-center gap-2 text-13 text-slate-500">
         <BackButton label="Parc DAE" />
         <span className="text-slate-300">/</span>
-        <span className="text-slate-700 font-medium truncate">
-          {d.serial_number ?? `Fiche ${d.id.slice(0, 8)}`}
-        </span>
+        <span className="truncate font-medium text-slate-700">{d.serial_number ?? `Fiche ${d.id.slice(0, 8)}`}</span>
       </div>
 
-      {/* ── En-tête principal ───────────────────────────────────────────────── */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-        <div className="flex flex-col sm:flex-row sm:items-start gap-5">
-          {/* Icône DAE */}
-          <div className="shrink-0 w-14 h-14 rounded-xl bg-slate-100 flex items-center justify-center">
-            <svg viewBox="0 0 24 24" className="w-7 h-7 text-slate-500" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      {/* ── En-tête ─────────────────────────────────────────────────────────── */}
+      <Card className="mb-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand">
+            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
             </svg>
           </div>
 
-          {/* Identité DAE */}
-          <div className="flex-1 min-w-0">
-            <div className="flex flex-wrap items-center gap-2 mb-1">
+          <div className="min-w-0 flex-1">
+            <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
               <DAEStatusBadge status={d.status} />
-              {territory && (
-                <span className="text-xs text-slate-400 font-medium">{territory.name}</span>
-              )}
+              {territory && <span>{territory.name}</span>}
+              {d.status_reason && <span>· {d.status_reason}</span>}
             </div>
-            <h1 className="text-xl font-bold text-slate-800 truncate">
-              {[d.brand, d.model].filter(Boolean).join(' — ') || 'Modèle non renseigné'}
+            <h1 className="truncate text-lg font-semibold tracking-tight text-slate-900">
+              {[d.brand, d.model].filter(Boolean).join(' · ') || 'Modèle non renseigné'}
             </h1>
-            <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1">
-              {d.serial_number && (
-                <span className="font-mono text-sm text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
-                  {d.serial_number}
-                </span>
-              )}
-              {d.status_reason && (
-                <span className="text-sm text-slate-500 italic">{d.status_reason}</span>
-              )}
-            </div>
+            {d.serial_number && (
+              <p className="mt-1.5">
+                <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-13 text-slate-700">{d.serial_number}</span>
+              </p>
+            )}
           </div>
 
-          {/* Client / Site résumé */}
-          <div className="text-right text-sm shrink-0">
-            {client && <p className="font-semibold text-slate-700">{client.name}</p>}
-            {site    && <p className="text-slate-500">{site.name}</p>}
-            {site?.city && <p className="text-slate-400 text-xs">{site.city}</p>}
+          <div className="shrink-0 text-13 sm:text-right">
+            {client && <p className="font-semibold text-slate-800">{client.name}</p>}
+            {site && <p className="text-slate-600">{site.name}</p>}
+            {site?.city && <p className="text-xs text-slate-400">{site.city}</p>}
           </div>
         </div>
-      </div>
+      </Card>
 
-      {/* ── Ligne 1 : Consommables · Maintenance · Contrat & Infos ─────────── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-
-        {/* Consommables */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-          <SectionTitle>Consommables</SectionTitle>
-          <div className="space-y-6">
-            <ConsumableBar
-              label="Batterie"
-              installDate={d.battery_install_date}
-              expiryDate={d.battery_expiry}
-            />
-            {/* Afficher la plus critique en premier */}
-            {d.electrodes_pediatric_expiry &&
-             (!d.electrodes_adult_expiry || d.electrodes_pediatric_expiry < d.electrodes_adult_expiry) ? (
+      {/* ── Consommables · Maintenance · Contrat ────────────────────────────── */}
+      <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+        <Card title="Consommables">
+          <div className="space-y-5">
+            <ConsumableBar label="Batterie" installDate={d.battery_install_date} expiryDate={d.battery_expiry} />
+            {pediatricFirst ? (
               <>
-                <ConsumableBar
-                  label="Électrodes pédiatriques ⚠"
-                  expiryDate={d.electrodes_pediatric_expiry}
-                />
-                <ConsumableBar
-                  label="Électrodes adultes"
-                  expiryDate={d.electrodes_adult_expiry}
-                />
+                <ConsumableBar label="Électrodes pédiatriques" expiryDate={d.electrodes_pediatric_expiry} />
+                <ConsumableBar label="Électrodes adultes" expiryDate={d.electrodes_adult_expiry} />
               </>
             ) : (
               <>
-                <ConsumableBar
-                  label="Électrodes adultes"
-                  expiryDate={d.electrodes_adult_expiry}
-                />
+                <ConsumableBar label="Électrodes adultes" expiryDate={d.electrodes_adult_expiry} />
                 {d.electrodes_pediatric_expiry && (
-                  <ConsumableBar
-                    label="Électrodes pédiatriques"
-                    expiryDate={d.electrodes_pediatric_expiry}
-                  />
+                  <ConsumableBar label="Électrodes pédiatriques" expiryDate={d.electrodes_pediatric_expiry} />
                 )}
               </>
             )}
             {!d.battery_expiry && !d.electrodes_adult_expiry && (
-              <p className="text-sm text-slate-400 italic text-center py-4">
-                Aucune date de consommable renseignée
-              </p>
+              <p className="py-2 text-center text-xs italic text-slate-400">Aucune date de consommable renseignée</p>
             )}
           </div>
-        </div>
+        </Card>
 
-        {/* Maintenance */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-          <SectionTitle>Maintenance</SectionTitle>
-          <div className="space-y-0.5">
+        <Card title="Maintenance">
+          <dl>
             <InfoRow
               label="Dernière intervention"
-              value={
-                d.last_maintenance_date ? (
-                  <span>
-                    {fmtDate(d.last_maintenance_date)}
-                    {(() => {
-                      const days = daysUntil(d.last_maintenance_date)
-                      if (days === null) return null
-                      return (
-                        <span className="ml-1.5 text-xs text-slate-400 font-normal">
-                          (il y a {Math.abs(days)} j)
-                        </span>
-                      )
-                    })()}
-                  </span>
-                ) : null
-              }
+              value={d.last_maintenance_date ? (
+                <span className="tabular-nums">
+                  {fmtDate(d.last_maintenance_date)}
+                  {lastMaintDays !== null && <span className="ml-1.5 text-xs font-normal text-slate-400">il y a {Math.abs(lastMaintDays)} j</span>}
+                </span>
+              ) : null}
             />
             <InfoRow
               label="Prochaine maintenance"
-              value={
-                d.next_maintenance_date ? (
-                  <span className={daysUntil(d.next_maintenance_date) !== null && (daysUntil(d.next_maintenance_date) ?? 1) < 0 ? 'text-red-600' : daysUntil(d.next_maintenance_date) !== null && (daysUntil(d.next_maintenance_date) ?? 999) < 30 ? 'text-amber-600' : ''}>
-                    {fmtDate(d.next_maintenance_date)}
-                  </span>
-                ) : null
-              }
+              value={d.next_maintenance_date ? <span className={cx('tabular-nums', dateTone(d.next_maintenance_date))}>{fmtDate(d.next_maintenance_date)}</span> : null}
             />
-            <InfoRow
-              label="Technicien"
-              value={lastMaintTech}
-            />
-          </div>
+            <InfoRow label="Technicien" value={lastMaintTech} />
+          </dl>
+          {ivs.length === 0 && <p className="mt-3 text-center text-xs italic text-slate-400">Aucune intervention enregistrée</p>}
+        </Card>
 
-          {ivs.length === 0 && (
-            <p className="text-xs text-slate-400 italic mt-4 text-center">Aucune intervention enregistrée</p>
-          )}
-        </div>
-
-        {/* Contrat & infos */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-          <SectionTitle>Contrat &amp; Informations</SectionTitle>
-          <div className="space-y-0.5">
-            <InfoRow label="Type de contrat"   value={d.contract_type} />
-            <InfoRow label="Début contrat"     value={fmtDate(d.contract_start)} />
-            <InfoRow label="Fin contrat"       value={fmtDate(d.contract_end)} />
-            <InfoRow label="Date de fabrication" value={fmtDate(d.manufacture_date)} />
+        <Card title="Contrat et informations">
+          <dl>
+            <InfoRow label="Type de contrat" value={d.contract_type} />
+            <InfoRow label="Début de contrat" value={d.contract_start ? <span className="tabular-nums">{fmtDate(d.contract_start)}</span> : null} />
+            <InfoRow label="Fin de contrat" value={d.contract_end ? <span className={cx('tabular-nums', dateTone(d.contract_end))}>{fmtDate(d.contract_end)}</span> : null} />
+            <InfoRow label="Date de fabrication" value={d.manufacture_date ? <span className="tabular-nums">{fmtDate(d.manufacture_date)}</span> : null} />
             <InfoRow label="Zone géographique" value={d.zone_geographique} />
-            {d.cabinet_code && (
-              <InfoRow label="Code cabinet" value={d.cabinet_code} />
-            )}
-            {d.location_detail && (
-              <InfoRow label="Localisation détail" value={d.location_detail} />
-            )}
-            <InfoRow
-              label="Kit RCP"
-              value={
-                d.kit_rcp === null ? null
-                  : d.kit_rcp
-                    ? <span className="text-emerald-600 font-semibold">Oui</span>
-                    : <span className="text-slate-400">Non</span>
-              }
-            />
-            <InfoRow
-              label="Registre STAR aid"
-              value={
-                d.registre_star_aid === null ? null
-                  : d.registre_star_aid
-                    ? <span className="text-emerald-600 font-semibold">Oui</span>
-                    : <span className="text-slate-400">Non</span>
-              }
-            />
-          </div>
-        </div>
+            {d.cabinet_code && <InfoRow label="Code armoire" value={d.cabinet_code} />}
+            {d.location_detail && <InfoRow label="Emplacement" value={d.location_detail} />}
+            <InfoRow label="Kit RCP" value={<YesNo value={d.kit_rcp} />} />
+            <InfoRow label="Registre STAR aid" value={<YesNo value={d.registre_star_aid} />} />
+          </dl>
+        </Card>
       </div>
 
-      {/* ── Ligne 2 : Localisation + Carte ──────────────────────────────────── */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-        {/* Localisation textuelle */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-          <SectionTitle>Localisation</SectionTitle>
-
+      {/* ── Localisation + carte ────────────────────────────────────────────── */}
+      <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+        <Card title="Localisation">
           {client && (
-            <div className="mb-5">
-              <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Client</p>
-              <p className="font-semibold text-slate-800">{client.name}</p>
-              {client.address && <p className="text-sm text-slate-500">{client.address}</p>}
-              {client.city    && <p className="text-sm text-slate-500">{client.city}</p>}
-              <div className="mt-2 flex flex-wrap gap-3">
-                {client.contact_phone && (
-                  <a href={`tel:${client.contact_phone}`} className="text-xs text-blue-600 hover:underline flex items-center gap-1">
-                    <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 9.77 19.79 19.79 0 0 1 1.62 6.06 2 2 0 0 1 3.64 4h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 11.5a16 16 0 0 0 6 6l.92-.92a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z" />
-                    </svg>
-                    {client.contact_phone}
-                  </a>
-                )}
-                {client.contact_email && (
-                  <a href={`mailto:${client.contact_email}`} className="text-xs text-blue-600 hover:underline flex items-center gap-1">
-                    <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                      <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-                      <polyline points="22,6 12,13 2,6" />
-                    </svg>
-                    {client.contact_email}
-                  </a>
-                )}
-              </div>
+            <div className="mb-4">
+              <p className="mb-1 text-2xs font-medium uppercase tracking-wider text-slate-400">Client</p>
+              <p className="text-13 font-semibold text-slate-800">{client.name}</p>
+              {client.address && <p className="text-13 text-slate-500">{client.address}</p>}
+              {client.city && <p className="text-13 text-slate-500">{client.city}</p>}
+              {(client.contact_phone || client.contact_email) && (
+                <div className="mt-2 flex flex-wrap gap-3">
+                  {client.contact_phone && (
+                    <a href={`tel:${client.contact_phone}`} className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline">
+                      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 9.77 19.79 19.79 0 0 1 1.62 6.06 2 2 0 0 1 3.64 4h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 11.5a16 16 0 0 0 6 6l.92-.92a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z" />
+                      </svg>
+                      {client.contact_phone}
+                    </a>
+                  )}
+                  {client.contact_email && (
+                    <a href={`mailto:${client.contact_email}`} className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline">
+                      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                        <polyline points="22,6 12,13 2,6" />
+                      </svg>
+                      {client.contact_email}
+                    </a>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
           {site && (
             <div>
-              <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Site</p>
-              <p className="font-semibold text-slate-700">{site.name}</p>
-              {site.address && <p className="text-sm text-slate-500">{site.address}</p>}
-              {site.city    && <p className="text-sm text-slate-500">{site.city}</p>}
+              <p className="mb-1 text-2xs font-medium uppercase tracking-wider text-slate-400">Site</p>
+              <p className="text-13 font-semibold text-slate-800">{site.name}</p>
+              {site.address && <p className="text-13 text-slate-500">{site.address}</p>}
+              {site.city && <p className="text-13 text-slate-500">{site.city}</p>}
               {hasGPS && (
-                <p className="text-xs text-slate-400 mt-1.5">
-                  GPS : {site.latitude?.toFixed(5)}, {site.longitude?.toFixed(5)}
+                <p className="mt-1.5 font-mono text-2xs text-slate-400 tabular-nums">
+                  {site.latitude?.toFixed(5)}, {site.longitude?.toFixed(5)}
                 </p>
               )}
             </div>
           )}
 
-          {!client && !site && (
-            <p className="text-sm text-slate-400 italic">Aucune information de localisation</p>
-          )}
-        </div>
+          {!client && !site && <p className="text-xs italic text-slate-400">Aucune information de localisation</p>}
+        </Card>
 
-        {/* Carte */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 min-h-[260px]">
+        <Card title="Carte" padded={false} bodyClassName="h-[280px] overflow-hidden rounded-b-lg">
           {hasGPS ? (
-            <DetailMap
-              latitude={site!.latitude!}
-              longitude={site!.longitude!}
-              siteName={site?.name ?? null}
-              status={d.status}
-            />
+            <DetailMap latitude={site!.latitude!} longitude={site!.longitude!} siteName={site?.name ?? null} status={d.status} />
           ) : (
-            <div className="h-full min-h-[220px] flex flex-col items-center justify-center gap-3 text-slate-400">
-              <svg viewBox="0 0 24 24" className="w-10 h-10 text-slate-200" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <circle cx="12" cy="12" r="10" />
-                <path d="M12 8v4M12 16h.01" />
-              </svg>
-              <div className="text-center">
-                <p className="text-sm font-medium text-slate-500">Coordonnées GPS non disponibles</p>
-                <p className="text-xs text-slate-400 mt-0.5">Le site n&apos;a pas de position enregistrée</p>
-              </div>
-            </div>
+            <EmptyState className="flex h-full flex-col items-center justify-center gap-1 py-0">
+              <span className="font-medium text-slate-500">Coordonnées GPS non disponibles</span>
+              <span className="text-xs">Le site n&apos;a pas de position enregistrée</span>
+            </EmptyState>
           )}
-        </div>
+        </Card>
       </div>
 
-      {/* ── Historique interventions ─────────────────────────────────────────── */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100">
-          <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">
-            Historique interventions
-            {ivs.length > 0 && (
-              <span className="ml-2 text-slate-300 font-normal normal-case">
-                — {ivs.length} enregistrée{ivs.length > 1 ? 's' : ''}
-              </span>
-            )}
-          </h2>
-        </div>
-
+      {/* ── Historique des interventions ────────────────────────────────────── */}
+      <Card
+        title={<>Historique des interventions{ivs.length > 0 && <span className="ml-1.5 font-normal text-slate-400 tabular-nums">({ivs.length})</span>}</>}
+        padded={false}
+      >
         {ivs.length === 0 ? (
-          <div className="py-12 text-center text-slate-400 text-sm">
-            Aucune intervention enregistrée pour ce DAE.
-          </div>
+          <EmptyState>Aucune intervention enregistrée pour ce DAE.</EmptyState>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-100">
+            <table className={tableClass}>
+              <thead className={theadClass}>
+                <tr>
                   {['Date', 'Type', 'Technicien', 'Durée', 'Statut', 'Rapport'].map((h) => (
-                    <th key={h} className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">
-                      {h}
-                    </th>
+                    <th key={h} className={thClass}>{h}</th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50">
+              <tbody className={tbodyClass}>
                 {ivs.map((iv) => {
-                  const dateRef = iv.completed_date ?? iv.scheduled_date
-                  const typeKey = iv.type ?? 'autre'
+                  const dateRef   = iv.completed_date ?? iv.scheduled_date
+                  const typeKey   = iv.type ?? 'autre'
                   const statusKey = iv.status ?? 'planifie'
-                  const durationMin = iv.duration_minutes
-                  const durationLabel = durationMin
-                    ? durationMin >= 60
-                      ? `${Math.floor(durationMin / 60)} h ${durationMin % 60 > 0 ? `${durationMin % 60} min` : ''}`
-                      : `${durationMin} min`
+                  const min = iv.duration_minutes
+                  const durationLabel = min
+                    ? min >= 60 ? `${Math.floor(min / 60)} h${min % 60 > 0 ? ` ${min % 60} min` : ''}` : `${min} min`
                     : null
 
                   return (
-                    <tr key={iv.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-5 py-3 whitespace-nowrap tabular-nums text-slate-700 font-medium">
-                        {fmtDate(dateRef)}
+                    <tr key={iv.id} className={trClass}>
+                      <td className={cx(tdClass, 'whitespace-nowrap font-medium text-slate-800 tabular-nums')}>{fmtDate(dateRef)}</td>
+                      <td className={cx(tdClass, 'whitespace-nowrap')}>
+                        <Pill className={JOB_TYPE_CLASS[typeKey] ?? JOB_TYPE_CLASS.autre}>{JOB_TYPE_LABEL[typeKey] ?? typeKey}</Pill>
                       </td>
-                      <td className="px-5 py-3 whitespace-nowrap">
-                        <span className={`inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-full ${JOB_TYPE_COLOR[typeKey] ?? JOB_TYPE_COLOR.autre}`}>
-                          {JOB_TYPE_LABEL[typeKey] ?? typeKey}
-                        </span>
+                      <td className={cx(tdClass, 'whitespace-nowrap text-slate-700')}>{iv.technician_name ?? <span className="text-slate-300">—</span>}</td>
+                      <td className={cx(tdClass, 'whitespace-nowrap text-slate-500 tabular-nums')}>{durationLabel ?? <span className="text-slate-300">—</span>}</td>
+                      <td className={cx(tdClass, 'whitespace-nowrap')}>
+                        <Pill className={JOB_STATUS_CLASS[statusKey] ?? JOB_STATUS_CLASS.planifie}>{JOB_STATUS_LABEL[statusKey] ?? statusKey}</Pill>
                       </td>
-                      <td className="px-5 py-3 text-slate-600 whitespace-nowrap">
-                        {iv.technician_name ?? <span className="text-slate-400">—</span>}
-                      </td>
-                      <td className="px-5 py-3 text-slate-500 whitespace-nowrap tabular-nums">
-                        {durationLabel ?? <span className="text-slate-400">—</span>}
-                      </td>
-                      <td className="px-5 py-3 whitespace-nowrap">
-                        <span className={`inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-full ${JOB_STATUS_COLOR[statusKey] ?? JOB_STATUS_COLOR.planifie}`}>
-                          {JOB_STATUS_LABEL[statusKey] ?? statusKey}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3 max-w-xs">
-                        {iv.report ? (
-                          <span className="block truncate text-slate-500 text-xs" title={iv.report}>
-                            {iv.report}
-                          </span>
-                        ) : (
-                          <span className="text-slate-400">—</span>
-                        )}
+                      <td className={cx(tdClass, 'max-w-sm')}>
+                        {iv.report
+                          ? <span className="block truncate text-xs text-slate-500" title={iv.report}>{iv.report}</span>
+                          : <span className="text-slate-300">—</span>}
                       </td>
                     </tr>
                   )
@@ -595,8 +473,7 @@ export default async function ParcDetailPage({ params }: Props) {
             </table>
           </div>
         )}
-      </div>
-
-    </div>
+      </Card>
+    </PageContainer>
   )
 }

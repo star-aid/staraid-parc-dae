@@ -114,12 +114,12 @@ export default async function DashboardLayout({ children }: { children: ReactNod
       {/* Colonne droite : filtres globaux + contenu scrollable */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Barre de filtres globaux — persistante sur toutes les pages dashboard */}
-        <div className="shrink-0 bg-white border-b border-slate-200 px-6 py-2.5 flex items-center gap-3 flex-wrap pt-14 lg:pt-2.5">
-          <Suspense fallback={<div className="h-[28px] w-60" />}>
+        <div className="flex min-h-11 shrink-0 flex-wrap items-center gap-x-4 gap-y-1.5 border-b border-slate-200 bg-white/90 px-5 py-1.5 pt-[3.375rem] backdrop-blur lg:px-7 lg:pt-1.5">
+          <Suspense fallback={<div className="h-7 w-64 rounded-md bg-slate-100" />}>
             <ContratFilterBar autreTypes={autreTypes} />
           </Suspense>
-          <div className="w-px h-5 bg-slate-200 shrink-0 hidden sm:block" />
-          <Suspense fallback={<div className="h-[28px] w-48" />}>
+          <div className="hidden h-5 w-px bg-slate-200 sm:block" />
+          <Suspense fallback={<div className="h-7 w-44 rounded-md bg-slate-100" />}>
             <ClientFilterBar clients={clients} />
           </Suspense>
         </div>

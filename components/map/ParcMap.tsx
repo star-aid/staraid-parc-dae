@@ -26,10 +26,11 @@ interface Props {
   territoryFilter: string[]
 }
 
+// Mêmes couleurs de statut que les badges et les graphiques
 const STATUS_COLORS: Record<string, string> = {
-  conforme:  '#10b981',
+  conforme:  '#059669',
   vigilance: '#f59e0b',
-  critique:  '#ef4444',
+  critique:  '#dc2626',
   inconnu:   '#94a3b8',
 }
 
@@ -100,29 +101,28 @@ export default function ParcMap({ markers, statusFilter, territoryFilter }: Prop
         const expiry = fmtDate(m.next_expiry)
 
         const circle = L.circleMarker([m.latitude, m.longitude], {
-          radius: 9,
+          radius: 7,
           fillColor: color,
-          color: '#fff',
+          color: '#ffffff',
           weight: 2,
           opacity: 1,
-          fillOpacity: 0.88,
+          fillOpacity: 0.92,
         })
 
+        // Le libellé de statut reste en encre foncée : la couleur est portée par le point
         circle.bindPopup(`
-          <div style="min-width:200px;font-family:system-ui,-apple-system,sans-serif;font-size:13px;line-height:1.6">
-            <div style="font-weight:600;color:#1e293b;margin-bottom:2px">${m.site_name ?? 'Site inconnu'}</div>
-            <div style="color:#64748b;font-size:12px;margin-bottom:8px">${m.client_name ?? '—'}</div>
-            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+          <div style="min-width:210px;font-size:12px;line-height:1.5;color:#334155">
+            <div style="font-weight:600;font-size:13px;color:#0f172a">${m.site_name ?? 'Site inconnu'}</div>
+            <div style="color:#64748b;margin-bottom:8px">${m.client_name ?? '—'}</div>
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
               <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></span>
-              <span style="color:${color};font-weight:600">${label}</span>
+              <span style="font-weight:600;color:#0f172a">${label}</span>
+              ${m.status_reason ? `<span style="color:#64748b">· ${m.status_reason}</span>` : ''}
             </div>
-            ${m.status_reason ? `<div style="color:#94a3b8;font-size:11px;margin-bottom:4px">${m.status_reason}</div>` : ''}
-            ${m.serial_number ? `<div style="color:#94a3b8;font-size:11px">SN : <span style="color:#475569;font-family:monospace">${m.serial_number}</span></div>` : ''}
-            ${expiry ? `<div style="color:#94a3b8;font-size:11px">Prochaine échéance : <span style="color:#ef4444;font-weight:500">${expiry}</span></div>` : ''}
+            ${m.serial_number ? `<div style="color:#64748b;font-size:11px">N° série <span style="color:#334155;font-family:ui-monospace,monospace">${m.serial_number}</span></div>` : ''}
+            ${expiry ? `<div style="color:#64748b;font-size:11px">Prochaine échéance <span style="color:#b91c1c;font-weight:500">${expiry}</span></div>` : ''}
             <div style="margin-top:8px;padding-top:6px;border-top:1px solid #e2e8f0">
-              <a href="/parc/${m.id}" style="color:#2563eb;font-size:12px;font-weight:500;text-decoration:none">
-                Voir la fiche →
-              </a>
+              <a href="/parc/${m.id}" style="color:#AF2125;font-size:12px;font-weight:600;text-decoration:none">Voir la fiche ›</a>
             </div>
           </div>
         `, { maxWidth: 280, className: 'dae-popup' })
