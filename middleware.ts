@@ -5,6 +5,7 @@ import type { UserRole } from '@/lib/supabase'
 // Routes accessibles par rôle (préfixes)
 const ROUTE_ACCESS: Record<string, UserRole[]> = {
   '/alertes':       ['administrateur', 'maintenance'],
+  '/geodae':        ['administrateur', 'maintenance'],
   '/analyse':       ['administrateur'],
   '/admin':         ['administrateur'],
 }
@@ -23,6 +24,7 @@ export async function middleware(request: NextRequest) {
   if (!pathname.startsWith('/dashboard') &&
       !pathname.startsWith('/parc') &&
       !pathname.startsWith('/alertes') &&
+      !pathname.startsWith('/geodae') &&
       !pathname.startsWith('/analyse') &&
       !pathname.startsWith('/admin') &&
       !pathname.startsWith('/regles')) {
@@ -71,6 +73,7 @@ export const config = {
     '/dashboard/:path*',
     '/parc/:path*',
     '/alertes/:path*',
+    '/geodae/:path*',
     '/analyse/:path*',
     '/admin/:path*',
     '/regles/:path*',

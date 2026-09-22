@@ -48,6 +48,17 @@ const NAV_ITEMS = [
     ),
   },
   {
+    href: '/geodae',
+    label: "Contrôle Géo'DAE",
+    roles: ['administrateur', 'maintenance'] as UserRole[],
+    icon: (
+      <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/>
+        <path d="M9 10l2 2 4-4"/>
+      </svg>
+    ),
+  },
+  {
     href: '/analyse',
     label: 'Analyse IA',
     roles: ['administrateur'] as UserRole[],
