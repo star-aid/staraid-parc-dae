@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import BackButton from '@/components/BackButton'
 import {
-  Button, Card, EmptyState, PageContainer, PageHeader, buttonClass, cx, inputClass, selectClass,
+  Button, Card, EmptyState, PageContainer, PageHeader, Tabs, buttonClass, cx, inputClass, selectClass,
   tableClass, tableWrapClass, tbodyClass, tdClass, thClass, theadClass, trClass,
 } from '@/components/ui/primitives'
 import {
@@ -380,17 +380,34 @@ function MissingGidCell({
   )
 }
 
-// ─── Journal des contrôles ───────────────────────────────────────────────────
+// ─── Journal des contrôles : anomalies et historique ─────────────────────────
 
 /** Vrai si l'exécution est un rapprochement complet (point 3) et non un lot de recherches */
 function isReconcileRun(run: JournalRun): boolean {
   return (run.sources as { kind?: string } | null | undefined)?.kind === 'reconcile'
 }
 
-function JournalCard({ journal, loading, message, onRefresh, onReconcile, reconciling, onResolve }: {
+/** Encadré commun quand le journal n'est pas disponible (migrations 009 / 010) */
+function JournalUnavailable({ journal, loading }: { journal: JournalSummary | null; loading: boolean }) {
+  if (!journal && loading) return <div className="px-4 py-3 text-13 text-slate-400">Chargement du journal…</div>
+  if (journal && !journal.available) {
+    return (
+      <div className="px-4 py-3 text-13 text-amber-800">
+        <span className="font-medium">Journal non disponible.</span> {journal.reason}
+        <br />
+        <span className="text-xs text-amber-700">Les résultats de recherche s&apos;affichent normalement mais ne sont pas conservés tant que le journal n&apos;est pas disponible.</span>
+      </div>
+    )
+  }
+  return null
+}
+
+const ANOMALIES_PAGE = 50
+
+/** Onglet « Anomalies » : rapport du point 3, filtrable par type, export CSV, clôture manuelle */
+function AnomaliesPanel({ journal, loading, onRefresh, onReconcile, reconciling, onResolve }: {
   journal: JournalSummary | null
   loading: boolean
-  message: string | null
   onRefresh: () => void
   /** Lance le rapprochement complet Synchroteam ↔ Géo'DAE */
   onReconcile: () => void
@@ -401,74 +418,31 @@ function JournalCard({ journal, loading, message, onRefresh, onReconcile, reconc
   const [showAll, setShowAll] = useState(false)
   const [typeFilter, setTypeFilter] = useState<AnomalyType | 'all'>('all')
   const [resolving, setResolving] = useState<{ id: string; text: string } | null>(null)
-  const runs = journal?.runs ?? []
-  const lastRun = runs.find((r) => !isReconcileRun(r)) ?? null
-  const lastReconcile = runs.find(isReconcileRun) ?? null
+  const lastReconcile = journal?.runs.find(isReconcileRun) ?? null
   const reconcileCounts = (lastReconcile?.sources ?? {}) as { divergence?: number; absent?: number; non_reference?: number }
   const allAnomalies = journal?.open_anomalies ?? []
   const anomalies = typeFilter === 'all' ? allAnomalies : allAnomalies.filter((a) => a.type === typeFilter)
-  const shown = showAll ? anomalies : anomalies.slice(0, 15)
+  const shown = showAll ? anomalies : anomalies.slice(0, ANOMALIES_PAGE)
 
   return (
-    <Card
-      title={<>Journal des contrôles{journal?.available && journal.open_total > 0 && <span className="ml-1.5 font-normal text-slate-400 tabular-nums">({journal.open_total} anomalie{journal.open_total > 1 ? 's' : ''} ouverte{journal.open_total > 1 ? 's' : ''})</span>}</>}
-      actions={
-        <>
-          {journal?.available && (
-            <a
-              href="/api/geodae/anomalies?format=csv"
-              className={buttonClass('ghost', 'sm')}
-              title="Exporter toutes les anomalies ouvertes (CSV)"
-            >
-              Exporter CSV
-            </a>
-          )}
-          {journal?.available && (
-            <Button variant="secondary" size="sm" onClick={onReconcile} disabled={reconciling || loading} title="Compare les DAE Synchroteam en location et les DAE Géo'DAE déclarés sous le SIREN STAR : divergences, absents, non référencés. Fait chaque matin par le cron.">
-              {reconciling ? <SpinnerIcon /> : null}
-              {reconciling ? 'Rapprochement…' : 'Rapprocher maintenant'}
-            </Button>
-          )}
-          <Button variant="ghost" size="sm" onClick={onRefresh} disabled={loading} title="Recharger le journal">
-            {loading ? <SpinnerIcon /> : <RefreshIcon />}
-            Actualiser
-          </Button>
-        </>
-      }
-      className="mb-4"
-      padded={false}
-    >
-      {message && (
-        <div className="border-b border-slate-100 px-4 py-2 text-xs text-slate-600">{message}</div>
-      )}
-
-      {!journal && loading && <div className="px-4 py-3 text-13 text-slate-400">Chargement du journal…</div>}
-
-      {journal && !journal.available && (
-        <div className="px-4 py-3 text-13 text-amber-800">
-          <span className="font-medium">Journal non disponible.</span> {journal.reason}
-          <br />
-          <span className="text-xs text-amber-700">Les résultats de recherche s&apos;affichent normalement mais ne sont pas conservés tant que le journal n&apos;est pas disponible.</span>
-        </div>
-      )}
+    <Card padded={false}>
+      <JournalUnavailable journal={journal} loading={loading} />
 
       {journal?.available && (
         <>
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 px-4 py-2.5 text-13 text-slate-600 tabular-nums">
-            {lastRun ? (
-              <span>
-                Dernière recherche groupée le <span className="font-medium text-slate-800">{fmtDateTime(lastRun.started_at)}</span>
-                {lastRun.triggered_by && <> par {lastRun.triggered_by}</>} :
-                {' '}{lastRun.examined} examiné{lastRun.examined > 1 ? 's' : ''},
-                {' '}<span className="text-emerald-700">{lastRun.found} trouvé{lastRun.found > 1 ? 's' : ''}</span>,
-                {' '}<span className="text-red-700">{lastRun.not_found} introuvable{lastRun.not_found > 1 ? 's' : ''}</span>
-                {lastRun.ambiguous > 0 && <>, <span className="text-amber-700">{lastRun.ambiguous} ambigu{lastRun.ambiguous > 1 ? 's' : ''}</span></>}
-                {lastRun.errors > 0 && <>, {lastRun.errors} erreur{lastRun.errors > 1 ? 's' : ''}</>}
-              </span>
-            ) : (
-              <span className="text-slate-400">Aucune recherche groupée enregistrée pour l&apos;instant.</span>
-            )}
-            <span className="ml-auto flex flex-wrap gap-1.5">
+          {/* Barre d'outils : filtre par type à gauche, actions à droite */}
+          <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-2.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => { setTypeFilter('all'); setShowAll(false) }}
+                className={cx(
+                  'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-2xs font-medium ring-1 ring-inset transition-colors',
+                  typeFilter === 'all' ? 'bg-slate-900 text-white ring-slate-900' : 'bg-white text-slate-600 ring-slate-200 hover:bg-slate-50'
+                )}
+              >
+                Toutes <span className="font-semibold tabular-nums">{journal.open_total}</span>
+              </button>
               {Object.entries(journal.open_by_type).map(([type, n]) => (
                 <button
                   key={type}
@@ -481,13 +455,32 @@ function JournalCard({ journal, loading, message, onRefresh, onReconcile, reconc
                     typeFilter === type ? 'ring-2 ring-offset-1' : typeFilter !== 'all' ? 'opacity-50' : ''
                   )}
                 >
-                  {ANOMALY_LABELS[type as AnomalyType] ?? type} <span className="font-semibold">{n}</span>
+                  {ANOMALY_LABELS[type as AnomalyType] ?? type} <span className="font-semibold tabular-nums">{n}</span>
                 </button>
               ))}
-            </span>
+            </div>
+            <div className="ml-auto flex flex-wrap items-center gap-1.5">
+              <a href="/api/geodae/anomalies?format=csv" className={buttonClass('ghost', 'sm')} title="Exporter toutes les anomalies ouvertes (CSV)">
+                Exporter CSV
+              </a>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={onReconcile}
+                disabled={reconciling || loading}
+                title="Compare les DAE Synchroteam en location et les DAE Géo'DAE déclarés sous le SIREN STAR : divergences, absents, non référencés. Fait chaque matin par le cron."
+              >
+                {reconciling ? <SpinnerIcon /> : null}
+                {reconciling ? 'Rapprochement…' : 'Rapprocher maintenant'}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={onRefresh} disabled={loading} title="Recharger le journal">
+                {loading ? <SpinnerIcon /> : <RefreshIcon />}
+                Actualiser
+              </Button>
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-slate-100 px-4 py-2 text-xs text-slate-600 tabular-nums">
+          <div className="border-b border-slate-100 px-4 py-2 text-xs text-slate-600 tabular-nums">
             {lastReconcile ? (
               <span>
                 Dernier rapprochement Synchroteam ↔ Géo&apos;DAE le <span className="font-medium text-slate-800">{fmtDateTime(lastReconcile.started_at)}</span>
@@ -502,8 +495,10 @@ function JournalCard({ journal, loading, message, onRefresh, onReconcile, reconc
             )}
           </div>
 
-          {anomalies.length > 0 && (
-            <div className="overflow-x-auto border-t border-slate-100">
+          {anomalies.length === 0 ? (
+            <EmptyState>{typeFilter === 'all' ? 'Aucune anomalie ouverte.' : 'Aucune anomalie ouverte de ce type.'}</EmptyState>
+          ) : (
+            <div className="overflow-x-auto">
               <table className={tableClass}>
                 <thead className={theadClass}>
                   <tr>
@@ -569,7 +564,7 @@ function JournalCard({ journal, loading, message, onRefresh, onReconcile, reconc
                   })}
                 </tbody>
               </table>
-              {anomalies.length > 15 && (
+              {anomalies.length > ANOMALIES_PAGE && (
                 <div className="border-t border-slate-100 px-4 py-2 text-xs">
                   <button type="button" onClick={() => setShowAll((v) => !v)} className="font-medium text-slate-600 hover:text-slate-900 hover:underline">
                     {showAll ? 'Réduire' : `Afficher les ${anomalies.length} anomalies`}
@@ -579,52 +574,135 @@ function JournalCard({ journal, loading, message, onRefresh, onReconcile, reconc
               )}
             </div>
           )}
-
-          {/* ── Reports dans Synchroteam (migration 011) ── */}
-          {journal.writebacks_reason && (
-            <div className="border-t border-slate-100 px-4 py-2 text-xs text-amber-800">Reports Synchroteam non tracés. {journal.writebacks_reason}</div>
-          )}
-          {journal.writebacks.length > 0 && (
-            <details className="border-t border-slate-100">
-              <summary className="cursor-pointer select-none px-4 py-2 text-xs font-medium text-slate-600 hover:text-slate-900">
-                Reports dans Synchroteam
-                <span className="ml-1 font-normal text-slate-400 tabular-nums">({journal.writebacks_total} au total, {journal.writebacks.length} dernier{journal.writebacks.length > 1 ? 's' : ''} affiché{journal.writebacks.length > 1 ? 's' : ''})</span>
-              </summary>
-              <div className="overflow-x-auto border-t border-slate-100">
-                <table className={tableClass}>
-                  <thead className={theadClass}>
-                    <tr>
-                      <th className={thClass}>Date</th>
-                      <th className={thClass}>Compte</th>
-                      <th className={thClass}>N° série</th>
-                      <th className={thClass}>Identifiant écrit</th>
-                      <th className={thClass}>Par</th>
-                      <th className={thClass}>Résultat</th>
-                    </tr>
-                  </thead>
-                  <tbody className={tbodyClass}>
-                    {journal.writebacks.map((w) => (
-                      <tr key={w.id} className={trClass}>
-                        <td className={cx(tdClass, 'text-xs text-slate-500 tabular-nums')}>{fmtDateTime(w.written_at)}</td>
-                        <td className={cx(tdClass, 'text-xs text-slate-600')}>{w.account ?? '—'}</td>
-                        <td className={cx(tdClass, 'font-mono text-xs text-slate-800')}>{w.serial_number ?? '—'}</td>
-                        <td className={tdClass}><GidLink gid={w.geodae_gid} /></td>
-                        <td className={cx(tdClass, 'text-xs text-slate-600')}>{w.written_by ?? '—'}</td>
-                        <td className={cx(tdClass, 'text-xs')}>
-                          {w.status === 'ok'
-                            ? <span className="text-emerald-700">{w.verified ? 'Écrit et vérifié' : 'Écrit, relecture non confirmée'}</span>
-                            : <span className="text-red-700" title={w.error ?? undefined}>Échec{w.error ? ` : ${w.error}` : ''}</span>}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </details>
-          )}
         </>
       )}
     </Card>
+  )
+}
+
+/** Onglet « Historique » : exécutions (recherches, rapprochements) et reports dans Synchroteam */
+function HistoryPanel({ journal, loading, onRefresh }: {
+  journal: JournalSummary | null
+  loading: boolean
+  onRefresh: () => void
+}) {
+  const runs = journal?.runs ?? []
+  const writebacks = journal?.writebacks ?? []
+  const pill = (cls: string, text: string) => (
+    <span className={cx('inline-flex rounded-md px-1.5 py-0.5 text-2xs font-medium ring-1 ring-inset', cls)}>{text}</span>
+  )
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Card
+        title="Dernières exécutions"
+        actions={
+          <Button variant="ghost" size="sm" onClick={onRefresh} disabled={loading} title="Recharger le journal">
+            {loading ? <SpinnerIcon /> : <RefreshIcon />}
+            Actualiser
+          </Button>
+        }
+        padded={false}
+      >
+        <JournalUnavailable journal={journal} loading={loading} />
+        {journal?.available && (runs.length === 0 ? (
+          <EmptyState>Aucune exécution enregistrée pour l&apos;instant.</EmptyState>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className={tableClass}>
+              <thead className={theadClass}>
+                <tr>
+                  <th className={thClass}>Date</th>
+                  <th className={thClass}>Nature</th>
+                  <th className={thClass}>Déclencheur</th>
+                  <th className={thClass}>Périmètre</th>
+                  <th className={thClass}>Résultat</th>
+                </tr>
+              </thead>
+              <tbody className={tbodyClass}>
+                {runs.map((r) => {
+                  const reconcile = isReconcileRun(r)
+                  const c = (r.sources ?? {}) as { divergence?: number; absent?: number; non_reference?: number }
+                  return (
+                    <tr key={r.id} className={trClass}>
+                      <td className={cx(tdClass, 'text-xs text-slate-500 tabular-nums')}>{fmtDateTime(r.started_at)}</td>
+                      <td className={tdClass}>
+                        {reconcile
+                          ? pill('bg-blue-50 text-blue-700 ring-blue-600/20', 'Rapprochement')
+                          : pill('bg-slate-100 text-slate-700 ring-slate-300', 'Recherche')}
+                      </td>
+                      <td className={cx(tdClass, 'text-xs text-slate-600')}>{r.triggered_by ?? '—'}</td>
+                      <td className={cx(tdClass, 'max-w-[360px] truncate text-xs text-slate-500')} title={r.scope ?? undefined}>{r.scope ?? '—'}</td>
+                      <td className={cx(tdClass, 'text-xs text-slate-600 tabular-nums')}>
+                        {reconcile ? (
+                          <>
+                            {r.examined} DAE, {r.found} apparié{r.found > 1 ? 's' : ''},
+                            {' '}<span className="text-orange-700">{c.divergence ?? 0} divergent{(c.divergence ?? 0) > 1 ? 's' : ''}</span>,
+                            {' '}<span className="text-red-700">{c.absent ?? 0} absent{(c.absent ?? 0) > 1 ? 's' : ''}</span>,
+                            {' '}<span className="text-blue-700">{c.non_reference ?? 0} non référencé{(c.non_reference ?? 0) > 1 ? 's' : ''}</span>
+                          </>
+                        ) : (
+                          <>
+                            {r.examined} examiné{r.examined > 1 ? 's' : ''},
+                            {' '}<span className="text-emerald-700">{r.found} trouvé{r.found > 1 ? 's' : ''}</span>,
+                            {' '}<span className="text-red-700">{r.not_found} introuvable{r.not_found > 1 ? 's' : ''}</span>
+                            {r.ambiguous > 0 && <>, <span className="text-amber-700">{r.ambiguous} ambigu{r.ambiguous > 1 ? 's' : ''}</span></>}
+                            {r.errors > 0 && <>, {r.errors} erreur{r.errors > 1 ? 's' : ''}</>}
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </Card>
+
+      <Card
+        title={<>Reports dans Synchroteam{journal?.available && journal.writebacks_total > 0 && <span className="ml-1.5 font-normal text-slate-400 tabular-nums">({journal.writebacks_total} au total, {writebacks.length} dernier{writebacks.length > 1 ? 's' : ''} affiché{writebacks.length > 1 ? 's' : ''})</span>}</>}
+        padded={false}
+      >
+        {journal?.available && journal.writebacks_reason && (
+          <div className="px-4 py-2 text-xs text-amber-800">Reports non tracés. {journal.writebacks_reason}</div>
+        )}
+        {journal?.available && !journal.writebacks_reason && (writebacks.length === 0 ? (
+          <EmptyState>Aucun report effectué pour l&apos;instant.</EmptyState>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className={tableClass}>
+              <thead className={theadClass}>
+                <tr>
+                  <th className={thClass}>Date</th>
+                  <th className={thClass}>Compte</th>
+                  <th className={thClass}>N° série</th>
+                  <th className={thClass}>Identifiant écrit</th>
+                  <th className={thClass}>Par</th>
+                  <th className={thClass}>Résultat</th>
+                </tr>
+              </thead>
+              <tbody className={tbodyClass}>
+                {writebacks.map((w) => (
+                  <tr key={w.id} className={trClass}>
+                    <td className={cx(tdClass, 'text-xs text-slate-500 tabular-nums')}>{fmtDateTime(w.written_at)}</td>
+                    <td className={cx(tdClass, 'text-xs text-slate-600')}>{w.account ?? '—'}</td>
+                    <td className={cx(tdClass, 'font-mono text-xs text-slate-800')}>{w.serial_number ?? '—'}</td>
+                    <td className={tdClass}><GidLink gid={w.geodae_gid} /></td>
+                    <td className={cx(tdClass, 'text-xs text-slate-600')}>{w.written_by ?? '—'}</td>
+                    <td className={cx(tdClass, 'text-xs')}>
+                      {w.status === 'ok'
+                        ? <span className="text-emerald-700">{w.verified ? 'Écrit et vérifié' : 'Écrit, relecture non confirmée'}</span>
+                        : <span className="text-red-700" title={w.error ?? undefined}>Échec{w.error ? ` : ${w.error}` : ''}</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </Card>
+    </div>
   )
 }
 
@@ -711,6 +789,9 @@ export default function GeodaeClient() {
 
   // Rapprochement complet (point 3) lancé à la main
   const [reconciling, setReconciling] = useState(false)
+
+  // Onglet affiché : liste de travail des DAE, rapport d'anomalies, ou historique
+  const [tab, setTab] = useState<'dae' | 'anomalies' | 'journal'>('dae')
 
   // Journal des contrôles (tables de la migration 009)
   const [journal, setJournal] = useState<JournalSummary | null>(null)
@@ -1100,42 +1181,21 @@ export default function GeodaeClient() {
       <PageHeader
         eyebrow={<BackButton label="Tableau de bord" />}
         title="Contrôle Géo'DAE"
-        subtitle={<>DAE <strong className="font-medium text-slate-700">actifs</strong> sous contrat de <strong className="font-medium text-slate-700">location</strong> d&apos;après la copie Synchroteam synchronisée chaque matin, recherche des identifiants Géo&apos;DAE manquants à partir du n° de série, report dans Synchroteam, journal des anomalies.</>}
+        subtitle={<>DAE <strong className="font-medium text-slate-700">actifs</strong> sous contrat de <strong className="font-medium text-slate-700">location</strong> d&apos;après la copie Synchroteam synchronisée chaque matin, recherche des identifiants Géo&apos;DAE manquants à partir du n° de série, report dans Synchroteam, rapport d&apos;anomalies.</>}
         actions={
-          <>
-            {result && (
-              <Button variant="secondary" onClick={() => downloadCsv(exportRows())} disabled={filtered.length === 0}>
-                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
-                </svg>
-                Exporter CSV ({filtered.length})
-              </Button>
-            )}
-            <Button
-              variant="primary"
-              onClick={refreshFromSynchroteam}
-              disabled={syncing || loading}
-              title="Relance la synchronisation Synchroteam → Supabase des comptes configurés, puis recharge la page (jusqu’à une minute)"
-            >
-              {syncing ? <SpinnerIcon /> : <RefreshIcon />}
-              {syncing ? 'Synchronisation en cours…' : 'Actualiser depuis Synchroteam'}
-            </Button>
-          </>
+          <Button
+            variant="primary"
+            onClick={refreshFromSynchroteam}
+            disabled={syncing || loading}
+            title="Relance la synchronisation Synchroteam → Supabase des comptes configurés, puis recharge la page (jusqu’à une minute)"
+          >
+            {syncing ? <SpinnerIcon /> : <RefreshIcon />}
+            {syncing ? 'Synchronisation en cours…' : 'Actualiser depuis Synchroteam'}
+          </Button>
         }
       />
 
-      {/* ── Journal des contrôles ──────────────────────────────────────────── */}
-      <JournalCard
-        journal={journal}
-        loading={journalLoading}
-        message={journalMsg}
-        onRefresh={loadJournal}
-        onReconcile={runReconcile}
-        reconciling={reconciling}
-        onResolve={resolveAnomaly}
-      />
-
-      {/* ── États ─────────────────────────────────────────────────────────── */}
+      {/* ── Messages et états ─────────────────────────────────────────────── */}
       {error && (
         <div role="alert" className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-2.5 text-13 text-red-700">
           Échec du chargement : {error}
@@ -1143,6 +1203,15 @@ export default function GeodaeClient() {
       )}
       {syncMsg && (
         <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">{syncMsg}</div>
+      )}
+      {journalMsg && (
+        <div className="mb-4 rounded-md border border-slate-200 bg-white px-4 py-2 text-xs text-slate-700 shadow-card">{journalMsg}</div>
+      )}
+      {writeMsg && (
+        <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs text-emerald-800">{writeMsg}</div>
+      )}
+      {autoMsg && (
+        <div className="mb-4 rounded-md border border-slate-200 bg-white px-4 py-2 text-xs text-slate-700 shadow-card">{autoMsg}</div>
       )}
       {syncing && (
         <div className="mb-4 animate-pulse rounded-lg border border-slate-200 bg-white p-6 text-13 text-slate-500 shadow-card">
@@ -1155,13 +1224,26 @@ export default function GeodaeClient() {
         </div>
       )}
 
-      {result && !loading && (
+      {/* ── Onglets ───────────────────────────────────────────────────────── */}
+      <Tabs
+        className="mb-4"
+        value={tab}
+        onChange={setTab}
+        items={[
+          { value: 'dae', label: 'DAE en location', count: result?.totals.location_total ?? null },
+          { value: 'anomalies', label: 'Anomalies', count: journal?.available ? journal.open_total : null, tone: 'warn' },
+          { value: 'journal', label: 'Historique' },
+        ]}
+      />
+
+      {/* ── Onglet DAE en location ────────────────────────────────────────── */}
+      {tab === 'dae' && result && !loading && (
         <>
           {result.warning && (
             <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">{result.warning}</div>
           )}
 
-          {/* ── Bilan ───────────────────────────────────────────────────────── */}
+          {/* Bilan par compte */}
           <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
             {result.accounts.map((a) => <AccountCard key={a.account} a={a} />)}
           </div>
@@ -1176,7 +1258,7 @@ export default function GeodaeClient() {
             </span>
           </div>
 
-          {/* ── Recherche des identifiants manquants ────────────────────────── */}
+          {/* Recherche des identifiants manquants */}
           <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-2.5 shadow-card">
             <div className="min-w-0 flex-1 text-13 text-slate-600">
               <span className="font-medium text-slate-800">Identifiants manquants.</span>{' '}
@@ -1238,14 +1320,8 @@ export default function GeodaeClient() {
               <Button variant="ghost" onClick={() => setBulkWriteConfirm(false)}>Annuler</Button>
             </div>
           )}
-          {writeMsg && (
-            <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs text-emerald-800">{writeMsg}</div>
-          )}
-          {autoMsg && (
-            <div className="mb-4 rounded-md border border-slate-200 bg-white px-4 py-2 text-xs text-slate-700 shadow-card">{autoMsg}</div>
-          )}
 
-          {/* ── Types de contrat rencontrés ─────────────────────────────────── */}
+          {/* Types de contrat rencontrés */}
           <details className="mb-4 rounded-lg border border-slate-200 bg-white shadow-card">
             <summary className="cursor-pointer select-none px-4 py-2.5 text-13 font-medium text-slate-700">
               Types de contrat rencontrés sur les DAE actifs ({contractTypes.length})
@@ -1267,7 +1343,7 @@ export default function GeodaeClient() {
             </div>
           </details>
 
-          {/* ── Filtres ─────────────────────────────────────────────────────── */}
+          {/* Filtres */}
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <select value={account} onChange={(e) => { setAccount(e.target.value as 'all' | TerritoryCode); setPage(1) }} className={selectClass} aria-label="Compte">
               <option value="all">Tous les comptes</option>
@@ -1289,9 +1365,15 @@ export default function GeodaeClient() {
               className={cx(inputClass, 'w-72')}
             />
             <span className="ml-auto text-xs text-slate-500 tabular-nums">{filtered.length} résultat{filtered.length > 1 ? 's' : ''}</span>
+            <Button variant="secondary" size="sm" onClick={() => downloadCsv(exportRows())} disabled={filtered.length === 0} title="Exporter les lignes affichées, avec les identifiants trouvés et l'état des recherches">
+              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              Exporter CSV
+            </Button>
           </div>
 
-          {/* ── Tableau ─────────────────────────────────────────────────────── */}
+          {/* Tableau */}
           <div className={cx(tableWrapClass, 'overflow-hidden')}>
             <div className="overflow-x-auto">
               <table className={cx(tableClass, 'min-w-full w-max')}>
@@ -1372,6 +1454,23 @@ export default function GeodaeClient() {
             )}
           </div>
         </>
+      )}
+
+      {/* ── Onglet Anomalies ──────────────────────────────────────────────── */}
+      {tab === 'anomalies' && (
+        <AnomaliesPanel
+          journal={journal}
+          loading={journalLoading}
+          onRefresh={loadJournal}
+          onReconcile={runReconcile}
+          reconciling={reconciling}
+          onResolve={resolveAnomaly}
+        />
+      )}
+
+      {/* ── Onglet Historique ─────────────────────────────────────────────── */}
+      {tab === 'journal' && (
+        <HistoryPanel journal={journal} loading={journalLoading} onRefresh={loadJournal} />
       )}
     </PageContainer>
   )

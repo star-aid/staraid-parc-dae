@@ -137,6 +137,59 @@ export function Chip({
   )
 }
 
+// ─── Onglets ─────────────────────────────────────────────────────────────────
+
+export interface TabItem<T extends string> {
+  value: T
+  label: ReactNode
+  /** Compteur affiché à droite du libellé (masqué si null) */
+  count?: number | null
+  /** 'warn' colore le compteur en ambre quand l'onglet est actif (anomalies, alertes) */
+  tone?: 'default' | 'warn'
+}
+
+export function Tabs<T extends string>({ value, onChange, items, className }: {
+  value: T
+  onChange: (value: T) => void
+  items: Array<TabItem<T>>
+  className?: string
+}) {
+  return (
+    <div role="tablist" className={cx('flex items-end gap-1 border-b border-slate-200', className)}>
+      {items.map((it) => {
+        const active = it.value === value
+        return (
+          <button
+            key={it.value}
+            role="tab"
+            type="button"
+            aria-selected={active}
+            onClick={() => onChange(it.value)}
+            className={cx(
+              '-mb-px inline-flex h-9 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 text-13 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40',
+              active ? 'border-brand text-slate-900' : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800'
+            )}
+          >
+            {it.label}
+            {it.count != null && (
+              <span
+                className={cx(
+                  'rounded-full px-1.5 text-2xs font-semibold leading-[18px] tabular-nums',
+                  active
+                    ? it.tone === 'warn' ? 'bg-amber-100 text-amber-800' : 'bg-slate-900 text-white'
+                    : 'bg-slate-100 text-slate-600'
+                )}
+              >
+                {it.count}
+              </span>
+            )}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 // ─── Tableaux ────────────────────────────────────────────────────────────────
 
 export const tableWrapClass = 'overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-card'

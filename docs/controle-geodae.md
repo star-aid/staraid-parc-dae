@@ -83,8 +83,9 @@ au rôle service : les privilèges par défaut du projet n'en donnent aucun.
    par l'API exploitants, comparé à tous les DAE de la copie Supabase. Produit et clôt
    automatiquement les anomalies « identifiant divergent », « absent de Géo'DAE » et « non
    référencé dans Synchroteam » (avec la situation réelle : absent, inactif, autre contrat).
-   Le rapport est dans l'encart journal : filtre par type, colonnes identifiants des deux
-   côtés et détail, clôture manuelle avec motif, export CSV complet, compteur dans le menu.
+   Le rapport est dans l'onglet « Anomalies » de la page : filtre par type, colonnes identifiants
+   des deux côtés et détail, clôture manuelle avec motif, export CSV complet, compteur dans le menu.
+   L'onglet « Historique » liste les exécutions (recherches, rapprochements) et les reports.
    Rien n'est écrit dans Synchroteam ni dans Géo'DAE.
 7. **Report** (« Reporter dans Synchroteam », confirmation obligatoire) : relecture de
    l'équipement, n° de série identique exigé, jamais d'écrasement d'un champ déjà
