@@ -1,10 +1,12 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import type { UserRole } from '@/lib/supabase'
+import { getSessionUser } from '@/lib/auth/session'
 
 // Routes accessibles par rôle (préfixes)
 const ROUTE_ACCESS: Record<string, UserRole[]> = {
   '/alertes':       ['administrateur', 'maintenance'],
+  '/geodae':        ['administrateur', 'maintenance'],
   '/analyse':       ['administrateur'],
   '/admin':         ['administrateur'],
 }
@@ -23,6 +25,7 @@ export async function middleware(request: NextRequest) {
   if (!pathname.startsWith('/dashboard') &&
       !pathname.startsWith('/parc') &&
       !pathname.startsWith('/alertes') &&
+      !pathname.startsWith('/geodae') &&
       !pathname.startsWith('/analyse') &&
       !pathname.startsWith('/admin') &&
       !pathname.startsWith('/regles')) {
@@ -47,7 +50,9 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  const { data: { user } } = await supabase.auth.getUser()
+  // Jeton vérifié localement (signature, expiration) : plus d'aller-retour vers
+  // Supabase Auth à chaque navigation ; il n'est appelé qu'en repli (jeton expiré).
+  const user = await getSessionUser(supabase)
 
   // Pas de session → login
   if (!user) {
@@ -56,13 +61,15 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl)
   }
 
-  const role = (user.user_metadata?.role ?? 'direction') as UserRole
+  const role: UserRole = user.role
 
   // Vérification des droits par route
   if (!canAccess(pathname, role)) {
     return NextResponse.redirect(new URL('/dashboard', request.url))
   }
 
+  // Diagnostic : 'local' = jeton vérifié sans réseau, 'network' = repli Supabase Auth
+  response.headers.set('x-session-check', user.source)
   return response
 }
 
@@ -71,6 +78,7 @@ export const config = {
     '/dashboard/:path*',
     '/parc/:path*',
     '/alertes/:path*',
+    '/geodae/:path*',
     '/analyse/:path*',
     '/admin/:path*',
     '/regles/:path*',

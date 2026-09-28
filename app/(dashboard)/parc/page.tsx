@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import dynamicImport from 'next/dynamic'
+import { ArrowUp, ChevronRight, ChevronsUpDown, MapPin, SearchX, Table2 } from 'lucide-react'
 import { createServiceClient } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
@@ -7,17 +8,17 @@ import ParcFiltersBar from '@/components/table/ParcFiltersBar'
 import { DAEStatusBadge, ConsumableStatus } from '@/components/table/StatusBadge'
 import type { MapMarker } from '@/components/map/ParcMap'
 import { parseContratParam, parseAutreTypesParam, buildContratOrFilter } from '@/lib/contract-groups'
+import {
+  EmptyState, LinkButton, Notice, PageContainer, PageHeader, Tag, cx, pageButtonClass, stickyColClass, tableFooterClass,
+  tableClass, tableWrapClass, tbodyClass, tdClass, thClass, theadClass, trClass,
+} from '@/components/ui/primitives'
 
 const ParcMapDynamic = dynamicImport(() => import('@/components/map/ParcMap'), {
   ssr: false,
   loading: () => (
-    <div className="h-full w-full flex items-center justify-center bg-slate-50">
-      <div className="flex flex-col items-center gap-3 text-slate-400">
-        <svg viewBox="0 0 24 24" className="w-8 h-8 animate-pulse" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
-        </svg>
-        <span className="text-sm">Chargement de la carte…</span>
-      </div>
+    <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-surface-muted text-fg-faint">
+      <MapPin className="h-7 w-7 animate-pulse" />
+      <span className="text-body">Chargement de la carte…</span>
     </div>
   ),
 })
@@ -84,10 +85,10 @@ function urgencyClass(s: string | null) {
   if (!s) return ''
   const d = new Date(s)
   const now = new Date()
-  if (d < now) return 'text-red-600 font-semibold'
+  if (d < now) return 'text-danger font-semibold'
   const days = (d.getTime() - now.getTime()) / 86_400_000
-  if (days <= 30) return 'text-amber-600 font-medium'
-  return 'text-slate-600'
+  if (days <= 30) return 'text-warning font-medium'
+  return 'text-fg-secondary'
 }
 
 function sortUrl(col: string, activeSort: string, activeDir: string, sp: SearchParams) {
@@ -140,16 +141,21 @@ function SortTh({
 }) {
   const active = sort === col
   return (
-    <th className={`px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wide whitespace-nowrap ${className}`}>
-      <Link href={sortUrl(col, sort, dir, sp)} className="flex items-center gap-1 hover:text-slate-800 transition-colors group">
+    <th className={cx(thClass, className)} aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : undefined}>
+      <Link href={sortUrl(col, sort, dir, sp)} className={cx('group inline-flex items-center gap-1 transition-colors hover:text-fg', active && 'text-fg')}>
         {label}
-        <span className={`text-[10px] ${active ? 'text-slate-700' : 'text-slate-300 group-hover:text-slate-400'}`}>
-          {active ? (dir === 'asc' ? '▲' : '▼') : '⇅'}
-        </span>
+        {active
+          ? <ArrowUp className={cx('h-3 w-3 text-brand transition-transform', dir === 'desc' && 'rotate-180')} />
+          : <ChevronsUpDown className="h-3 w-3 text-border-strong group-hover:text-fg-faint" />}
       </Link>
     </th>
   )
 }
+
+// Sélecteur Tableau / Carte : pastilles sur rail gris, même dessin que les filtres
+const VIEW_TAB        = 'inline-flex h-7 items-center gap-1.5 rounded-[6px] px-2.5 text-caption font-semibold transition-colors'
+const VIEW_TAB_ACTIVE = 'bg-surface text-fg shadow-sm'
+const VIEW_TAB_IDLE   = 'text-fg-muted hover:text-fg'
 
 export default async function ParcPage({ searchParams }: { searchParams: SearchParams }) {
   const q         = (searchParams.q ?? '').trim()
@@ -257,11 +263,18 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
   }
 
   // ── Vue tableau : requête paginée ────────────────────────────────────────
-  let territoryIds: string[] = []
-  if (terr.length > 0) {
-    const { data: terrs } = await supabase.from('territories').select('id').in('code', terr)
-    territoryIds = terrs?.map((t: { id: string }) => t.id) ?? []
-  }
+  // Requêtes préparatoires (territoires filtrés, clients correspondant à la
+  // recherche) lancées en parallèle : un seul aller-retour au lieu de deux.
+  const [terrsRes, matchedClientsRes] = await Promise.all([
+    terr.length > 0
+      ? supabase.from('territories').select('id').in('code', terr)
+      : Promise.resolve({ data: null as Array<{ id: string }> | null }),
+    q
+      // Limites volontairement basses pour rester dans les limites d'URL PostgREST
+      ? supabase.from('clients').select('id').ilike('name', `%${q}%`).order('name').limit(20)
+      : Promise.resolve({ data: null as Array<{ id: string }> | null }),
+  ])
+  const territoryIds: string[] = (terrsRes.data ?? []).map((t: { id: string }) => t.id)
 
   let query = supabase
     .from('defibrillators')
@@ -278,14 +291,7 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
 
   // Recherche texte : N° série, modèle, marque + noms de clients correspondants
   if (q) {
-    // Limites volontairement basses pour rester dans les limites d'URL PostgREST
-    const { data: matchedClients } = await supabase
-      .from('clients')
-      .select('id')
-      .ilike('name', `%${q}%`)
-      .order('name')
-      .limit(20)
-    const matchedClientIds = (matchedClients ?? []).map((c: { id: string }) => c.id)
+    const matchedClientIds = (matchedClientsRes.data ?? []).map((c: { id: string }) => c.id)
 
     // Sites des clients trouvés (fallback quand client_id est NULL sur le DAE)
     let matchedSiteIds: string[] = []
@@ -320,52 +326,33 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
   const pages  = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   return (
-    <div className="p-6 lg:p-8 max-w-screen-2xl mx-auto">
-      {/* En-tête */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Parc DAE</h1>
-          {selectedClientName && (
-            <p className="text-sm font-medium text-blue-700 mt-0.5">{selectedClientName}</p>
-          )}
-          <p className="text-sm text-slate-500 mt-0.5">
-            {vue === 'tableau'
-              ? <>{total.toLocaleString('fr-FR')} équipements actifs{(terr.length > 0 || stat.length > 0 || q) && ' — filtrés'}</>
-              : <>{mapMarkers.length.toLocaleString('fr-FR')} marqueurs GPS disponibles</>
-            }
-          </p>
-        </div>
-
-        {/* Toggle tableau / carte */}
-        <div className="flex items-center border border-slate-200 rounded-lg overflow-hidden shadow-sm">
-          <Link
-            href={viewUrl('tableau', searchParams)}
-            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors ${
-              vue === 'tableau'
-                ? 'bg-slate-800 text-white'
-                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
-            }`}
-          >
-            <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M3 10h18M3 14h18M10 3v18M3 3h18v18H3z"/>
-            </svg>
-            Tableau
-          </Link>
-          <Link
-            href={viewUrl('carte', searchParams)}
-            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors border-l border-slate-200 ${
-              vue === 'carte'
-                ? 'bg-slate-800 text-white'
-                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
-            }`}
-          >
-            <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
-            </svg>
-            Carte
-          </Link>
-        </div>
-      </div>
+    <PageContainer className="max-w-[1600px]">
+      <PageHeader
+        title="Parc DAE"
+        subtitle={
+          selectedClientName
+            ? <>Client : <span className="font-medium text-fg-secondary">{selectedClientName}</span></>
+            : vue === 'tableau'
+              ? <span className="tabular-nums">
+                  {total.toLocaleString('fr-FR')} équipement{total > 1 ? 's' : ''}
+                  {actif === 'actif' ? ' actifs' : actif === 'inactif' ? ' inactifs' : ''}
+                  {(terr.length > 0 || stat.length > 0 || q) ? ', filtrés' : ''}
+                </span>
+              : <span className="tabular-nums">{mapMarkers.length.toLocaleString('fr-FR')} DAE géolocalisés</span>
+        }
+        actions={
+          <div className="inline-flex items-center gap-0.5 rounded-control bg-surface-sunken p-0.5" aria-label="Mode d'affichage">
+            <Link href={viewUrl('tableau', searchParams)} aria-current={vue === 'tableau' ? 'page' : undefined} className={cx(VIEW_TAB, vue === 'tableau' ? VIEW_TAB_ACTIVE : VIEW_TAB_IDLE)}>
+              <Table2 className="h-3.5 w-3.5" />
+              Tableau
+            </Link>
+            <Link href={viewUrl('carte', searchParams)} aria-current={vue === 'carte' ? 'page' : undefined} className={cx(VIEW_TAB, vue === 'carte' ? VIEW_TAB_ACTIVE : VIEW_TAB_IDLE)}>
+              <MapPin className="h-3.5 w-3.5" />
+              Carte
+            </Link>
+          </div>
+        }
+      />
 
       {/* Barre de filtres (commune tableau + carte) */}
       <ParcFiltersBar
@@ -374,25 +361,19 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
       />
 
       {error && vue === 'tableau' && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-          Erreur chargement : {error.message}
-        </div>
+        <Notice tone="danger" className="mb-3">Erreur de chargement : {error.message}</Notice>
       )}
 
-      {/* ── Vue carte ────────────────────────────────────────────── */}
+      {/* ── Vue carte ──────────────────────────────────────────────────────── */}
       {vue === 'carte' && (
-        <div className="rounded-xl overflow-hidden border border-slate-200 shadow-sm" style={{ height: 'calc(100vh - 280px)', minHeight: '480px' }}>
+        <div className="overflow-hidden rounded-card border border-border bg-surface shadow-card" style={{ height: 'calc(100vh - 240px)', minHeight: '480px' }}>
           {mapMarkers.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center bg-slate-50 gap-3">
-              <svg viewBox="0 0 24 24" className="w-10 h-10 text-slate-300" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
-              </svg>
-              <p className="text-sm text-slate-500 font-medium">Aucun DAE localisé sur la carte</p>
-              <p className="text-xs text-slate-400 max-w-xs text-center">
-                Les coordonnées GPS sont géocodées automatiquement depuis les adresses.
-                La couverture augmente à chaque synchronisation.
-              </p>
-            </div>
+            <EmptyState
+              icon={MapPin}
+              className="h-full"
+              title="Aucun DAE localisé sur la carte"
+              description="Les coordonnées GPS sont géocodées automatiquement depuis les adresses. La couverture augmente à chaque synchronisation."
+            />
           ) : (
             <ParcMapDynamic
               key={`map-${searchParams.contrat ?? 'all'}-${clientId ?? 'all'}`}
@@ -404,162 +385,132 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
         </div>
       )}
 
-      {/* ── Vue tableau ──────────────────────────────────────────── */}
+      {/* ── Vue tableau ────────────────────────────────────────────────────── */}
       {vue === 'tableau' && (
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+        <div className={cx(tableWrapClass, 'overflow-hidden')}>
           {/* rotateX(180deg) fait remonter la barre de défilement sous l'en-tête */}
           <div className="overflow-x-auto" style={{ transform: 'rotateX(180deg)' }}>
             <div style={{ transform: 'rotateX(180deg)' }}>
-            <table className="min-w-full w-max text-sm">
-              <thead className="bg-slate-50 border-b border-slate-200">
-                <tr>
-                  <SortTh col="serial_number"         label="N° série"             sort={sort} dir={dir} sp={searchParams} />
-                  <SortTh col="model"                  label="Modèle"               sort={sort} dir={dir} sp={searchParams} />
-                  <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wide">Client</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wide">Site</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wide">Territoire</th>
-                  {actif === 'tous' && (
-                    <SortTh col="active" label="Statut parc" sort={sort} dir={dir} sp={searchParams} />
-                  )}
-                  <SortTh col="status"                 label="Statut"               sort={sort} dir={dir} sp={searchParams} />
-                  <SortTh col="last_maintenance_date"  label="Dernière maintenance"  sort={sort} dir={dir} sp={searchParams} />
-                  <SortTh col="next_maintenance_date"  label="Prochaine échéance"    sort={sort} dir={dir} sp={searchParams} />
-                  <SortTh col="battery_expiry"         label="Batterie"             sort={sort} dir={dir} sp={searchParams} />
-                  <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wide">Électrodes</th>
-                  <th className="sticky right-0 bg-slate-50 px-3 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide shadow-[-8px_0_12px_-4px_rgba(0,0,0,0.06)]">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {daes.length === 0 ? (
+              <table className={cx(tableClass, 'min-w-full w-max')}>
+                <thead className={theadClass}>
                   <tr>
-                    <td colSpan={actif === 'tous' ? 12 : 11} className="px-6 py-12 text-center text-sm text-slate-400">
-                      Aucun DAE ne correspond aux filtres sélectionnés.
-                    </td>
+                    <SortTh col="serial_number"        label="N° série"              sort={sort} dir={dir} sp={searchParams} />
+                    <SortTh col="model"                label="Modèle"                sort={sort} dir={dir} sp={searchParams} />
+                    <th className={thClass}>Client</th>
+                    <th className={thClass}>Site</th>
+                    <th className={thClass}>Territoire</th>
+                    {actif === 'tous' && (
+                      <SortTh col="active" label="Parc" sort={sort} dir={dir} sp={searchParams} />
+                    )}
+                    <SortTh col="status"                label="Statut"                sort={sort} dir={dir} sp={searchParams} />
+                    <SortTh col="last_maintenance_date" label="Dernière maintenance"  sort={sort} dir={dir} sp={searchParams} />
+                    <SortTh col="next_maintenance_date" label="Prochaine échéance"    sort={sort} dir={dir} sp={searchParams} />
+                    <SortTh col="battery_expiry"        label="Batterie"              sort={sort} dir={dir} sp={searchParams} />
+                    <th className={thClass}>Électrodes</th>
+                    <th className={cx(thClass, stickyColClass, 'bg-surface-muted text-right')}>Fiche</th>
                   </tr>
-                ) : (
-                  daes.map((dae) => (
-                    <tr key={dae.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-3 py-3">
-                        <span className="font-mono text-xs text-slate-700">
-                          {dae.serial_number ?? <span className="text-slate-300">—</span>}
-                        </span>
-                      </td>
-                      <td className="px-3 py-3">
-                        <div className="text-xs text-slate-700 font-medium leading-tight">{dae.model ?? '—'}</div>
-                        {dae.brand && dae.brand !== dae.model && (
-                          <div className="text-[10px] text-slate-400">{dae.brand}</div>
-                        )}
-                      </td>
-                      <td className="px-3 py-3">
-                        <span className="text-xs text-slate-600 max-w-[140px] truncate block" title={dae.clients?.name ?? ''}>
-                          {dae.clients?.name ?? '—'}
-                        </span>
-                      </td>
-                      <td className="px-3 py-3">
-                        <span className="text-xs text-slate-500 max-w-[120px] truncate block" title={dae.sites?.name ?? ''}>
-                          {dae.sites?.name ?? '—'}
-                        </span>
-                      </td>
-                      <td className="px-3 py-3">
-                        {dae.territories ? (
-                          <span className="text-xs font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
-                            {dae.territories.code}
-                          </span>
-                        ) : '—'}
-                      </td>
-                      {actif === 'tous' && (
-                        <td className="px-3 py-3">
-                          {dae.active ? (
-                            <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                              Actif
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full">
-                              <span className="w-1.5 h-1.5 rounded-full bg-slate-400 shrink-0" />
-                              Inactif
-                            </span>
-                          )}
-                        </td>
-                      )}
-                      <td className="px-3 py-3">
-                        <div><DAEStatusBadge status={dae.status} /></div>
-                        {dae.status_reason && (
-                          <div className="text-[10px] text-slate-400 mt-0.5">{dae.status_reason}</div>
-                        )}
-                      </td>
-                      <td className="px-3 py-3 text-xs text-slate-500">{fmtDate(dae.last_maintenance_date)}</td>
-                      <td className="px-3 py-3">
-                        <span className={`text-xs ${urgencyClass(dae.next_maintenance_date)}`}>
-                          {fmtDate(dae.next_maintenance_date)}
-                        </span>
-                      </td>
-                      <td className="px-3 py-3">
-                        <ConsumableStatus status={dae.battery_status} date={dae.battery_expiry} />
-                      </td>
-                      <td className="px-3 py-3">
-                        <ConsumableStatus
-                          status={dae.electrodes_status}
-                          date={criticalDate(dae.electrodes_adult_expiry, dae.electrodes_pediatric_expiry)}
-                        />
-                        {isPediatricMoreCritical(dae.electrodes_adult_expiry, dae.electrodes_pediatric_expiry) && (
-                          <div className="text-[10px] text-amber-600 font-medium mt-0.5">pédiatriques</div>
-                        )}
-                      </td>
-                      <td className="sticky right-0 bg-white px-3 py-3 text-right shadow-[-8px_0_12px_-4px_rgba(0,0,0,0.06)]">
-                        <Link
-                          href={`/parc/${dae.id}`}
-                          className="text-xs font-semibold text-[#AF2125] hover:underline"
-                        >
-                          Voir →
-                        </Link>
+                </thead>
+                <tbody className={tbodyClass}>
+                  {daes.length === 0 ? (
+                    <tr>
+                      <td colSpan={actif === 'tous' ? 12 : 11}>
+                        <EmptyState icon={SearchX} title="Aucun DAE ne correspond aux filtres sélectionnés." description="Élargissez les filtres ou effacez la recherche." />
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    daes.map((dae) => (
+                      <tr key={dae.id} className={trClass}>
+                        <td className={cx(tdClass, 'whitespace-nowrap font-mono text-caption font-medium text-fg')}>
+                          {dae.serial_number ?? <span className="text-border-strong">—</span>}
+                        </td>
+                        <td className={tdClass}>
+                          <div className="leading-tight text-fg">{dae.model ?? '—'}</div>
+                          {dae.brand && dae.brand !== dae.model && (
+                            <div className="text-label text-fg-faint">{dae.brand}</div>
+                          )}
+                        </td>
+                        <td className={cx(tdClass, 'max-w-[170px]')}>
+                          <span className="block truncate text-fg-secondary" title={dae.clients?.name ?? ''}>{dae.clients?.name ?? '—'}</span>
+                        </td>
+                        <td className={cx(tdClass, 'max-w-[150px]')}>
+                          <span className="block truncate text-fg-muted" title={dae.sites?.name ?? ''}>{dae.sites?.name ?? '—'}</span>
+                        </td>
+                        <td className={tdClass}>
+                          {dae.territories ? (
+                            <Tag tone="neutral" className="font-mono">{dae.territories.code}</Tag>
+                          ) : '—'}
+                        </td>
+                        {actif === 'tous' && (
+                          <td className={tdClass}>
+                            {dae.active ? (
+                              <span className="inline-flex items-center gap-1.5 rounded-control bg-success-soft px-1.5 py-0.5 text-label font-semibold text-success ring-1 ring-inset ring-success/20">
+                                <span className="h-1.5 w-1.5 rounded-full bg-success" aria-hidden />Actif
+                              </span>
+                            ) : (
+                              <Tag tone="neutral" dot>Inactif</Tag>
+                            )}
+                          </td>
+                        )}
+                        <td className={tdClass}>
+                          <DAEStatusBadge status={dae.status} />
+                          {dae.status_reason && <div className="mt-0.5 text-label text-fg-faint">{dae.status_reason}</div>}
+                        </td>
+                        <td className={cx(tdClass, 'whitespace-nowrap text-caption text-fg-muted tabular-nums')}>{fmtDate(dae.last_maintenance_date)}</td>
+                        <td className={cx(tdClass, 'whitespace-nowrap text-caption tabular-nums', urgencyClass(dae.next_maintenance_date))}>
+                          {fmtDate(dae.next_maintenance_date)}
+                        </td>
+                        <td className={cx(tdClass, 'whitespace-nowrap')}>
+                          <ConsumableStatus status={dae.battery_status} date={dae.battery_expiry} />
+                        </td>
+                        <td className={cx(tdClass, 'whitespace-nowrap')}>
+                          <ConsumableStatus
+                            status={dae.electrodes_status}
+                            date={criticalDate(dae.electrodes_adult_expiry, dae.electrodes_pediatric_expiry)}
+                          />
+                          {isPediatricMoreCritical(dae.electrodes_adult_expiry, dae.electrodes_pediatric_expiry) && (
+                            <div className="mt-0.5 text-label font-medium text-warning">pédiatriques</div>
+                          )}
+                        </td>
+                        <td className={cx(tdClass, stickyColClass, 'whitespace-nowrap bg-surface text-right')}>
+                          <Link prefetch={false} href={`/parc/${dae.id}`} className="inline-flex items-center gap-0.5 text-caption font-semibold text-brand hover:underline">
+                            Voir
+                            <ChevronRight className="h-3.5 w-3.5" />
+                          </Link>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
 
           {/* Pagination */}
           {pages > 1 && (
-            <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-between bg-slate-50">
-              <span className="text-xs text-slate-500">
-                Page {page} / {pages} — {total.toLocaleString('fr-FR')} résultats
+            <div className={tableFooterClass}>
+              <span className="tabular-nums">
+                Page {page} / {pages}, {total.toLocaleString('fr-FR')} résultats
               </span>
               <div className="flex items-center gap-1">
                 {page > 1 && (
-                  <Link href={pageUrl(page - 1, searchParams)} className="px-2.5 py-1.5 text-xs rounded-md border border-slate-200 text-slate-600 hover:bg-white hover:border-slate-300 transition-colors">
-                    ← Préc.
-                  </Link>
+                  <LinkButton href={pageUrl(page - 1, searchParams)} variant="secondary" size="xs">Précédent</LinkButton>
                 )}
                 {Array.from({ length: Math.min(pages, 7) }, (_, i) => {
                   const p = pages <= 7 ? i + 1 : page <= 4 ? i + 1 : page >= pages - 3 ? pages - 6 + i : page - 3 + i
                   return (
-                    <Link
-                      key={p}
-                      href={pageUrl(p, searchParams)}
-                      className={`px-2.5 py-1.5 text-xs rounded-md border transition-colors ${
-                        p === page
-                          ? 'bg-blue-600 border-blue-600 text-white font-medium'
-                          : 'border-slate-200 text-slate-600 hover:bg-white hover:border-slate-300'
-                      }`}
-                    >
+                    <Link key={p} href={pageUrl(p, searchParams)} aria-current={p === page ? 'page' : undefined} className={pageButtonClass(p === page)}>
                       {p}
                     </Link>
                   )
                 })}
                 {page < pages && (
-                  <Link href={pageUrl(page + 1, searchParams)} className="px-2.5 py-1.5 text-xs rounded-md border border-slate-200 text-slate-600 hover:bg-white hover:border-slate-300 transition-colors">
-                    Suiv. →
-                  </Link>
+                  <LinkButton href={pageUrl(page + 1, searchParams)} variant="secondary" size="xs">Suivant</LinkButton>
                 )}
               </div>
             </div>
           )}
         </div>
       )}
-    </div>
+    </PageContainer>
   )
 }

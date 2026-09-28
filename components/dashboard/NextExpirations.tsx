@@ -1,5 +1,7 @@
 import Link from 'next/link'
+import { CalendarCheck } from 'lucide-react'
 import type { ParkSummary, TerritoryCode } from '@/types'
+import { EmptyState, Tag, tableClass, tbodyClass, tdClass, thClass, theadClass, trClass, type TagTone } from '@/components/ui/primitives'
 
 type Expiration = ParkSummary['next_expirations'][number]
 
@@ -9,20 +11,14 @@ const TERRITORY_LABELS: Record<TerritoryCode, string> = {
   GLP: 'Guadeloupe',
 }
 
-const REASON_CLASSES: Record<string, string> = {
-  'Maintenance échue':    'text-red-600',
-  'Batterie expirée':     'text-red-600',
-  'Électrodes expirées':  'text-red-600',
-}
+const OVERDUE_REASONS = new Set(['Maintenance échue', 'Batterie expirée', 'Électrodes expirées'])
 
-function urgencyClass(dateStr: string) {
-  const d = new Date(dateStr)
-  const now = new Date()
-  if (d < now) return 'bg-red-50 text-red-700 ring-red-200'
-  const days = (d.getTime() - now.getTime()) / 86_400_000
-  if (days <= 7)  return 'bg-red-50 text-red-700 ring-red-200'
-  if (days <= 30) return 'bg-amber-50 text-amber-700 ring-amber-200'
-  return 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+// Pastille de date : rouge si dépassée ou sous 7 jours, ambre sous 30 jours, sinon verte
+function urgencyTone(dateStr: string): TagTone {
+  const days = (new Date(dateStr).getTime() - Date.now()) / 86_400_000
+  if (days <= 7)  return 'danger'
+  if (days <= 30) return 'warning'
+  return 'success'
 }
 
 function formatDate(s: string) {
@@ -31,61 +27,47 @@ function formatDate(s: string) {
 
 export default function NextExpirations({ items }: { items: Expiration[] }) {
   if (items.length === 0) {
-    return (
-      <div className="text-sm text-slate-400 text-center py-8">
-        Aucune échéance à venir
-      </div>
-    )
+    return <EmptyState compact icon={CalendarCheck} title="Aucune échéance à venir" description="Aucun DAE en vigilance ou critique sur ce périmètre." />
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-slate-100">
-            <th className="text-left py-2 px-3 font-medium text-slate-500 text-xs uppercase tracking-wide">DAE</th>
-            <th className="text-left py-2 px-3 font-medium text-slate-500 text-xs uppercase tracking-wide">Client</th>
-            <th className="text-left py-2 px-3 font-medium text-slate-500 text-xs uppercase tracking-wide">Territoire</th>
-            <th className="text-left py-2 px-3 font-medium text-slate-500 text-xs uppercase tracking-wide">Raison</th>
-            <th className="text-left py-2 px-3 font-medium text-slate-500 text-xs uppercase tracking-wide">Date</th>
+    <div className="-mx-4 -mb-4 overflow-x-auto">
+      <table className={tableClass}>
+        <thead className={theadClass}>
+          <tr>
+            <th className={thClass}>DAE</th>
+            <th className={thClass}>Client</th>
+            <th className={thClass}>Territoire</th>
+            <th className={thClass}>Raison</th>
+            <th className={`${thClass} text-right`}>Échéance</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-50">
-          {items.map((item) => {
-            const badgeCls = urgencyClass(item.next_date)
-            return (
-              <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                <td className="py-2.5 px-3">
-                  <Link
-                    href={`/parc/${item.id}`}
-                    className="font-mono text-xs text-blue-600 hover:underline"
-                  >
-                    {item.serial_number ?? item.model ?? item.id.slice(0, 8)}
-                  </Link>
-                </td>
-                <td className="py-2.5 px-3 text-slate-600 max-w-[160px] truncate">
-                  {item.client_name ?? '—'}
-                </td>
-                <td className="py-2.5 px-3">
-                  {item.territory_code ? (
-                    <span className="text-xs text-slate-500">
-                      {TERRITORY_LABELS[item.territory_code] ?? item.territory_code}
-                    </span>
-                  ) : '—'}
-                </td>
-                <td className="py-2.5 px-3">
-                  <span className={`text-xs font-medium ${REASON_CLASSES[item.reason] ?? 'text-slate-600'}`}>
-                    {item.reason}
-                  </span>
-                </td>
-                <td className="py-2.5 px-3">
-                  <span className={`inline-flex items-center text-xs font-medium px-2 py-0.5 rounded-full ring-1 ${badgeCls}`}>
-                    {formatDate(item.next_date)}
-                  </span>
-                </td>
-              </tr>
-            )
-          })}
+        <tbody className={tbodyClass}>
+          {items.map((item) => (
+            <tr key={item.id} className={trClass}>
+              <td className={tdClass}>
+                <Link
+                  prefetch={false}
+                  href={`/parc/${item.id}`}
+                  className="font-mono text-caption font-semibold text-fg hover:text-brand hover:underline"
+                >
+                  {item.serial_number ?? item.model ?? item.id.slice(0, 8)}
+                </Link>
+              </td>
+              <td className={`${tdClass} max-w-[180px] truncate`}>{item.client_name ?? '—'}</td>
+              <td className={`${tdClass} text-caption text-fg-muted`}>
+                {item.territory_code ? (TERRITORY_LABELS[item.territory_code] ?? item.territory_code) : '—'}
+              </td>
+              <td className={tdClass}>
+                <span className={`text-caption font-semibold ${OVERDUE_REASONS.has(item.reason) ? 'text-danger' : 'text-fg-secondary'}`}>
+                  {item.reason}
+                </span>
+              </td>
+              <td className={`${tdClass} text-right`}>
+                <Tag tone={urgencyTone(item.next_date)} className="tabular-nums">{formatDate(item.next_date)}</Tag>
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>

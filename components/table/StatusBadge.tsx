@@ -1,10 +1,13 @@
 import type { DAEStatus, BatteryStatus } from '@/types'
+import { Tag, cx, type TagTone } from '@/components/ui/primitives'
 
-const DAE_BADGE: Record<DAEStatus, string> = {
-  conforme:  'bg-emerald-100 text-emerald-700 ring-emerald-200',
-  vigilance: 'bg-amber-100 text-amber-700 ring-amber-200',
-  critique:  'bg-red-100 text-red-700 ring-red-200',
-  inconnu:   'bg-slate-100 text-slate-500 ring-slate-200',
+// Couleurs de statut : réservées à la sémantique conforme / vigilance / critique.
+// Chaque badge porte un point coloré ET un libellé : la couleur n'est jamais seule.
+const DAE_TONE: Record<DAEStatus, TagTone> = {
+  conforme:  'success',
+  vigilance: 'warning',
+  critique:  'danger',
+  inconnu:   'neutral',
 }
 
 const DAE_LABEL: Record<DAEStatus, string> = {
@@ -14,11 +17,11 @@ const DAE_LABEL: Record<DAEStatus, string> = {
   inconnu:   'Inconnu',
 }
 
-const BATTERY_BADGE: Record<BatteryStatus, string> = {
-  ok:          'text-emerald-600',
-  a_remplacer: 'text-amber-600',
-  expire:      'text-red-600',
-  inconnu:     'text-slate-400',
+const BATTERY_CLASS: Record<BatteryStatus, string> = {
+  ok:          'text-success',
+  a_remplacer: 'text-warning',
+  expire:      'text-danger',
+  inconnu:     'text-fg-faint',
 }
 
 const BATTERY_LABEL: Record<BatteryStatus, string> = {
@@ -29,23 +32,19 @@ const BATTERY_LABEL: Record<BatteryStatus, string> = {
 }
 
 export function DAEStatusBadge({ status }: { status: string }) {
-  const s = (status ?? 'inconnu') as DAEStatus
-  return (
-    <span className={`inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-full ring-1 ${DAE_BADGE[s] ?? DAE_BADGE.inconnu}`}>
-      {DAE_LABEL[s] ?? s}
-    </span>
-  )
+  const s = ((status ?? 'inconnu') in DAE_TONE ? status : 'inconnu') as DAEStatus
+  return <Tag tone={DAE_TONE[s]} dot>{DAE_LABEL[s]}</Tag>
 }
 
 export function ConsumableStatus({ status, date }: { status: string; date: string | null }) {
-  const s = (status ?? 'inconnu') as BatteryStatus
+  const s = ((status ?? 'inconnu') in BATTERY_CLASS ? status : 'inconnu') as BatteryStatus
   const formatted = date
     ? new Date(date).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' })
     : null
   return (
-    <span className={`text-xs font-medium ${BATTERY_BADGE[s] ?? BATTERY_BADGE.inconnu}`}>
+    <span className={cx('whitespace-nowrap text-caption font-semibold', BATTERY_CLASS[s])}>
       {BATTERY_LABEL[s]}
-      {formatted && <span className="ml-1 text-slate-400 font-normal">{formatted}</span>}
+      {formatted && <span className="ml-1 font-normal text-fg-faint tabular-nums">{formatted}</span>}
     </span>
   )
 }

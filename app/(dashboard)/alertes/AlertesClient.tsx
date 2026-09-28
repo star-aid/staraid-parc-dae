@@ -1,9 +1,15 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
+import { pageParam, pickParam, useUrlState } from '@/lib/url-state'
+import { BellOff, ChevronRight, Download, Search, X } from 'lucide-react'
 import { DAEStatusBadge } from '@/components/table/StatusBadge'
 import BackButton from '@/components/BackButton'
+import {
+  Button, Chip, ChipGroup, EmptyState, PageContainer, PageHeader, Select, Tag, cx, inputClass,
+  pageButtonClass, stickyColClass, tableClass, tableFooterClass, tableWrapClass, tbodyClass, tdClass, thClass, theadClass, trClass,
+} from '@/components/ui/primitives'
 
 export type AlertRow = {
   id: string
@@ -36,12 +42,7 @@ const TERRITORY_LABELS: Record<string, string> = {
 // Date la plus proche parmi les échéances du DAE
 function nextExpiry(row: AlertRow): string | null {
   return (
-    [
-      row.battery_expiry,
-      row.electrodes_adult_expiry,
-      row.electrodes_pediatric_expiry,
-      row.next_maintenance_date,
-    ]
+    [row.battery_expiry, row.electrodes_adult_expiry, row.electrodes_pediatric_expiry, row.next_maintenance_date]
       .filter((d): d is string => !!d)
       .sort()[0] ?? null
   )
@@ -72,10 +73,7 @@ function matchesRaison(row: AlertRow, filter: RaisonFilter): boolean {
 }
 
 function exportCSV(rows: AlertRow[]) {
-  const headers = [
-    'N° série', 'Marque/Modèle', 'Client', 'Site',
-    'Territoire', 'Statut', 'Raison', 'Prochaine échéance',
-  ]
+  const headers = ['N° série', 'Marque/Modèle', 'Client', 'Site', 'Territoire', 'Statut', 'Raison', 'Prochaine échéance']
   const lines = [
     headers.join(';'),
     ...rows.map((r) =>
@@ -85,7 +83,7 @@ function exportCSV(rows: AlertRow[]) {
         r.client_name ?? '',
         r.site_name ?? '',
         TERRITORY_LABELS[r.territory_code ?? ''] ?? r.territory_code ?? '',
-        r.status === 'critique' ? 'Critique' : 'Vigilance',
+        r.status === 'critique' ? 'Critique' : r.status === 'vigilance' ? 'Vigilance' : 'Inconnu',
         r.status_reason ?? '',
         fmtDate(nextExpiry(r)),
       ]
@@ -105,15 +103,47 @@ function exportCSV(rows: AlertRow[]) {
   URL.revokeObjectURL(url)
 }
 
-export default function AlertesClient({ rows, initInconnu = false }: { rows: AlertRow[]; initInconnu?: boolean }) {
-  const [territory, setTerritory] = useState<string>('all')
-  const [showCritique, setShowCritique] = useState(!initInconnu)
-  const [showVigilance, setShowVigilance] = useState(!initInconnu)
-  const [showInconnu, setShowInconnu] = useState(initInconnu)
-  const [raison, setRaison] = useState<RaisonFilter>('all')
-  const [actif, setActif] = useState<'actif' | 'inactif' | 'tous'>('actif')
-  const [search, setSearch] = useState('')
-  const [page, setPage] = useState(1)
+const HEADERS = ['N° série', 'Marque / Modèle', 'Client', 'Site', 'Territoire', 'Statut', 'Raison', 'Prochaine échéance']
+
+const RAISONS: readonly RaisonFilter[] = ['all', 'batterie', 'electrodes', 'maintenance', 'vigilance30']
+const ACTIFS = ['actif', 'inactif', 'tous'] as const
+const DEFAULT_SHOWN = ['critique', 'vigilance']
+
+type BoolUpdate = boolean | ((prev: boolean) => boolean)
+
+export default function AlertesClient({ rows }: { rows: AlertRow[] }) {
+  // Filtres et page vivent dans l'URL (lib/url-state.ts) : le bouton Retour du
+  // navigateur et un lien copié ramènent au même état. `?statut=inconnu` (lien du
+  // tableau de bord) n'affiche que les DAE au statut inconnu.
+  const url = useUrlState()
+  const territory = url.get('territoire') ?? 'all'
+  const setTerritory = (v: string) => url.set({ territoire: v === 'all' ? null : v, page: null })
+  const statutParam = url.get('statut')
+  const shown = statutParam === null ? DEFAULT_SHOWN : statutParam === 'aucun' ? [] : statutParam.split(',').filter(Boolean)
+  const showCritique  = shown.includes('critique')
+  const showVigilance = shown.includes('vigilance')
+  const showInconnu   = shown.includes('inconnu')
+  function setShown(status: string, on: boolean) {
+    const next = on ? (shown.includes(status) ? shown : [...shown, status]) : shown.filter((s) => s !== status)
+    const isDefault = next.length === DEFAULT_SHOWN.length && DEFAULT_SHOWN.every((s) => next.includes(s))
+    url.set({ statut: isDefault ? null : next.length === 0 ? 'aucun' : next.join(','), page: null })
+  }
+  const setShowCritique  = (v: BoolUpdate) => setShown('critique',  typeof v === 'function' ? v(showCritique)  : v)
+  const setShowVigilance = (v: BoolUpdate) => setShown('vigilance', typeof v === 'function' ? v(showVigilance) : v)
+  const setShowInconnu   = (v: BoolUpdate) => setShown('inconnu',   typeof v === 'function' ? v(showInconnu)   : v)
+  const raison = pickParam(url.get('raison'), RAISONS, 'all')
+  const setRaison = (v: RaisonFilter) => url.set({ raison: v === 'all' ? null : v, page: null })
+  const actif = pickParam(url.get('actif'), ACTIFS, 'actif')
+  const setActif = (v: typeof actif) => url.set({ actif: v === 'actif' ? null : v, page: null })
+  const page = pageParam(url.get('page'))
+  // Recherche : saisie locale immédiate, recopiée dans l'URL après une courte pause
+  const [search, setSearchLocal] = useState(url.get('q') ?? '')
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const setSearch = (v: string) => {
+    setSearchLocal(v)
+    if (searchTimer.current) clearTimeout(searchTimer.current)
+    searchTimer.current = setTimeout(() => url.set({ q: v.trim() || null, page: null }), 300)
+  }
 
   const nCritique  = useMemo(() => rows.filter((r) => r.status === 'critique').length,  [rows])
   const nVigilance = useMemo(() => rows.filter((r) => r.status === 'vigilance').length, [rows])
@@ -130,9 +160,7 @@ export default function AlertesClient({ rows, initInconnu = false }: { rows: Ale
         if (!showInconnu   && r.status === 'inconnu')   return false
         if (!matchesRaison(r, raison)) return false
         if (q) {
-          const hay = [r.serial_number, r.client_name, r.site_name]
-            .join(' ')
-            .toLowerCase()
+          const hay = [r.serial_number, r.client_name, r.site_name].join(' ').toLowerCase()
           if (!hay.includes(q)) return false
         }
         return true
@@ -140,7 +168,7 @@ export default function AlertesClient({ rows, initInconnu = false }: { rows: Ale
       .sort((a, b) => {
         // Critique en premier
         if (a.status !== b.status) return a.status === 'critique' ? -1 : 1
-        // Puis par date d'échéance ASC (plus urgent en haut)
+        // Puis par date d'échéance croissante (plus urgent en haut)
         const da = nextExpiry(a)
         const db = nextExpiry(b)
         if (!da && !db) return 0
@@ -154,7 +182,11 @@ export default function AlertesClient({ rows, initInconnu = false }: { rows: Ale
   const safePage   = Math.min(page, totalPages)
   const pageRows   = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
 
-  function resetPage() { setPage(1) }
+  const setPage = (v: number | ((prev: number) => number)) => {
+    const n = typeof v === 'function' ? v(safePage) : v
+    url.set({ page: n > 1 ? n : null })
+  }
+  function resetPage() { url.set({ page: null }) }
 
   // Numéros de page à afficher (fenêtre glissante de 5)
   function pageNumbers(): number[] {
@@ -165,261 +197,143 @@ export default function AlertesClient({ rows, initInconnu = false }: { rows: Ale
     return [safePage - 2, safePage - 1, safePage, safePage + 1, safePage + 2]
   }
 
+  const hasFilters = territory !== 'all' || raison !== 'all' || actif !== 'actif' || !showCritique || !showVigilance || showInconnu || search !== ''
+
+  function resetAll() {
+    setSearchLocal('')
+    if (searchTimer.current) clearTimeout(searchTimer.current)
+    url.set({ territoire: null, statut: null, raison: null, actif: null, q: null, page: null })
+  }
+
   return (
-    <div className="p-6 lg:p-8 max-w-screen-xl mx-auto">
-
-      <div className="mb-4">
-        <BackButton label="Tableau de bord" />
-      </div>
-
-      {/* ── En-tête ─────────────────────────────────────────────────────────── */}
-      <div className="flex items-start justify-between mb-6 gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Alertes</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            <span className="inline-flex items-center gap-1 font-semibold text-red-600">
-              <span className="w-2 h-2 rounded-full bg-red-500 inline-block" />
+    <PageContainer>
+      <PageHeader
+        eyebrow={<BackButton label="Tableau de bord" />}
+        title="Alertes"
+        subtitle={
+          <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1 tabular-nums">
+            <span className="inline-flex items-center gap-1.5 font-medium text-danger">
+              <span className="h-2 w-2 rounded-full bg-danger" aria-hidden />
               {nCritique} critique{nCritique > 1 ? 's' : ''}
             </span>
-            <span className="text-slate-300 mx-2">·</span>
-            <span className="inline-flex items-center gap-1 font-semibold text-amber-600">
-              <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />
+            <span className="inline-flex items-center gap-1.5 font-medium text-warning">
+              <span className="h-2 w-2 rounded-full bg-warning" aria-hidden />
               {nVigilance} vigilance
             </span>
-            <span className="text-slate-300 mx-2">·</span>
-            <span className="text-slate-500">{rows.length} alertes au total</span>
-          </p>
+            <span className="text-fg-faint">{rows.length} au total</span>
+          </span>
+        }
+        actions={
+          <Button variant="secondary" icon={Download} onClick={() => exportCSV(filtered)} disabled={filtered.length === 0}>
+            Exporter CSV ({filtered.length})
+          </Button>
+        }
+      />
+
+      {/* ── Filtres ─────────────────────────────────────────────────────────── */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-fg-faint" />
+          <input
+            type="search"
+            value={search}
+            placeholder="N° série, client, site…"
+            aria-label="Rechercher une alerte"
+            onChange={(e) => { setSearch(e.target.value); resetPage() }}
+            className={cx(inputClass, 'w-60 pl-8')}
+          />
         </div>
 
-        <button
-          onClick={() => exportCSV(filtered)}
-          className="shrink-0 flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-sm"
-        >
-          <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <polyline points="7 10 12 15 17 10" />
-            <line x1="12" y1="15" x2="12" y2="3" />
-          </svg>
-          Exporter ({filtered.length})
-        </button>
+        <ChipGroup label="Statut">
+          <Chip active={showCritique} onClick={() => { setShowCritique((v) => !v); resetPage() }}>
+            <span className="h-1.5 w-1.5 rounded-full bg-danger" aria-hidden />Critique
+          </Chip>
+          <Chip active={showVigilance} onClick={() => { setShowVigilance((v) => !v); resetPage() }}>
+            <span className="h-1.5 w-1.5 rounded-full bg-warning" aria-hidden />Vigilance
+          </Chip>
+          <Chip active={showInconnu} onClick={() => { setShowInconnu((v) => !v); resetPage() }}>
+            <span className="h-1.5 w-1.5 rounded-full bg-fg-faint" aria-hidden />Inconnu
+          </Chip>
+        </ChipGroup>
+
+        <Select value={territory} onChange={(e) => { setTerritory(e.target.value); resetPage() }} aria-label="Territoire">
+          <option value="all">Tous les territoires</option>
+          <option value="REU">La Réunion</option>
+          <option value="MYT">Mayotte</option>
+          <option value="GLP">Guadeloupe</option>
+        </Select>
+
+        <Select value={actif} onChange={(e) => { setActif(e.target.value as typeof actif); resetPage() }} aria-label="Équipements">
+          <option value="actif">Actifs</option>
+          <option value="inactif">Inactifs</option>
+          <option value="tous">Tous les équipements</option>
+        </Select>
+
+        <Select value={raison} onChange={(e) => { setRaison(e.target.value as RaisonFilter); resetPage() }} aria-label="Raison">
+          <option value="all">Toutes les raisons</option>
+          <option value="batterie">Batterie expirée</option>
+          <option value="electrodes">Électrodes expirées</option>
+          <option value="maintenance">Maintenance échue</option>
+          <option value="vigilance30">Échéance sous 30 jours</option>
+        </Select>
+
+        {hasFilters && (
+          <Button variant="ghost" size="sm" icon={X} onClick={resetAll}>Réinitialiser</Button>
+        )}
+
+        <span className="ml-auto text-caption text-fg-muted tabular-nums">
+          {filtered.length.toLocaleString('fr-FR')} / {rows.length.toLocaleString('fr-FR')} alertes
+        </span>
       </div>
 
-      {/* ── Barre de filtres ─────────────────────────────────────────────────── */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 mb-4">
-        <div className="flex flex-wrap gap-3 items-end">
-
-          {/* Recherche texte */}
-          <div className="flex-1 min-w-52">
-            <label className="block text-xs font-medium text-slate-500 mb-1">Recherche</label>
-            <div className="relative">
-              <svg className="absolute left-2.5 top-2 w-4 h-4 text-slate-400 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
-              </svg>
-              <input
-                type="text"
-                value={search}
-                placeholder="N° série, client, site…"
-                onChange={(e) => { setSearch(e.target.value); resetPage() }}
-                className="w-full pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-          </div>
-
-          {/* Territoire */}
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Territoire</label>
-            <select
-              value={territory}
-              onChange={(e) => { setTerritory(e.target.value); resetPage() }}
-              className="text-sm border border-slate-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-            >
-              <option value="all">Tous</option>
-              <option value="REU">La Réunion</option>
-              <option value="MYT">Mayotte</option>
-              <option value="GLP">Guadeloupe</option>
-            </select>
-          </div>
-
-          {/* Actif / Inactif */}
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Équipements</label>
-            <select
-              value={actif}
-              onChange={(e) => { setActif(e.target.value as typeof actif); resetPage() }}
-              className="text-sm border border-slate-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-            >
-              <option value="actif">Actifs uniquement</option>
-              <option value="inactif">Inactifs uniquement</option>
-              <option value="tous">Tous</option>
-            </select>
-          </div>
-
-          {/* Raison */}
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Raison</label>
-            <select
-              value={raison}
-              onChange={(e) => { setRaison(e.target.value as RaisonFilter); resetPage() }}
-              className="text-sm border border-slate-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-            >
-              <option value="all">Toutes les raisons</option>
-              <option value="batterie">Batterie expirée</option>
-              <option value="electrodes">Électrodes expirées</option>
-              <option value="maintenance">Maintenance échue</option>
-              <option value="vigilance30">Échéance &lt; 30 jours</option>
-            </select>
-          </div>
-
-          {/* Statuts (checkboxes) */}
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Statut</label>
-            <div className="flex items-center gap-3 py-1.5">
-              <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={showCritique}
-                  onChange={(e) => { setShowCritique(e.target.checked); resetPage() }}
-                  className="w-3.5 h-3.5 accent-red-600 cursor-pointer"
-                />
-                <span className="text-sm text-slate-700">Critique</span>
-              </label>
-              <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={showVigilance}
-                  onChange={(e) => { setShowVigilance(e.target.checked); resetPage() }}
-                  className="w-3.5 h-3.5 accent-amber-500 cursor-pointer"
-                />
-                <span className="text-sm text-slate-700">Vigilance</span>
-              </label>
-              <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={showInconnu}
-                  onChange={(e) => { setShowInconnu(e.target.checked); resetPage() }}
-                  className="w-3.5 h-3.5 accent-slate-500 cursor-pointer"
-                />
-                <span className="text-sm text-slate-700">Inconnu</span>
-              </label>
-            </div>
-          </div>
-
-          {/* Reset */}
-          {(territory !== 'all' || raison !== 'all' || actif !== 'actif' || !showCritique || !showVigilance || showInconnu || search) && (
-            <button
-              onClick={() => {
-                setTerritory('all')
-                setRaison('all')
-                setActif('actif')
-                setShowCritique(true)
-                setShowVigilance(true)
-                setShowInconnu(false)
-                setSearch('')
-                setPage(1)
-              }}
-              className="text-xs text-slate-500 hover:text-slate-700 underline underline-offset-2 py-1.5"
-            >
-              Réinitialiser
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* ── Tableau ──────────────────────────────────────────────────────────── */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      {/* ── Tableau ─────────────────────────────────────────────────────────── */}
+      <div className={cx(tableWrapClass, 'overflow-hidden')}>
         {filtered.length === 0 ? (
-          <div className="py-20 flex flex-col items-center gap-2 text-center">
-            <svg viewBox="0 0 24 24" className="w-8 h-8 text-slate-300" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
-            </svg>
-            <p className="text-sm text-slate-400">Aucune alerte ne correspond aux filtres sélectionnés.</p>
-          </div>
+          <EmptyState icon={BellOff} className="py-16" title="Aucune alerte ne correspond aux filtres sélectionnés." description="Élargissez les statuts, le territoire ou la raison." />
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50">
-                    {['N° série', 'Marque / Modèle', 'Client', 'Site', 'Territoire', 'Statut', 'Raison', 'Prochaine échéance'].map((h) => (
-                      <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">
-                        {h}
-                      </th>
-                    ))}
-                    <th className="sticky right-0 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap shadow-[-8px_0_12px_-4px_rgba(0,0,0,0.06)]">
-                      Actions
-                    </th>
+              <table className={cx(tableClass, 'min-w-full w-max')}>
+                <thead className={theadClass}>
+                  <tr>
+                    {HEADERS.map((h) => <th key={h} className={thClass}>{h}</th>)}
+                    <th className={cx(thClass, stickyColClass, 'bg-surface-muted text-right')}>Fiche</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50">
+                <tbody className={tbodyClass}>
                   {pageRows.map((row) => {
                     const expiry  = nextExpiry(row)
                     const expired = isExpired(expiry)
                     const brand   = [row.brand, row.model].filter(Boolean).join(' ')
-
                     return (
-                      <tr key={row.id} className="hover:bg-blue-50/30 transition-colors">
-                        {/* N° série */}
-                        <td className="px-4 py-3 font-mono text-xs text-slate-700 whitespace-nowrap">
-                          {row.serial_number ?? <span className="text-slate-400">—</span>}
+                      <tr key={row.id} className={trClass}>
+                        <td className={cx(tdClass, 'whitespace-nowrap font-mono text-caption font-medium text-fg')}>
+                          {row.serial_number ?? <span className="text-border-strong">—</span>}
                         </td>
-
-                        {/* Marque / Modèle */}
-                        <td className="px-4 py-3 max-w-[180px]">
-                          <span className="block truncate text-slate-700" title={brand || undefined}>
-                            {brand || <span className="text-slate-400">—</span>}
-                          </span>
+                        <td className={cx(tdClass, 'max-w-[180px]')}>
+                          <span className="block truncate text-fg-secondary" title={brand || undefined}>{brand || <span className="text-border-strong">—</span>}</span>
                         </td>
-
-                        {/* Client */}
-                        <td className="px-4 py-3 max-w-[160px]">
-                          <span className="block truncate text-slate-600" title={row.client_name ?? undefined}>
-                            {row.client_name ?? <span className="text-slate-400">—</span>}
-                          </span>
+                        <td className={cx(tdClass, 'max-w-[170px]')}>
+                          <span className="block truncate text-fg-secondary" title={row.client_name ?? undefined}>{row.client_name ?? <span className="text-border-strong">—</span>}</span>
                         </td>
-
-                        {/* Site */}
-                        <td className="px-4 py-3 max-w-[160px]">
-                          <span className="block truncate text-slate-600" title={row.site_name ?? undefined}>
-                            {row.site_name ?? <span className="text-slate-400">—</span>}
-                          </span>
+                        <td className={cx(tdClass, 'max-w-[160px]')}>
+                          <span className="block truncate text-fg-muted" title={row.site_name ?? undefined}>{row.site_name ?? <span className="text-border-strong">—</span>}</span>
                         </td>
-
-                        {/* Territoire */}
-                        <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-                          {TERRITORY_LABELS[row.territory_code ?? ''] ?? row.territory_code ?? (
-                            <span className="text-slate-400">—</span>
-                          )}
+                        <td className={cx(tdClass, 'whitespace-nowrap text-caption text-fg-muted')}>
+                          {TERRITORY_LABELS[row.territory_code ?? ''] ?? row.territory_code ?? <span className="text-border-strong">—</span>}
                         </td>
-
-                        {/* Statut */}
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <DAEStatusBadge status={row.status} />
+                        <td className={cx(tdClass, 'whitespace-nowrap')}><DAEStatusBadge status={row.status} /></td>
+                        <td className={cx(tdClass, 'max-w-[220px]')}>
+                          <span className="block truncate text-fg-secondary" title={row.status_reason ?? undefined}>{row.status_reason ?? <span className="text-border-strong">—</span>}</span>
                         </td>
-
-                        {/* Raison */}
-                        <td className="px-4 py-3 max-w-[200px]">
-                          <span className="block truncate text-slate-600" title={row.status_reason ?? undefined}>
-                            {row.status_reason ?? <span className="text-slate-400">—</span>}
-                          </span>
-                        </td>
-
-                        {/* Prochaine échéance */}
-                        <td className={`px-4 py-3 whitespace-nowrap font-medium tabular-nums ${expired ? 'text-red-600' : 'text-slate-700'}`}>
+                        <td className={cx(tdClass, 'whitespace-nowrap tabular-nums', expired ? 'font-medium text-danger' : 'text-fg-secondary')}>
                           {fmtDate(expiry)}
-                          {expired && (
-                            <span className="ml-1 text-[10px] font-semibold text-red-500 uppercase tracking-wide">
-                              échue
-                            </span>
-                          )}
+                          {expired && <Tag tone="danger" className="ml-1.5 uppercase">échue</Tag>}
                         </td>
-
-                        {/* Actions — sticky droite */}
-                        <td className="sticky right-0 bg-white px-4 py-3 whitespace-nowrap shadow-[-8px_0_12px_-4px_rgba(0,0,0,0.06)]">
-                          <Link
-                            href={`/parc/${row.id}`}
-                            className="text-xs font-semibold text-[#AF2125] hover:underline"
-                          >
-                            Voir la fiche →
+                        <td className={cx(tdClass, stickyColClass, 'whitespace-nowrap bg-surface text-right')}>
+                          <Link prefetch={false} href={`/parc/${row.id}`} className="inline-flex items-center gap-0.5 text-caption font-semibold text-brand hover:underline">
+                            Voir
+                            <ChevronRight className="h-3.5 w-3.5" />
                           </Link>
                         </td>
                       </tr>
@@ -429,52 +343,28 @@ export default function AlertesClient({ rows, initInconnu = false }: { rows: Ale
               </table>
             </div>
 
-            {/* ── Pagination ──────────────────────────────────────────────────── */}
-            <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 bg-slate-50/60">
-              <p className="text-xs text-slate-500">
-                {filtered.length === 0 ? '0' : `${(safePage - 1) * PAGE_SIZE + 1}–${Math.min(safePage * PAGE_SIZE, filtered.length)}`}
-                {' '}sur{' '}
-                <span className="font-medium text-slate-700">{filtered.length}</span> alertes
-                {filtered.length !== rows.length && (
-                  <span className="text-slate-400"> (filtrées sur {rows.length})</span>
-                )}
+            {/* ── Pagination ──────────────────────────────────────────────── */}
+            <div className={tableFooterClass}>
+              <p className="tabular-nums">
+                {`${(safePage - 1) * PAGE_SIZE + 1}–${Math.min(safePage * PAGE_SIZE, filtered.length)}`} sur{' '}
+                <span className="font-semibold text-fg-secondary">{filtered.length}</span>
+                {filtered.length !== rows.length && <span className="text-fg-faint"> (filtrées sur {rows.length})</span>}
               </p>
-
               {totalPages > 1 && (
                 <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    disabled={safePage === 1}
-                    className="px-2.5 py-1 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  >
-                    ← Préc.
-                  </button>
+                  <Button variant="secondary" size="xs" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage === 1}>Précédent</Button>
                   {pageNumbers().map((n) => (
-                    <button
-                      key={n}
-                      onClick={() => setPage(n)}
-                      className={`w-7 py-1 text-xs font-medium rounded border transition-colors ${
-                        n === safePage
-                          ? 'bg-blue-600 text-white border-blue-600'
-                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-                      }`}
-                    >
+                    <button key={n} type="button" onClick={() => setPage(n)} aria-current={n === safePage ? 'page' : undefined} className={pageButtonClass(n === safePage)}>
                       {n}
                     </button>
                   ))}
-                  <button
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                    disabled={safePage === totalPages}
-                    className="px-2.5 py-1 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  >
-                    Suiv. →
-                  </button>
+                  <Button variant="secondary" size="xs" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={safePage === totalPages}>Suivant</Button>
                 </div>
               )}
             </div>
           </>
         )}
       </div>
-    </div>
+    </PageContainer>
   )
 }

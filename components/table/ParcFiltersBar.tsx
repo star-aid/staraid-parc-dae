@@ -1,6 +1,8 @@
 'use client'
 import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { Download, Search, X } from 'lucide-react'
+import { Button, Chip, ChipGroup, Select, cx, inputClass } from '@/components/ui/primitives'
 
 const TERRITORIES = [
   { code: 'REU', label: 'La Réunion' },
@@ -8,11 +10,12 @@ const TERRITORIES = [
   { code: 'GLP', label: 'Guadeloupe' },
 ]
 
+// Point coloré : la couleur de statut accompagne toujours un libellé
 const STATUTS = [
-  { code: 'critique',  label: 'Critique' },
-  { code: 'vigilance', label: 'Vigilance' },
-  { code: 'conforme',  label: 'Conforme' },
-  { code: 'inconnu',   label: 'Inconnu' },
+  { code: 'critique',  label: 'Critique',  dot: 'bg-danger' },
+  { code: 'vigilance', label: 'Vigilance', dot: 'bg-warning' },
+  { code: 'conforme',  label: 'Conforme',  dot: 'bg-success' },
+  { code: 'inconnu',   label: 'Inconnu',   dot: 'bg-fg-faint' },
 ]
 
 interface Props {
@@ -41,7 +44,7 @@ export default function ParcFiltersBar({ total, shown }: Props) {
       a.href = url; a.download = filename; a.click()
       URL.revokeObjectURL(url)
     } catch {
-      alert("Échec de l'export CSV — réessayez.")
+      alert("Échec de l'export CSV, réessayez.")
     } finally {
       setExporting(false)
     }
@@ -55,7 +58,7 @@ export default function ParcFiltersBar({ total, shown }: Props) {
   const [inputQ, setInputQ] = useState(currentQ)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Sync search input with URL (back/forward navigation)
+  // Synchronise le champ de recherche avec l'URL (navigation précédent / suivant)
   useEffect(() => { setInputQ(currentQ) }, [currentQ])
 
   const navigate = useCallback((params: URLSearchParams) => {
@@ -66,7 +69,7 @@ export default function ParcFiltersBar({ total, shown }: Props) {
 
   function buildParams(overrides: Record<string, string | string[] | null> = {}) {
     const p = new URLSearchParams(sp.toString())
-    p.delete('page') // reset à page 1 sur tout changement de filtre
+    p.delete('page') // retour à la page 1 sur tout changement de filtre
     for (const [k, v] of Object.entries(overrides)) {
       if (v == null || (Array.isArray(v) && v.length === 0) || v === '') p.delete(k)
       else p.set(k, Array.isArray(v) ? v.join(',') : v)
@@ -83,125 +86,89 @@ export default function ParcFiltersBar({ total, shown }: Props) {
   }
 
   function toggleTerr(code: string) {
-    const next = currentTerr.includes(code)
-      ? currentTerr.filter((c) => c !== code)
-      : [...currentTerr, code]
+    const next = currentTerr.includes(code) ? currentTerr.filter((c) => c !== code) : [...currentTerr, code]
     navigate(buildParams({ territoire: next }))
   }
 
   function toggleStat(code: string) {
-    const next = currentStat.includes(code)
-      ? currentStat.filter((c) => c !== code)
-      : [...currentStat, code]
+    const next = currentStat.includes(code) ? currentStat.filter((c) => c !== code) : [...currentStat, code]
     navigate(buildParams({ statut: next }))
   }
 
   function clearAll() {
-    navigate(new URLSearchParams())
+    // Conserve la vue (tableau / carte), efface tous les filtres
+    const p = new URLSearchParams()
+    const vue = sp.get('vue')
+    if (vue) p.set('vue', vue)
+    navigate(p)
     setInputQ('')
   }
 
-  const hasFilters = inputQ || currentTerr.length > 0 || currentStat.length > 0 || currentActif !== 'actif'
-  const STAT_COLORS: Record<string, string> = {
-    critique: 'border-red-300 bg-red-50 text-red-700',
-    vigilance: 'border-amber-300 bg-amber-50 text-amber-700',
-    conforme: 'border-emerald-300 bg-emerald-50 text-emerald-700',
-    inconnu: 'border-slate-300 bg-slate-50 text-slate-500',
-  }
+  const hasFilters = inputQ !== '' || currentTerr.length > 0 || currentStat.length > 0 || currentActif !== 'actif'
 
   return (
-    <div className={`bg-white border border-slate-200 rounded-xl p-4 mb-4 shadow-sm transition-opacity ${isPending ? 'opacity-60' : ''}`}>
-      <div className="flex flex-wrap gap-3 items-center">
-        {/* Recherche texte */}
-        <div className="relative flex-1 min-w-[200px] max-w-xs">
-          <svg viewBox="0 0 24 24" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-          </svg>
-          <input
-            type="text"
-            value={inputQ}
-            onChange={(e) => onSearch(e.target.value)}
-            placeholder="N° série, modèle…"
-            className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-        </div>
+    <div className={cx('mb-3 flex flex-wrap items-center gap-2 transition-opacity', isPending && 'opacity-60')}>
+      {/* Recherche */}
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-fg-faint" />
+        <input
+          type="search"
+          value={inputQ}
+          onChange={(e) => onSearch(e.target.value)}
+          placeholder="N° série, modèle, client…"
+          aria-label="Rechercher un DAE"
+          className={cx(inputClass, 'w-60 pl-8')}
+        />
+      </div>
 
-        {/* Territoire */}
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-xs text-slate-500 font-medium mr-0.5">Territoire :</span>
-          {TERRITORIES.map(({ code, label }) => (
-            <button
-              key={code}
-              onClick={() => toggleTerr(code)}
-              className={`text-xs px-2.5 py-1 rounded-md border font-medium transition-colors ${
-                currentTerr.includes(code)
-                  ? 'bg-blue-600 border-blue-600 text-white'
-                  : 'border-slate-200 text-slate-600 hover:border-blue-300 hover:text-blue-600'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+      <ChipGroup label="Territoire">
+        {TERRITORIES.map(({ code, label }) => (
+          <Chip key={code} active={currentTerr.includes(code)} onClick={() => toggleTerr(code)}>{label}</Chip>
+        ))}
+      </ChipGroup>
 
-        {/* Actif / Inactif */}
-        <div className="flex items-center gap-1.5">
-          <span className="text-xs text-slate-500 font-medium mr-0.5">Équipements :</span>
-          <select
-            value={currentActif}
-            onChange={(e) => navigate(buildParams({ actif: e.target.value === 'actif' ? null : e.target.value }))}
-            className="text-xs border border-slate-200 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-700"
-          >
-            <option value="actif">Actifs uniquement</option>
-            <option value="inactif">Inactifs uniquement</option>
-            <option value="tous">Tous</option>
-          </select>
-        </div>
+      <ChipGroup label="Statut">
+        {STATUTS.map(({ code, label, dot }) => (
+          <Chip key={code} active={currentStat.includes(code)} onClick={() => toggleStat(code)}>
+            <span className={cx('h-1.5 w-1.5 rounded-full', dot)} aria-hidden />
+            {label}
+          </Chip>
+        ))}
+      </ChipGroup>
 
-        {/* Statut */}
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-xs text-slate-500 font-medium mr-0.5">Statut :</span>
-          {STATUTS.map(({ code, label }) => (
-            <button
-              key={code}
-              onClick={() => toggleStat(code)}
-              className={`text-xs px-2.5 py-1 rounded-md border font-medium transition-colors ${
-                currentStat.includes(code)
-                  ? STAT_COLORS[code]
-                  : 'border-slate-200 text-slate-600 hover:border-slate-300'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+      <label className="inline-flex items-center gap-2">
+        <span className="text-label font-bold uppercase tracking-wide text-fg-faint">Équipements</span>
+        <Select
+          value={currentActif}
+          onChange={(e) => navigate(buildParams({ actif: e.target.value === 'actif' ? null : e.target.value }))}
+          controlSize="sm"
+        >
+          <option value="actif">Actifs</option>
+          <option value="inactif">Inactifs</option>
+          <option value="tous">Tous</option>
+        </Select>
+      </label>
 
-        {/* Spacer */}
-        <div className="flex-1" />
+      {hasFilters && (
+        <Button variant="ghost" size="sm" icon={X} onClick={clearAll}>Effacer</Button>
+      )}
 
-        {/* Compteur + actions */}
-        <div className="flex items-center gap-2">
-          {hasFilters && (
-            <button onClick={clearAll} className="text-xs text-slate-500 hover:text-slate-800 underline">
-              Effacer
-            </button>
-          )}
-          <span className="text-xs text-slate-400">
-            {shown.toLocaleString('fr-FR')} / {total.toLocaleString('fr-FR')} DAE
-          </span>
-          <button
-            onClick={exportAllCSV}
-            disabled={exporting || total === 0}
-            title={`Exporter les ${total.toLocaleString('fr-FR')} DAE filtrés (pas seulement la page affichée)`}
-            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors disabled:opacity-40"
-          >
-            <svg viewBox="0 0 24 24" className={`w-3.5 h-3.5 ${exporting ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-              <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-            </svg>
-            {exporting ? 'Export…' : `CSV (${total.toLocaleString('fr-FR')})`}
-          </button>
-        </div>
+      {/* Compteur + export, alignés à droite */}
+      <div className="ml-auto flex items-center gap-2">
+        <span className="text-caption text-fg-muted tabular-nums">
+          {shown.toLocaleString('fr-FR')} / {total.toLocaleString('fr-FR')} DAE
+        </span>
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={Download}
+          loading={exporting}
+          onClick={exportAllCSV}
+          disabled={total === 0}
+          title={`Exporter les ${total.toLocaleString('fr-FR')} DAE filtrés, pas seulement la page affichée`}
+        >
+          {exporting ? 'Export…' : 'CSV'}
+        </Button>
       </div>
     </div>
   )

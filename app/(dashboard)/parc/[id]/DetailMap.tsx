@@ -9,10 +9,11 @@ type Props = {
   status: string
 }
 
+// Mêmes couleurs de statut que les badges et les graphiques
 const STATUS_COLOR: Record<string, string> = {
-  conforme:  '#10b981',
+  conforme:  '#059669',
   vigilance: '#f59e0b',
-  critique:  '#ef4444',
+  critique:  '#dc2626',
   inconnu:   '#94a3b8',
 }
 
@@ -54,7 +55,7 @@ export default function DetailMap({ latitude, longitude, siteName, status }: Pro
         opacity: 1,
         fillOpacity: 0.9,
       })
-        .bindPopup(`<b style="font-family:system-ui;font-size:13px">${siteName ?? 'Site DAE'}</b>`)
+        .bindPopup(`<b style="font-size:13px;color:#171921">${siteName ?? 'Site DAE'}</b>`)
         .addTo(mapRef.current)
     }
 
@@ -69,5 +70,5 @@ export default function DetailMap({ latitude, longitude, siteName, status }: Pro
     }
   }, [latitude, longitude, status, siteName])
 
-  return <div ref={containerRef} className="h-full w-full rounded-lg overflow-hidden" />
+  return <div ref={containerRef} className="h-full w-full" />
 }

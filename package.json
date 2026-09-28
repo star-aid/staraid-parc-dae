@@ -6,15 +6,22 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "db:status": "node scripts/db.mjs status",
+    "db:push": "node scripts/db.mjs push",
+    "db:baseline": "node scripts/db.mjs baseline",
+    "geodae:dryrun": "npx --yes tsx --tsconfig ./tsconfig.json scripts/geodae-writeback-dryrun.mts",
+    "dashboard:compare": "npx --yes tsx --tsconfig ./tsconfig.json scripts/dashboard-compare-counts.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39",
     "@supabase/ssr": "^0.5",
     "@supabase/supabase-js": "^2",
     "@vercel/functions": "^3.7.3",
+    "jose": "^5.10.0",
     "leaflet": "^1.9",
     "leaflet.markercluster": "^1.5",
+    "lucide-react": "^1.48.0",
     "next": "14.2.35",
     "react": "^18",
     "react-dom": "^18",

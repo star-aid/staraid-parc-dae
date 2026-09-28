@@ -2,91 +2,114 @@ import type { ReactNode } from 'react'
 import { Suspense } from 'react'
 import { createServiceClient, type UserRole } from '@/lib/supabase'
 import { createSessionClient } from '@/lib/supabase-server'
-import Sidebar from '@/components/dashboard/Sidebar'
+import { getSessionUser } from '@/lib/auth/session'
+import AppShell from '@/components/dashboard/AppShell'
 import ContratFilterBar from '@/components/dashboard/ContratFilterBar'
 import ClientFilterBar, { type ClientOption } from '@/components/dashboard/ClientFilterBar'
+import { LOCATION_TYPES, MAINTENANCE_TYPES, SANS_CONTRAT_SENTINEL, SANS_CONTRAT_STRINGS, type AutreType } from '@/lib/contract-groups'
 
 export const dynamic = 'force-dynamic'
 
-async function getSidebarData() {
-  try {
-    const supabase = createServiceClient()
-    const { LOCATION_TYPES, MAINTENANCE_TYPES, SANS_CONTRAT_SENTINEL, SANS_CONTRAT_STRINGS } = await import('@/lib/contract-groups')
-    // Types exclus des AUTRES (Location + Maintenance + valeurs "sans contrat" gérées séparément)
-    const excludedFromAutre = [...LOCATION_TYPES, ...MAINTENANCE_TYPES, ...SANS_CONTRAT_STRINGS]
-    const [critiqueRes, syncRes, clientsRes, autreTypesRes, sansContratRes] = await Promise.all([
-      supabase
-        .from('defibrillators')
-        .select('id', { count: 'exact', head: true })
-        .eq('status', 'critique')
-        .eq('active', true),
-      supabase
-        .from('sync_logs')
-        .select('finished_at')
-        .in('source', ['synchroteam_reu', 'synchroteam_myt', 'synchroteam_glp', 'synchroteam'])
-        .eq('status', 'success')
-        .order('finished_at', { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      supabase
-        .from('clients')
-        .select('id, name')
-        .eq('active', true)
-        .order('name')
-        .limit(1000),
-      // Types "Autres" réels (hors Location, Maintenance et sans-contrat)
-      supabase
-        .from('defibrillators')
-        .select('contract_type')
-        .not('contract_type', 'is', null)
-        .not('contract_type', 'in', `(${excludedFromAutre.join(',')})`)
-        .order('contract_type'),
-      // Compte les DAE sans contrat : NULL + 'Aucun' + 'Aucun Contrat'
-      supabase
-        .from('defibrillators')
-        .select('id', { count: 'exact', head: true })
-        .or(`contract_type.is.null,contract_type.in.(${SANS_CONTRAT_STRINGS.join(',')})`)
-    ])
+type SidebarData = {
+  critiqueCount: number
+  geodaeAnomalyCount: number
+  lastSync: string | null
+  clients: ClientOption[]
+  autreTypes: AutreType[]
+}
+const EMPTY_SIDEBAR: SidebarData = { critiqueCount: 0, geodaeAnomalyCount: 0, lastSync: null, clients: [], autreTypes: [] }
 
-    // Comptage des types "Autres" réels côté JS
-    const autreCountMap = new Map<string, number>()
-    for (const row of (autreTypesRes.data ?? [])) {
-      const t = row.contract_type as string
-      autreCountMap.set(t, (autreCountMap.get(t) ?? 0) + 1)
-    }
-    const autreTypes = Array.from(autreCountMap.entries())
-      .map(([type, count]) => ({ type, count }))
-      .sort((a, b) => a.type.localeCompare(b.type))
+// Données de la barre latérale, communes à tous les utilisateurs : une seule
+// vague de requêtes parallèles, la répartition par type de contrat étant
+// agrégée en SQL (get_contract_type_counts, migration 20260928000013) au lieu
+// de lire la colonne de chaque DAE, ce qui était plafonné à 1 000 lignes.
+async function fetchSidebarData(): Promise<SidebarData> {
+  const supabase = createServiceClient()
+  // Types exclus des « Autres » : Location, Maintenance et valeurs « sans contrat »
+  const excludedFromAutre = new Set<string>([...LOCATION_TYPES, ...MAINTENANCE_TYPES, ...SANS_CONTRAT_STRINGS])
+  const [critiqueRes, syncRes, clientsRes, typesRes, geodaeRes] = await Promise.all([
+    supabase
+      .from('defibrillators')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'critique')
+      .eq('active', true),
+    supabase
+      .from('sync_logs')
+      .select('finished_at')
+      .in('source', ['synchroteam_reu', 'synchroteam_myt', 'synchroteam_glp', 'synchroteam'])
+      .eq('status', 'success')
+      .order('finished_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from('clients')
+      .select('id, name')
+      .eq('active', true)
+      .order('name')
+      .limit(1000),
+    supabase.rpc('get_contract_type_counts'),
+    // Anomalies Géo'DAE ouvertes, pour le badge du menu (table absente avant la migration 9 : erreur ignorée)
+    supabase
+      .from('geodae_anomalies')
+      .select('id', { count: 'exact', head: true })
+      .is('resolved_at', null),
+  ])
+  if (typesRes.error) throw new Error(`get_contract_type_counts : ${typesRes.error.message}`)
 
-    // Ajoute "Sans contrat" en premier si des DAE concernés existent
-    const sansContratCount = sansContratRes.count ?? 0
-    if (sansContratCount > 0) {
-      autreTypes.unshift({ type: SANS_CONTRAT_SENTINEL, count: sansContratCount })
+  const autreTypes: AutreType[] = []
+  let sansContratCount = 0
+  for (const r of (typesRes.data ?? []) as Array<{ contract_type: string | null; dae_count: number }>) {
+    const n = Number(r.dae_count)
+    if (r.contract_type === null || SANS_CONTRAT_STRINGS.includes(r.contract_type)) {
+      sansContratCount += n
+      continue
     }
-
-    return {
-      critiqueCount: critiqueRes.count ?? 0,
-      lastSync: syncRes.data?.finished_at ?? null,
-      clients: (clientsRes.data ?? []) as ClientOption[],
-      autreTypes,
-    }
-  } catch {
-    return { critiqueCount: 0, lastSync: null, clients: [] as ClientOption[], autreTypes: [] }
+    if (excludedFromAutre.has(r.contract_type)) continue
+    autreTypes.push({ type: r.contract_type, count: n })
   }
+  autreTypes.sort((a, b) => a.type.localeCompare(b.type))
+  // « Sans contrat » en premier si des DAE concernés existent
+  if (sansContratCount > 0) autreTypes.unshift({ type: SANS_CONTRAT_SENTINEL, count: sansContratCount })
+
+  return {
+    critiqueCount: critiqueRes.count ?? 0,
+    geodaeAnomalyCount: geodaeRes.error ? 0 : (geodaeRes.count ?? 0),
+    lastSync: syncRes.data?.finished_at ?? null,
+    clients: (clientsRes.data ?? []) as ClientOption[],
+    autreTypes,
+  }
+}
+
+// Ces données ne changent qu'à la synchronisation (quotidienne) ou au
+// rapprochement Géo'DAE : on les garde en mémoire 2 minutes au lieu de refaire
+// 5 requêtes à chaque chargement complet. Une erreur vide le cache.
+const SIDEBAR_TTL_MS = 120_000
+let sidebarCache: { at: number; promise: Promise<SidebarData> } | null = null
+
+function getSidebarData(): Promise<SidebarData> {
+  const now = Date.now()
+  if (!sidebarCache || now - sidebarCache.at > SIDEBAR_TTL_MS) {
+    const promise = fetchSidebarData().catch((err: unknown) => {
+      sidebarCache = null
+      throw err
+    })
+    sidebarCache = { at: now, promise }
+  }
+  return sidebarCache.promise
 }
 
 async function getCurrentUser() {
   try {
-    const supabase = await createSessionClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    // Jeton vérifié localement : pas d'aller-retour vers Supabase Auth à chaque page
+    const user = await getSessionUser(await createSessionClient())
     if (!user) return null
     // Identifiant court = email sans @parc-dae.local (ex: "admin")
     const identifier = (user.email ?? '').replace('@parc-dae.local', '')
     return {
       email:      user.email ?? '',
-      name:       (user.user_metadata?.name as string | undefined) ?? identifier,
+      name:       user.name ?? identifier,
       identifier,
-      role:       ((user.user_metadata?.role as string | undefined) ?? 'direction') as UserRole,
+      role:       user.role as UserRole,
     }
   } catch {
     return null
@@ -94,41 +117,37 @@ async function getCurrentUser() {
 }
 
 export default async function DashboardLayout({ children }: { children: ReactNode }) {
-  const [{ critiqueCount, lastSync, clients, autreTypes }, currentUser] = await Promise.all([
-    getSidebarData(),
+  const [{ critiqueCount, geodaeAnomalyCount, lastSync, clients, autreTypes }, currentUser] = await Promise.all([
+    getSidebarData().catch((err: unknown) => {
+      console.error('getSidebarData:', err)
+      return EMPTY_SIDEBAR
+    }),
     getCurrentUser(),
   ])
 
   const userRole = currentUser?.role ?? 'direction'
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden">
-      <Sidebar
-        critiqueCount={critiqueCount}
-        lastSync={lastSync}
-        userRole={userRole}
-        userName={currentUser?.name ?? ''}
-        userEmail={currentUser?.email ?? ''}
-      />
-
-      {/* Colonne droite : filtres globaux + contenu scrollable */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Barre de filtres globaux — persistante sur toutes les pages dashboard */}
-        <div className="shrink-0 bg-white border-b border-slate-200 px-6 py-2.5 flex items-center gap-3 flex-wrap pt-14 lg:pt-2.5">
-          <Suspense fallback={<div className="h-[28px] w-60" />}>
+    <AppShell
+      critiqueCount={critiqueCount}
+      geodaeAnomalyCount={geodaeAnomalyCount}
+      lastSync={lastSync}
+      userRole={userRole}
+      userName={currentUser?.name ?? ''}
+      userEmail={currentUser?.email ?? ''}
+      toolbar={
+        <>
+          <Suspense fallback={<div className="h-8 w-64 rounded-control bg-surface-sunken" />}>
             <ContratFilterBar autreTypes={autreTypes} />
           </Suspense>
-          <div className="w-px h-5 bg-slate-200 shrink-0 hidden sm:block" />
-          <Suspense fallback={<div className="h-[28px] w-48" />}>
+          <div className="hidden h-5 w-px bg-border sm:block" />
+          <Suspense fallback={<div className="h-8 w-44 rounded-control bg-surface-sunken" />}>
             <ClientFilterBar clients={clients} />
           </Suspense>
-        </div>
-
-        {/* Zone de contenu principale scrollable */}
-        <main className="flex-1 overflow-y-auto">
-          {children}
-        </main>
-      </div>
-    </div>
+        </>
+      }
+    >
+      {children}
+    </AppShell>
   )
 }

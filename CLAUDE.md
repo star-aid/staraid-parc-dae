@@ -17,7 +17,7 @@ L'objectif est de centraliser la vision du parc installé à partir des données
 | Auth | Supabase Auth (email/password) |
 | Déploiement | Vercel |
 | Versionning | GitHub |
-| API source principale | Synchroteam REST API v3 (lecture seule) |
+| API source principale | Synchroteam REST API v3 (lecture seule, à une exception près : le report de l'identifiant Géo'DAE validé par un utilisateur, voir lib/geodae/writeback.ts) |
 | API CRM | Axonaut REST API (lecture seule) |
 | Agent IA | Anthropic API — claude-sonnet-4-6 |
 | Cartes | Leaflet.js |

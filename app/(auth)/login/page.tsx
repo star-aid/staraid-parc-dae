@@ -1,9 +1,12 @@
 'use client'
-
-import { useState } from 'react'
+// Page de connexion : carte centrée sur le fond clair du produit, logo rouge
+// au-dessus, la seule touche de marque. Le bouton plein rouge est l'unique
+// action primaire de l'écran.
+import { Suspense, useId, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { ArrowRight, Eye, EyeOff } from 'lucide-react'
 import { getSupabaseBrowserClient } from '@/lib/supabase'
-import { Suspense } from 'react'
+import { Button, Field, IconButton, Input, Notice } from '@/components/ui/primitives'
 
 const DOMAIN = '@parc-dae.local'
 
@@ -11,9 +14,12 @@ function LoginForm() {
   const router       = useRouter()
   const searchParams = useSearchParams()
   const redirect     = searchParams.get('redirect') ?? '/dashboard'
+  const idId  = useId()
+  const pwdId = useId()
 
   const [identifiant, setIdentifiant] = useState('')
   const [password,    setPassword]    = useState('')
+  const [showPwd,     setShowPwd]     = useState(false)
   const [error,       setError]       = useState<string | null>(null)
   const [loading,     setLoading]     = useState(false)
 
@@ -39,72 +45,75 @@ function LoginForm() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-900">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-surface-muted px-4 py-10">
       <div className="w-full max-w-sm">
-        {/* Logo */}
-        <div className="flex flex-col items-center mb-8">
+        <div className="mb-6 flex justify-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/Logo STAR aid.png" alt="STAR aid" className="h-24 w-auto object-contain mb-4" />
-          <p className="text-sm text-slate-400 tracking-wide uppercase">Parc DAE · Espace sécurisé</p>
+          <img src="/logo-star-aid-red.avif" alt="STAR aid" className="h-12 w-auto" />
         </div>
 
-        {/* Carte */}
-        <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-8">
-          <h1 className="text-xl font-bold text-slate-800 mb-1">Connexion</h1>
-          <p className="text-sm text-slate-500 mb-6">Accès réservé aux équipes STAR aid</p>
+        <div className="rounded-panel border border-border bg-surface p-7 shadow-panel">
+          <h1 className="text-lg font-bold tracking-tight text-fg">Connexion</h1>
+          <p className="mt-1 text-body text-fg-muted">Identifiez-vous pour accéder au suivi du parc DAE.</p>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1.5">
-                Identifiant
-              </label>
-              <input
+          <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-4">
+            <Field label="Identifiant" htmlFor={idId} required>
+              <Input
+                id={idId}
+                controlSize="lg"
                 type="text"
                 value={identifiant}
                 onChange={(e) => setIdentifiant(e.target.value)}
                 required
                 autoComplete="username"
                 autoCapitalize="none"
+                autoFocus
                 placeholder="ex : admin"
-                className="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#AF2125] focus:border-transparent"
               />
-            </div>
+            </Field>
 
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1.5">
-                Mot de passe
-              </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                autoComplete="current-password"
-                className="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#AF2125] focus:border-transparent"
-              />
-            </div>
-
-            {error && (
-              <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
-                <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0 text-red-500 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-                </svg>
-                <p className="text-xs text-red-700">{error}</p>
+            <Field label="Mot de passe" htmlFor={pwdId} required>
+              <div className="relative">
+                <Input
+                  id={pwdId}
+                  controlSize="lg"
+                  type={showPwd ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  autoComplete="current-password"
+                  className="pr-10"
+                />
+                <IconButton
+                  icon={showPwd ? EyeOff : Eye}
+                  label={showPwd ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+                  variant="plain"
+                  size="sm"
+                  onClick={() => setShowPwd((v) => !v)}
+                  className="absolute right-1 top-1/2 -translate-y-1/2"
+                />
               </div>
-            )}
+            </Field>
 
-            <button
+            {error && <Notice tone="danger">{error}</Notice>}
+
+            <Button
               type="submit"
-              disabled={loading || !identifiant.trim()}
-              className="w-full bg-[#AF2125] text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-[#961d21] transition-colors disabled:opacity-60 disabled:cursor-not-allowed mt-2"
+              variant="primary"
+              size="lg"
+              fullWidth
+              iconRight={ArrowRight}
+              loading={loading}
+              disabled={!identifiant.trim()}
+              className="mt-1"
             >
-              {loading ? 'Connexion…' : 'Se connecter'}
-            </button>
+              Se connecter
+            </Button>
           </form>
         </div>
 
-        <p className="text-center text-xs text-slate-500 mt-6">
-          STAR aid · Saint-Denis, La Réunion
+        <p className="mt-6 text-center text-caption text-fg-faint">
+          STAR aid · Saint-Denis, La Réunion · Suivi du parc DAE
         </p>
       </div>
     </div>

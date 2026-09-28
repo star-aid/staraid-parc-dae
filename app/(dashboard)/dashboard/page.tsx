@@ -1,13 +1,15 @@
-import type { ReactNode } from 'react'
+import { AlertCircle, AlertTriangle, CheckCircle2, HeartPulse, HelpCircle, type LucideIcon } from 'lucide-react'
 import { Suspense } from 'react'
 import dynamicImport from 'next/dynamic'
 import { createServiceClient } from '@/lib/supabase'
 import type { ParkSummary, TerritoryCode } from '@/types'
 import NextExpirations from '@/components/dashboard/NextExpirations'
 import Link from 'next/link'
-import { parseContratParam, parseAutreTypesParam, buildContratOrFilter } from '@/lib/contract-groups'
+import { parseContratParam, parseAutreTypesParam, buildContratOrFilter, buildContratSqlParams, type ContratSqlParams } from '@/lib/contract-groups'
 import TerritoryFilterBar from '@/components/dashboard/TerritoryFilterBar'
+import { Card, EmptyState, LinkButton, Notice, PageContainer, PageHeader } from '@/components/ui/primitives'
 import { createSessionClient } from '@/lib/supabase-server'
+import { getSessionUser } from '@/lib/auth/session'
 
 const StatusDonut = dynamicImport(() => import('@/components/dashboard/StatusDonut'), { ssr: false })
 const TerritoryBars = dynamicImport(() => import('@/components/dashboard/TerritoryBars'), { ssr: false })
@@ -22,87 +24,88 @@ interface MonthlyRow {
   depannage: number
 }
 
-// Requête count HEAD — ne retourne que le comptage, pas de lignes → pas de limite max_rows
-function countQ(
-  supabase: ReturnType<typeof createServiceClient>,
-  status?: string,
-  territoryId?: string,
-  contratFilter?: string | null,
-  clientOrFilter?: string | null,
-  actif?: string
-) {
-  let q = supabase
-    .from('defibrillators')
-    .select('*', { count: 'exact', head: true })
-  if (!actif || actif === 'actif') q = q.eq('active', true)
-  else if (actif === 'inactif')    q = q.eq('active', false)
-  // 'tous' → pas de filtre active
-  if (status)          q = q.eq('status', status)
-  if (territoryId)     q = q.eq('territory_id', territoryId)
-  if (contratFilter)   q = q.or(contratFilter)
-  if (clientOrFilter)  q = q.or(clientOrFilter)
-  return q
+// ─── Collecte des données ────────────────────────────────────────────────────
+// Une seule vague de requêtes parallèles (deux quand un client est filtré, le
+// temps de connaître ses sites). Les comptages par statut et par territoire
+// viennent d'une fonction SQL agrégée (get_dashboard_status_counts) au lieu
+// d'une vingtaine de requêtes de comptage, et les interventions mensuelles sont
+// agrégées en SQL (get_dashboard_interventions_monthly) au lieu d'être
+// paginées puis regroupées ici. Chaque aller-retour vers Supabase coûtant
+// 250 à 400 ms depuis les territoires, c'est le nombre d'étapes qui compte.
+// Migration requise : supabase/migrations/20260928000013_dashboard_aggregates.sql
+
+type StatusKey = 'conforme' | 'vigilance' | 'critique' | 'inconnu'
+const STATUSES: readonly StatusKey[] = ['conforme', 'vigilance', 'critique', 'inconnu']
+const CODES = ['REU', 'MYT', 'GLP'] as const
+
+type StatusCountRow = { territory_code: string | null; dae_status: string | null; dae_count: number }
+type MonthlyRpcRow  = { month: string; total: number; maintenance: number; depannage: number }
+type ExpRow = {
+  id: string
+  serial_number: string | null
+  model: string | null
+  status_reason: string | null
+  battery_expiry: string | null
+  electrodes_adult_expiry: string | null
+  electrodes_pediatric_expiry: string | null
+  next_maintenance_date: string | null
+  clients: { name: string } | null
+  territories: { code: string } | null
 }
 
-async function getDashboardData(contratFilter: string | null, clientId: string | null, territoryCode: string | null, actif: string): Promise<{
-  summary: ParkSummary | null
-  monthly: MonthlyRow[]
-}> {
+function emptyCounts() {
+  return { total: 0, conforme: 0, vigilance: 0, critique: 0, inconnu: 0 }
+}
+
+// Filtre « actif » de l'URL → paramètre booléen de la fonction SQL (null = tous)
+function activeParam(actif: string): boolean | null {
+  if (!actif || actif === 'actif') return true
+  if (actif === 'inactif') return false
+  return null
+}
+
+async function getDashboardData(
+  contratSql: ContratSqlParams | null,
+  contratFilter: string | null,
+  clientId: string | null,
+  territoryCode: string | null,
+  actif: string
+): Promise<{ summary: ParkSummary | null; monthly: MonthlyRow[]; clientName: string | null; error: string | null }> {
   try {
     const supabase = createServiceClient()
+    const active = activeParam(actif)
 
-    const twelveMonthsAgo = new Date()
-    twelveMonthsAgo.setFullYear(twelveMonthsAgo.getFullYear() - 1)
-    const dateFrom = twelveMonthsAgo.toISOString().split('T')[0]
-
-    // Résolution du territoire sélectionné en UUID
-    let selectedTerritoryId: string | undefined
-    if (territoryCode) {
-      const { data: tRow } = await supabase.from('territories').select('id').eq('code', territoryCode).maybeSingle()
-      selectedTerritoryId = tRow?.id
+    // Prochaines échéances (5 lignes). Le filtre territoire passe par la jointure
+    // (territories!inner) : plus besoin de résoudre l'UUID du territoire avant.
+    const buildExpQ = (siteIds: string[]) => {
+      let q = supabase
+        .from('defibrillators')
+        .select(`id, serial_number, model, status_reason, battery_expiry, electrodes_adult_expiry, electrodes_pediatric_expiry, next_maintenance_date, clients(name), territories${territoryCode ? '!inner' : ''}(code)`)
+        .in('status', ['critique', 'vigilance'])
+        .order('status', { ascending: false })
+        .order('battery_expiry', { ascending: true, nullsFirst: false })
+        .limit(5)
+      if (active !== null) q = q.eq('active', active)
+      if (territoryCode)   q = q.eq('territories.code', territoryCode)
+      if (contratFilter)   q = q.or(contratFilter)
+      if (clientId) {
+        const parts = [`client_id.eq.${clientId}`]
+        if (siteIds.length > 0) parts.push(`site_id.in.(${siteIds.join(',')})`)
+        q = q.or(parts.join(','))
+      }
+      return q
     }
 
-    // Filtre client : OR sur client_id direct OU site_id (héritage via le site)
-    let clientOrFilter: string | null = null
-    if (clientId) {
-      const { data: cs } = await supabase.from('sites').select('id').eq('client_id', clientId).limit(100)
-      const siteIds = (cs ?? []).map((s: { id: string }) => s.id)
-      const parts = [`client_id.eq.${clientId}`]
-      if (siteIds.length > 0) parts.push(`site_id.in.(${siteIds.join(',')})`)
-      clientOrFilter = parts.join(',')
-    }
-
-    // ── Passe 1 : données indépendantes des IDs de territoire ────────────────
-    // Les interventions sont paginées séparément pour contourner max_rows=1000
-    let expQ = supabase
-      .from('defibrillators')
-      .select('id, serial_number, model, status_reason, battery_expiry, electrodes_adult_expiry, electrodes_pediatric_expiry, next_maintenance_date, clients(name), territories(code)')
-      .in('status', ['critique', 'vigilance'])
-      .order('status', { ascending: false })
-      .order('battery_expiry', { ascending: true, nullsFirst: false })
-      .limit(5)
-    if (!actif || actif === 'actif') expQ = expQ.eq('active', true)
-    else if (actif === 'inactif')   expQ = expQ.eq('active', false)
-    if (selectedTerritoryId) expQ = expQ.eq('territory_id', selectedTerritoryId)
-    if (contratFilter)  expQ = expQ.or(contratFilter)
-    if (clientOrFilter) expQ = expQ.or(clientOrFilter)
-
-    const [
-      { count: total },
-      { count: conforme },
-      { count: vigilance },
-      { count: critique },
-      { count: inconnu },
-      territoriesRes,
-      lastSyncRes,
-      expirationsRes,
-    ] = await Promise.all([
-      countQ(supabase, undefined,   selectedTerritoryId, contratFilter, clientOrFilter, actif),
-      countQ(supabase, 'conforme',  selectedTerritoryId, contratFilter, clientOrFilter, actif),
-      countQ(supabase, 'vigilance', selectedTerritoryId, contratFilter, clientOrFilter, actif),
-      countQ(supabase, 'critique',  selectedTerritoryId, contratFilter, clientOrFilter, actif),
-      countQ(supabase, 'inconnu',   selectedTerritoryId, contratFilter, clientOrFilter, actif),
-      supabase.from('territories').select('id, code'),
+    // ── Vague 1 : tout ce qui ne dépend pas des sites du client ─────────────
+    const [countsRes, monthlyRes, lastSyncRes, clientRes, sitesRes, expDirectRes] = await Promise.all([
+      supabase.rpc('get_dashboard_status_counts', {
+        p_active:          active,
+        p_client_id:       clientId,
+        p_contract_in:     contratSql?.contract_in ?? null,
+        p_contract_not_in: contratSql?.contract_not_in ?? null,
+        p_contract_null:   contratSql?.contract_null ?? false,
+      }),
+      supabase.rpc('get_dashboard_interventions_monthly', { p_months: 12, p_client_id: clientId }),
       supabase
         .from('sync_logs')
         .select('finished_at')
@@ -111,75 +114,42 @@ async function getDashboardData(contratFilter: string | null, clientId: string |
         .order('finished_at', { ascending: false })
         .limit(1)
         .maybeSingle(),
-      expQ,
+      clientId ? supabase.from('clients').select('name').eq('id', clientId).maybeSingle() : null,
+      clientId ? supabase.from('sites').select('id').eq('client_id', clientId).limit(100) : null,
+      clientId ? null : buildExpQ([]),
     ])
+    if (countsRes.error)  throw new Error(`get_dashboard_status_counts : ${countsRes.error.message}`)
+    if (monthlyRes.error) throw new Error(`get_dashboard_interventions_monthly : ${monthlyRes.error.message}`)
 
-    // Pagination des interventions pour contourner max_rows=1000
-    type IntRow = { type: string | null; completed_date: string }
-    const allInterventions: IntRow[] = []
-    {
-      const PAGE = 1000
-      let page = 0
-      while (true) {
-        let intQ = supabase
-          .from('interventions')
-          .select('type, completed_date')
-          .not('completed_date', 'is', null)
-          .gte('completed_date', dateFrom)
-          .order('completed_date', { ascending: true })
-          .range(page * PAGE, (page + 1) * PAGE - 1)
-        // interventions.client_id suit la même logique que defibrillators
-        if (clientOrFilter) intQ = intQ.or(clientOrFilter)
-        const { data, error: err } = await intQ
-        if (err || !data?.length) break
-        allInterventions.push(...(data as IntRow[]))
-        if (data.length < PAGE) break
-        page++
+    // ── Vague 2 (client filtré seulement) : échéances restreintes à ses sites ─
+    const expirationsRes = expDirectRes ?? await buildExpQ(
+      ((sitesRes?.data ?? []) as Array<{ id: string }>).map((s) => s.id)
+    )
+
+    // ── Comptages : KPI globaux + répartition par territoire ─────────────────
+    const by_territory = Object.fromEntries(
+      CODES.map((c) => [c, emptyCounts()])
+    ) as ParkSummary['by_territory']
+    const global = emptyCounts()
+
+    for (const r of (countsRes.data ?? []) as StatusCountRow[]) {
+      const n = Number(r.dae_count)
+      const code = r.territory_code as TerritoryCode | null
+      const st = r.dae_status
+      const isStatus = st !== null && (STATUSES as readonly string[]).includes(st)
+      // KPI globaux : territoire sélectionné uniquement s'il est filtré
+      if (!territoryCode || code === territoryCode) {
+        global.total += n
+        if (isStatus) global[st as StatusKey] += n
+      }
+      // Répartition : toujours les trois territoires
+      if (code && code in by_territory) {
+        by_territory[code].total += n
+        if (isStatus) by_territory[code][st as StatusKey] += n
       }
     }
 
-    const territories = (territoriesRes.data ?? []) as Array<{ id: string; code: string }>
-
-    // ── Passe 2 : counts par territoire (IDs maintenant connus) ──────────────
-    const STATUSES = ['conforme', 'vigilance', 'critique', 'inconnu'] as const
-    const CODES    = ['REU', 'MYT', 'GLP'] as const
-
-    const terrCountResults = await Promise.all(
-      territories.flatMap((t) => [
-        countQ(supabase, undefined, t.id, contratFilter, clientOrFilter),
-        ...STATUSES.map((s) => countQ(supabase, s, t.id, contratFilter, clientOrFilter)),
-      ])
-    )
-
-    // Reconstruction by_territory depuis les résultats
-    const by_territory = Object.fromEntries(
-      CODES.map((c) => [c, { total: 0, conforme: 0, vigilance: 0, critique: 0, inconnu: 0 }])
-    ) as ParkSummary['by_territory']
-
-    territories.forEach((t, ti) => {
-      const code = t.code as TerritoryCode
-      if (!(code in by_territory)) return
-      const base = ti * (STATUSES.length + 1)
-      by_territory[code].total     = terrCountResults[base].count     ?? 0
-      by_territory[code].conforme  = terrCountResults[base + 1].count ?? 0
-      by_territory[code].vigilance = terrCountResults[base + 2].count ?? 0
-      by_territory[code].critique  = terrCountResults[base + 3].count ?? 0
-      by_territory[code].inconnu   = terrCountResults[base + 4].count ?? 0
-    })
-
-    // ── Prochaines échéances ──────────────────────────────────────────────────
-    type ExpRow = {
-      id: string
-      serial_number: string | null
-      model: string | null
-      status_reason: string | null
-      battery_expiry: string | null
-      electrodes_adult_expiry: string | null
-      electrodes_pediatric_expiry: string | null
-      next_maintenance_date: string | null
-      clients: { name: string } | null
-      territories: { code: string } | null
-    }
+    // ── Prochaines échéances ─────────────────────────────────────────────────
     const next_expirations = ((expirationsRes.data ?? []) as unknown as ExpRow[]).map((d) => {
       const dates = [d.battery_expiry, d.electrodes_adult_expiry, d.electrodes_pediatric_expiry, d.next_maintenance_date]
         .filter((x): x is string => !!x)
@@ -195,34 +165,36 @@ async function getDashboardData(contratFilter: string | null, clientId: string |
       }
     })
 
-    // ── Interventions mensuelles groupées en JS ───────────────────────────────
-    const monthlyMap = new Map<string, MonthlyRow>()
-    for (const iv of allInterventions) {
-      if (!iv.completed_date) continue
-      const month = iv.completed_date.slice(0, 7)
-      if (!monthlyMap.has(month)) monthlyMap.set(month, { month, total: 0, maintenance: 0, depannage: 0 })
-      const row = monthlyMap.get(month)!
-      row.total++
-      if (iv.type === 'maintenance') row.maintenance++
-      if (iv.type === 'depannage') row.depannage++
-    }
-    const monthly = Array.from(monthlyMap.values()).sort((a, b) => a.month.localeCompare(b.month))
+    // ── Interventions mensuelles (agrégées en SQL) ───────────────────────────
+    const monthly: MonthlyRow[] = ((monthlyRes.data ?? []) as MonthlyRpcRow[]).map((r) => ({
+      month:       r.month,
+      total:       Number(r.total),
+      maintenance: Number(r.maintenance),
+      depannage:   Number(r.depannage),
+    }))
 
     const summary: ParkSummary = {
-      total:     total     ?? 0,
-      conforme:  conforme  ?? 0,
-      vigilance: vigilance ?? 0,
-      critique:  critique  ?? 0,
-      inconnu:   inconnu   ?? 0,
+      ...global,
       by_territory,
       next_expirations,
       last_sync: lastSyncRes.data?.finished_at ?? null,
     }
 
-    return { summary, monthly }
+    const clientName = (clientRes?.data as { name: string } | null)?.name ?? null
+    return { summary, monthly, clientName, error: null }
   } catch (err) {
     console.error('getDashboardData:', err)
-    return { summary: null, monthly: [] }
+    return { summary: null, monthly: [], clientName: null, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+// Rôle de l'utilisateur connecté, lu dans le jeton vérifié localement (aucun appel réseau)
+async function getUserRole(): Promise<string> {
+  try {
+    const user = await getSessionUser(await createSessionClient())
+    return user?.role ?? 'direction'
+  } catch {
+    return 'direction' // non authentifié → rôle par défaut
   }
 }
 
@@ -231,72 +203,82 @@ function pct(n: number, total: number) {
   return `${Math.round((n / total) * 100)} %`
 }
 
+// ─── Tuile indicateur ─────────────────────────────────────────────────────────
+
+type Accent = 'brand' | 'success' | 'warning' | 'danger' | 'neutral'
+
+// La couleur d'identité vit dans la tuile d'icône ; la valeur reste en encre,
+// sauf quand elle signale un état (vigilance, critique).
+const ACCENT_TILE: Record<Accent, string> = {
+  brand:   'bg-brand-soft text-brand',
+  success: 'bg-success-soft text-success',
+  warning: 'bg-warning-soft text-warning',
+  danger:  'bg-danger-soft text-danger',
+  neutral: 'bg-surface-sunken text-fg-muted',
+}
+
+const ACCENT_VALUE: Record<Accent, string> = {
+  brand:   'text-fg',
+  success: 'text-fg',
+  warning: 'text-warning',
+  danger:  'text-danger',
+  neutral: 'text-fg-secondary',
+}
+
 interface KPICardProps {
   label: string
   value: string | number
   sub?: string
-  accent: 'blue' | 'emerald' | 'amber' | 'red' | 'slate'
-  icon: ReactNode
+  accent: Accent
+  icon: LucideIcon
+  /** Cible au clic (liste filtrée correspondante) */
+  href?: string
 }
 
-function KPICard({ label, value, sub, accent, icon }: KPICardProps) {
-  const ACCENT = {
-    blue:    'bg-blue-50 text-blue-600 ring-blue-100',
-    emerald: 'bg-emerald-50 text-emerald-600 ring-emerald-100',
-    amber:   'bg-amber-50 text-amber-600 ring-amber-100',
-    red:     'bg-red-50 text-red-600 ring-red-100',
-    slate:   'bg-slate-100 text-slate-500 ring-slate-200',
-  }
-  const VALUE_COLOR = {
-    blue: 'text-slate-800', emerald: 'text-emerald-700',
-    amber: 'text-amber-700', red: 'text-red-700', slate: 'text-slate-600',
-  }
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">{label}</p>
-          <p className={`text-3xl font-bold mt-1.5 leading-none ${VALUE_COLOR[accent]}`}>
-            {typeof value === 'number' ? value.toLocaleString('fr-FR') : value}
-          </p>
-          {sub && <p className="text-xs text-slate-400 mt-1.5">{sub}</p>}
-        </div>
-        <div className={`p-2.5 rounded-lg ring-1 ${ACCENT[accent]}`}>
-          {icon}
-        </div>
+function KPICard({ label, value, sub, accent, icon: Icon, href }: KPICardProps) {
+  const body = (
+    <>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-label font-bold uppercase tracking-wide text-fg-muted">{label}</p>
+        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-control ${ACCENT_TILE[accent]}`}>
+          <Icon className="h-4 w-4" />
+        </span>
       </div>
-    </div>
+      <p className={`mt-3 text-2xl font-extrabold leading-none tracking-tight tabular-nums ${ACCENT_VALUE[accent]}`}>
+        {typeof value === 'number' ? value.toLocaleString('fr-FR') : value}
+      </p>
+      {sub && <p className="mt-1.5 truncate text-caption text-fg-muted">{sub}</p>}
+    </>
+  )
+  const base = 'block rounded-card border border-border bg-surface p-4 shadow-card'
+  if (!href) return <div className={base}>{body}</div>
+  return (
+    <Link href={href} className={`${base} transition-colors hover:border-border-strong`}>
+      {body}
+    </Link>
   )
 }
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function DashboardPage({
   searchParams,
 }: {
   searchParams?: { contrat?: string; autreTypes?: string; client?: string; territoire?: string; actif?: string; [key: string]: string | undefined }
 }) {
-  const contratFilter = buildContratOrFilter(
-    parseContratParam(searchParams?.contrat),
-    parseAutreTypesParam(searchParams?.autreTypes),
-  )
-  const clientId = searchParams?.client ?? null
-  const territoryCode = searchParams?.territoire ?? null
-  const actif = searchParams?.actif ?? 'actif'
-  const { summary, monthly } = await getDashboardData(contratFilter, clientId, territoryCode, actif)
+  const contratGroups  = parseContratParam(searchParams?.contrat)
+  const autreTypesSel  = parseAutreTypesParam(searchParams?.autreTypes)
+  const contratFilter  = buildContratOrFilter(contratGroups, autreTypesSel)
+  const contratSql     = buildContratSqlParams(contratGroups, autreTypesSel)
+  const clientId       = searchParams?.client ?? null
+  const territoryCode  = searchParams?.territoire ?? null
+  const actif          = searchParams?.actif ?? 'actif'
 
-  let selectedClientName: string | null = null
-  if (clientId) {
-    const supabase = createServiceClient()
-    const { data: cl } = await supabase.from('clients').select('name').eq('id', clientId).maybeSingle()
-    selectedClientName = cl?.name ?? null
-  }
-
-  // Rôle utilisateur — pour afficher le bandeau inconnu aux admins/maintenance uniquement
-  let userRole: string = 'direction'
-  try {
-    const sessionClient = await createSessionClient()
-    const { data: { user } } = await sessionClient.auth.getUser()
-    userRole = (user?.user_metadata?.role as string | undefined) ?? 'direction'
-  } catch { /* non authentifié → rôle par défaut */ }
+  // Données et rôle utilisateur en parallèle : plus d'appels en série au niveau de la page
+  const [{ summary, monthly, clientName: selectedClientName, error: dataError }, userRole] = await Promise.all([
+    getDashboardData(contratSql, contratFilter, clientId, territoryCode, actif),
+    getUserRole(),
+  ])
 
   const total     = summary?.total     ?? 0
   const conforme  = summary?.conforme  ?? 0
@@ -304,142 +286,104 @@ export default async function DashboardPage({
   const critique  = summary?.critique  ?? 0
   const inconnu   = summary?.inconnu   ?? 0
 
-  return (
-    <div className="p-6 lg:p-8 max-w-screen-xl mx-auto">
-      {/* En-tête */}
-      <div className="mb-8 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Tableau de bord</h1>
-          {selectedClientName && (
-            <p className="text-sm font-medium text-blue-700 mt-0.5">{selectedClientName}</p>
-          )}
-          <p className="text-sm text-slate-500 mt-0.5">
-            Vue d&apos;ensemble du parc DAE STAR aid — données temps réel
-          </p>
-        </div>
-        <Suspense>
-          <TerritoryFilterBar />
-        </Suspense>
-      </div>
+  // Les liens des tuiles conservent le contexte d'équipements actifs / inactifs
+  const actifParam = actif !== 'actif' ? `&actif=${actif}` : ''
+  const scopeLabel = actif === 'inactif' ? 'équipements inactifs' : actif === 'tous' ? 'tous les équipements' : 'équipements actifs'
+  const nbExpirations = summary?.next_expirations?.length ?? 0
 
-      {/* KPI cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+  return (
+    <PageContainer>
+      <PageHeader
+        title="Tableau de bord"
+        subtitle={
+          selectedClientName
+            ? <>Client : <span className="font-medium text-fg-secondary">{selectedClientName}</span></>
+            : 'Vue d’ensemble du parc DAE, données de la dernière synchronisation'
+        }
+        actions={
+          <Suspense>
+            <TerritoryFilterBar />
+          </Suspense>
+        }
+      />
+
+      {dataError && (
+        <Notice tone="danger" className="mb-4">
+          Données indisponibles : {dataError}. Si le message évoque une fonction introuvable, appliquer la migration
+          {' '}<code className="font-mono">20260928000013_dashboard_aggregates.sql</code> (npm run db:push).
+        </Notice>
+      )}
+
+      {/* Indicateurs */}
+      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <KPICard
           label="Total DAE"
           value={total || '—'}
-          sub="équipements actifs"
-          accent="blue"
-          icon={
-            <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
-            </svg>
-          }
+          sub={scopeLabel}
+          accent="brand"
+          href={actif !== 'actif' ? `/parc?actif=${actif}` : '/parc'}
+          icon={HeartPulse}
         />
         <KPICard
           label="Conformes"
           value={conforme || '—'}
           sub={total ? `${pct(conforme, total)} du parc` : undefined}
-          accent="emerald"
-          icon={
-            <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
-            </svg>
-          }
+          accent="success"
+          href={`/parc?statut=conforme${actifParam}`}
+          icon={CheckCircle2}
         />
         <KPICard
           label="Vigilance"
           value={vigilance || '—'}
-          sub={vigilance > 0 ? 'échéance < 30 jours' : 'aucune alerte'}
-          accent="amber"
-          icon={
-            <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-              <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-            </svg>
-          }
+          sub={vigilance > 0 ? 'échéance sous 30 jours' : 'aucune échéance proche'}
+          accent="warning"
+          href={`/parc?statut=vigilance${actifParam}`}
+          icon={AlertTriangle}
         />
         <KPICard
           label="Critiques"
           value={critique || '—'}
-          sub={critique > 0 ? 'intervention urgente' : 'aucun critique'}
-          accent={critique > 0 ? 'red' : 'slate'}
-          icon={
-            <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <circle cx="12" cy="12" r="10"/>
-              <line x1="12" y1="8" x2="12" y2="12"/>
-              <line x1="12" y1="16" x2="12.01" y2="16"/>
-            </svg>
-          }
+          sub={critique > 0 ? 'intervention urgente' : 'aucun DAE critique'}
+          accent={critique > 0 ? 'danger' : 'neutral'}
+          href="/alertes"
+          icon={AlertCircle}
         />
       </div>
 
-      {/* Graphiques — ligne 1 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
-          <h2 className="text-sm font-semibold text-slate-700 mb-4">Répartition des statuts</h2>
+      {/* Graphiques */}
+      <div className="mb-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <Card title="Répartition des statuts">
           {total > 0 ? (
-            <StatusDonut
-              conforme={conforme}
-              vigilance={vigilance}
-              critique={critique}
-              inconnu={inconnu}
-              total={total}
-            />
+            <StatusDonut conforme={conforme} vigilance={vigilance} critique={critique} inconnu={inconnu} total={total} />
           ) : (
-            <div className="h-56 flex items-center justify-center text-sm text-slate-400">
-              Aucune donnée
-            </div>
+            <EmptyState compact className="h-44">Aucune donnée</EmptyState>
           )}
-        </div>
-
-        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
-          <h2 className="text-sm font-semibold text-slate-700 mb-4">DAE par territoire</h2>
+        </Card>
+        <Card title="DAE par territoire et statut">
           <TerritoryBars byTerritory={summary?.by_territory ?? {}} />
-        </div>
+        </Card>
       </div>
 
-      {/* Graphiques — ligne 2 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
-          <h2 className="text-sm font-semibold text-slate-700 mb-4">
-            Interventions — 12 mois glissants
-          </h2>
+      <div className="mb-4 grid grid-cols-1 gap-4 xl:grid-cols-5">
+        <Card title="Interventions réalisées, 12 mois glissants" className="xl:col-span-2">
           <InterventionsLine data={monthly} />
-        </div>
-
-        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold text-slate-700">Prochaines échéances urgentes</h2>
-            {(summary?.next_expirations?.length ?? 0) > 0 && (
-              <a href="/alertes" className="text-xs text-blue-600 hover:underline">
-                Voir tout →
-              </a>
-            )}
-          </div>
+        </Card>
+        <Card
+          title="Prochaines échéances urgentes"
+          className="xl:col-span-3"
+          actions={nbExpirations > 0 ? <LinkButton href="/alertes" variant="ghost" size="sm">Toutes les alertes</LinkButton> : undefined}
+        >
           <NextExpirations items={summary?.next_expirations ?? []} />
-        </div>
+        </Card>
       </div>
 
-      {/* Bandeau données inconnu — visible admins et maintenance uniquement */}
+      {/* Données incomplètes — visible admins et maintenance uniquement */}
       {inconnu > 0 && (userRole === 'administrateur' || userRole === 'maintenance') && (
-        <div className="rounded-lg border border-slate-200 bg-slate-50 px-5 py-3 flex items-center gap-3 text-sm text-slate-600">
-          <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0 text-slate-400" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="12" cy="12" r="10"/>
-            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
-            <line x1="12" y1="17" x2="12.01" y2="17"/>
-          </svg>
-          <span className="flex-1">
-            <strong>{inconnu.toLocaleString('fr-FR')} DAE</strong> ont un statut inconnu — données
-            insuffisantes (batterie, électrodes ou maintenance non renseignées dans Synchroteam).
-          </span>
-          <Link
-            href="/alertes?statut=inconnu"
-            className="shrink-0 text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-3 py-1.5 hover:bg-slate-100 transition-colors whitespace-nowrap"
-          >
-            Voir la liste →
-          </Link>
-        </div>
+        <Notice tone="neutral" icon={HelpCircle} actions={<LinkButton href="/alertes?statut=inconnu" variant="secondary" size="xs">Voir la liste</LinkButton>}>
+          <strong className="font-semibold text-fg tabular-nums">{inconnu.toLocaleString('fr-FR')} DAE</strong> ont un statut
+          inconnu : batterie, électrodes ou maintenance non renseignées dans Synchroteam.
+        </Notice>
       )}
-    </div>
+    </PageContainer>
   )
 }

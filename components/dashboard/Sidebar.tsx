@@ -1,130 +1,149 @@
 'use client'
-import { useState, useRef, useCallback } from 'react'
+// Panneau de navigation sombre (encre froide), à part du contenu clair : le
+// contraste header rouge / navigation sombre / contenu clair structure l'écran.
+// Déployé en permanence sur grand écran, tiroir coulissant sur mobile.
+import { useEffect, useState, useRef, useCallback, useTransition } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { getSupabaseBrowserClient, type UserRole } from '@/lib/supabase'
+import {
+  Bell, BookOpen, ClipboardCheck, HeartPulse, LayoutDashboard, Loader2, RefreshCw, Settings2, Sparkles, X, type LucideIcon,
+} from 'lucide-react'
+import type { UserRole } from '@/lib/supabase'
+import { IconButton, cx } from '@/components/ui/primitives'
 
 interface SidebarProps {
   critiqueCount: number
+  /** Anomalies Géo'DAE ouvertes (badge de l'entrée Contrôle Géo'DAE) */
+  geodaeAnomalyCount?: number
   lastSync: string | null
   userRole: UserRole
-  userName: string
-  userEmail: string
+  /** Tiroir ouvert (mobile) */
+  open: boolean
+  onClose: () => void
+}
+
+type BadgeKind = 'critique' | 'geodae'
+
+interface NavItem {
+  href: string
+  label: string
+  icon: LucideIcon
+  roles: UserRole[]
+  badge?: BadgeKind
 }
 
 // Matrice de visibilité par rôle
-const NAV_ITEMS = [
-  {
-    href: '/dashboard',
-    label: 'Tableau de bord',
-    roles: ['administrateur', 'maintenance', 'direction'] as UserRole[],
-    icon: (
-      <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-        <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
-        <rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>
-      </svg>
-    ),
-  },
-  {
-    href: '/parc',
-    label: 'Parc DAE',
-    roles: ['administrateur', 'maintenance', 'direction'] as UserRole[],
-    icon: (
-      <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-        <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
-      </svg>
-    ),
-  },
-  {
-    href: '/alertes',
-    label: 'Alertes',
-    badge: true,
-    roles: ['administrateur', 'maintenance'] as UserRole[],
-    icon: (
-      <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-      </svg>
-    ),
-  },
-  {
-    href: '/analyse',
-    label: 'Analyse IA',
-    roles: ['administrateur'] as UserRole[],
-    icon: (
-      <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-        <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 1 1 7.072 0l-.548.547A3.374 3.374 0 0 0 14 18.469V19a2 2 0 1 1-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
-      </svg>
-    ),
-  },
+const NAV_ITEMS: NavItem[] = [
+  { href: '/dashboard', label: 'Tableau de bord',   icon: LayoutDashboard, roles: ['administrateur', 'maintenance', 'direction'] },
+  { href: '/parc',      label: 'Parc DAE',          icon: HeartPulse,      roles: ['administrateur', 'maintenance', 'direction'] },
+  { href: '/alertes',   label: 'Alertes',           icon: Bell,            roles: ['administrateur', 'maintenance'], badge: 'critique' },
+  { href: '/geodae',    label: "Contrôle Géo'DAE",  icon: ClipboardCheck,  roles: ['administrateur', 'maintenance'], badge: 'geodae' },
+  { href: '/analyse',   label: 'Analyse IA',        icon: Sparkles,        roles: ['administrateur'] },
 ]
 
-const ROLE_LABELS: Record<UserRole, string> = {
-  administrateur: 'Administrateur',
-  maintenance:    'Gestionnaire de maintenance',
-  direction:      'Utilisateur (consultation du parc)',
-}
-
-function SyncIcon({ spinning }: { spinning: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className={`w-3.5 h-3.5 shrink-0 ${spinning ? 'animate-spin' : ''}`}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-    >
-      <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
-      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-    </svg>
-  )
-}
-
-function HamburgerIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-      <path d="M3 6h18M3 12h18M3 18h18"/>
-    </svg>
-  )
-}
+const CONFIG_ITEMS: NavItem[] = [
+  { href: '/admin/field-mapping', label: 'Mapping des champs',  icon: Settings2, roles: ['administrateur'] },
+  { href: '/regles',              label: 'Règles du dashboard', icon: BookOpen,  roles: ['administrateur', 'maintenance', 'direction'] },
+]
 
 const TERRITORIES = [
-  { key: 'reu', label: 'Réunion',     route: '/api/sync/reu' },
-  { key: 'myt', label: 'Mayotte',     route: '/api/sync/myt' },
-  { key: 'glp', label: 'Guadeloupe',  route: '/api/sync/glp' },
+  { key: 'reu', label: 'Réunion',    route: '/api/sync/reu' },
+  { key: 'myt', label: 'Mayotte',    route: '/api/sync/myt' },
+  { key: 'glp', label: 'Guadeloupe', route: '/api/sync/glp' },
 ] as const
 
 type TerritoryKey = typeof TERRITORIES[number]['key']
 type TerritoryStatus = 'pending' | 'running' | 'success' | 'error'
-
 type PollStatus = { status: string; records_synced: number; finished_at: string | null } | null
 
-export default function Sidebar({ critiqueCount, lastSync, userRole, userName }: SidebarProps) {
+const STATUS_CLASS: Record<TerritoryStatus, string> = {
+  running: 'text-sidebar-fg-muted',
+  success: 'text-success',
+  error:   'text-danger',
+  pending: 'text-sidebar-fg-faint',
+}
+
+// ─── Entrée de navigation ────────────────────────────────────────────────────
+
+function NavRow({ item, active, pending, count, onClick }: {
+  item: NavItem
+  active: boolean
+  pending: boolean
+  count: number
+  onClick: (e: React.MouseEvent<HTMLAnchorElement>) => void
+}) {
+  const Icon = item.icon
+  return (
+    <Link
+      href={item.href}
+      onClick={onClick}
+      aria-current={active ? 'page' : undefined}
+      className={cx(
+        'flex items-center gap-3 rounded-control px-3 py-2 text-body font-semibold transition-colors',
+        active ? 'bg-sidebar-active text-sidebar-fg' : 'text-sidebar-fg-muted hover:bg-sidebar-raised hover:text-sidebar-fg'
+      )}
+    >
+      <span className="shrink-0">
+        {pending ? <Loader2 className="h-[18px] w-[18px] animate-spin" /> : <Icon className="h-[18px] w-[18px]" />}
+      </span>
+      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+      {count > 0 && (
+        <span
+          className={cx(
+            'flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full px-1.5 text-2xs font-bold leading-none text-white tabular-nums',
+            item.badge === 'geodae' ? 'bg-warning' : 'bg-danger'
+          )}
+        >
+          {count > 999 ? '999+' : count}
+        </span>
+      )}
+    </Link>
+  )
+}
+
+export default function Sidebar({ critiqueCount, geodaeAnomalyCount = 0, lastSync, userRole, open, onClose }: SidebarProps) {
+  const badgeCount = (badge?: BadgeKind) => (badge === 'critique' ? critiqueCount : badge === 'geodae' ? geodaeAnomalyCount : 0)
   const pathname = usePathname()
   const router   = useRouter()
-  const [open, setOpen]   = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [territoryStatus, setTerritoryStatus] = useState<Record<TerritoryKey, TerritoryStatus> | null>(null)
-  const [currentStep, setCurrentStep] = useState<number>(0)
   const [doneMsg, setDoneMsg] = useState<string | null>(null)
-  const pollingRef = useRef(false)
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pollingRef   = useRef(false)
+  const pollRef      = useRef<ReturnType<typeof setInterval> | null>(null)
   const pollStartRef = useRef<number>(0)
 
   const formatSync = lastSync
     ? new Date(lastSync).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })
     : null
 
-  const visibleNav = NAV_ITEMS.filter((item) => item.roles.includes(userRole))
+  const visibleNav    = NAV_ITEMS.filter((item) => item.roles.includes(userRole))
+  const visibleConfig = CONFIG_ITEMS.filter((item) => item.roles.includes(userRole))
+  const canSync = userRole === 'administrateur' || userRole === 'maintenance'
 
-  async function handleLogout() {
-    const supabase = getSupabaseBrowserClient()
-    await supabase.auth.signOut()
-    router.push('/login')
-    router.refresh()
+  // ── Navigation optimiste ─────────────────────────────────────────────────
+  // Au clic, l'entrée visée passe active immédiatement et affiche un indicateur
+  // jusqu'à ce que la nouvelle page commence à s'afficher (son squelette
+  // loading.tsx suffit).
+  const [pendingHref, setPendingHref] = useState<string | null>(null)
+  const [, startTransition] = useTransition()
+
+  useEffect(() => { setPendingHref(null) }, [pathname])
+
+  const isActive = (href: string) => pendingHref === href || (pendingHref === null && pathname.startsWith(href))
+
+  function navigateTo(href: string) {
+    return (e: React.MouseEvent<HTMLAnchorElement>) => {
+      // Laisser le navigateur gérer les ouvertures dans un nouvel onglet
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return
+      e.preventDefault()
+      onClose()
+      if (pathname === href) return
+      setPendingHref(href)
+      startTransition(() => router.push(href))
+    }
   }
 
+  // ── Synchronisation Synchroteam ──────────────────────────────────────────
   const stopPolling = useCallback(() => {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
     pollingRef.current = false
@@ -136,7 +155,6 @@ export default function Sidebar({ critiqueCount, lastSync, userRole, userName }:
     pollRef.current = setInterval(async () => {
       // Arrêt après 5 min
       if (Date.now() - pollStartRef.current > 5 * 60 * 1000) { stopPolling(); return }
-
       try {
         const res = await fetch('/api/sync/status?territories=1')
         const data = await res.json() as Record<string, PollStatus>
@@ -151,12 +169,11 @@ export default function Sidebar({ critiqueCount, lastSync, userRole, userName }:
         setTerritoryStatus({ ...map })
         if (allDone) {
           stopPolling()
-          const allOk = Object.values(map).every(s => s === 'success')
-          const anyOk = Object.values(map).some(s => s === 'success')
+          const allOk = Object.values(map).every((s) => s === 'success')
+          const anyOk = Object.values(map).some((s) => s === 'success')
           const now = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
           setDoneMsg(allOk ? `Terminée à ${now}` : anyOk ? `Terminée avec erreurs à ${now}` : `Échec à ${now}`)
           setSyncing(false)
-          setCurrentStep(0)
           if (anyOk) setTimeout(() => router.refresh(), 1500)
         }
       } catch { /* silencieux */ }
@@ -167,212 +184,111 @@ export default function Sidebar({ critiqueCount, lastSync, userRole, userName }:
     if (syncing) return
     setSyncing(true)
     setDoneMsg(null)
-    setCurrentStep(0)
     setTerritoryStatus({ reu: 'running', myt: 'running', glp: 'running' })
-
-    // Déclenche les 3 syncs en parallèle
+    // Déclenche les 3 syncs en parallèle, puis suit la progression réelle
     await Promise.allSettled(
-      TERRITORIES.map(({ key }) =>
-        fetch(`/api/sync/trigger?territory=${key}`, { method: 'POST' })
-      )
+      TERRITORIES.map(({ key }) => fetch(`/api/sync/trigger?territory=${key}`, { method: 'POST' }))
     )
-
-    // Démarre le polling pour suivre la progression réelle
     startPolling()
   }
 
   return (
     <>
-      {/* Mobile top bar */}
-      <div className="lg:hidden fixed top-0 inset-x-0 z-30 h-14 bg-slate-900 flex items-center px-4 gap-3">
-        <button
-          onClick={() => setOpen(true)}
-          className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-          aria-label="Menu"
-        >
-          <HamburgerIcon />
-        </button>
-        <span className="text-white font-semibold text-sm tracking-wide">STAR <span className="font-light">aid</span> · Parc DAE</span>
-      </div>
+      {/* Voile mobile */}
+      {open && <div className="fixed inset-0 z-40 bg-surface-overlay lg:hidden" onClick={onClose} aria-hidden />}
 
-      {/* Overlay mobile */}
-      {open && (
-        <div
-          className="lg:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
-          onClick={() => setOpen(false)}
-        />
-      )}
-
-      {/* Sidebar */}
       <aside
-        className={[
-          'fixed lg:relative inset-y-0 left-0 z-50 w-64 flex flex-col bg-slate-900 text-white',
-          'transition-transform duration-200 ease-in-out',
-          open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
-        ].join(' ')}
+        className={cx(
+          'fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-sidebar text-sidebar-fg transition-transform duration-200 ease-out',
+          'lg:static lg:z-auto lg:w-56 lg:shrink-0 lg:translate-x-0',
+          open ? 'translate-x-0 shadow-panel' : '-translate-x-full'
+        )}
+        aria-label="Navigation principale"
       >
-        {/* Logo */}
-        <div className="px-5 pt-5 pb-4 border-b border-slate-800">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/Logo STAR aid.png" alt="STAR aid" className="h-28 w-auto object-contain" />
-          <p className="text-[10px] text-slate-500 mt-2 tracking-wide uppercase">Parc DAE · Réunion · Mayotte · Guadeloupe</p>
+        {/* En-tête du tiroir (mobile seulement : sur grand écran, la marque est dans le bandeau) */}
+        <div className="flex h-14 shrink-0 items-center justify-between border-b border-sidebar-border px-4 lg:hidden">
+          <span className="text-body font-extrabold">Parc DAE</span>
+          <IconButton icon={X} label="Fermer la navigation" variant="ghost" className="text-sidebar-fg-muted hover:bg-sidebar-raised hover:text-sidebar-fg" onClick={onClose} />
         </div>
 
-        {/* Nav */}
-        <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-          {visibleNav.map(({ href, label, icon, badge }) => {
-            const active = pathname.startsWith(href)
-            return (
-              <Link
-                key={href}
-                href={href}
-                onClick={() => setOpen(false)}
-                className={[
-                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-base font-bold transition-colors group',
-                  active
-                    ? 'bg-[#AF2125] text-white shadow-sm'
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-white',
-                ].join(' ')}
-              >
-                {icon}
-                <span className="flex-1">{label}</span>
-                {badge && critiqueCount > 0 && (
-                  <span className="bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 leading-none">
-                    {critiqueCount > 999 ? '999+' : critiqueCount}
-                  </span>
-                )}
-              </Link>
-            )
-          })}
+        <nav className="scrollbar-thin flex-1 overflow-y-auto p-2">
+          <ul className="space-y-0.5">
+            {visibleNav.map((item) => (
+              <li key={item.href}>
+                <NavRow
+                  item={item}
+                  active={isActive(item.href)}
+                  pending={pendingHref === item.href}
+                  count={badgeCount(item.badge)}
+                  onClick={navigateTo(item.href)}
+                />
+              </li>
+            ))}
+          </ul>
 
-          <div className="pt-4 mt-2 border-t border-slate-800">
-            {/* Mapping champs — administrateur uniquement */}
-            {userRole === 'administrateur' && (
-              <Link
-                href="/admin/field-mapping"
-                onClick={() => setOpen(false)}
-                className="flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-slate-600 hover:bg-slate-800 hover:text-slate-300 transition-colors"
-              >
-                <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
-                </svg>
-                Mapping champs
-              </Link>
-            )}
-          </div>
+          {visibleConfig.length > 0 && (
+            <div className="mt-4 border-t border-sidebar-border pt-3">
+              <p className="px-3 pb-1.5 text-label font-bold uppercase tracking-wide text-sidebar-fg-faint">Configuration</p>
+              <ul className="space-y-0.5">
+                {visibleConfig.map((item) => (
+                  <li key={item.href}>
+                    <NavRow
+                      item={item}
+                      active={isActive(item.href)}
+                      pending={pendingHref === item.href}
+                      count={0}
+                      onClick={navigateTo(item.href)}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </nav>
 
-        {/* Retour + Règles du dashboard */}
-        <div className="px-4 pb-2 space-y-0.5">
-          <button
-            onClick={() => { router.back(); setOpen(false) }}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-slate-500 hover:bg-slate-800 hover:text-slate-300 transition-colors"
-          >
-            <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M15 18l-6-6 6-6"/>
-            </svg>
-            Retour
-          </button>
-          <Link
-            href="/regles"
-            onClick={() => setOpen(false)}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-slate-500 hover:bg-slate-800 hover:text-slate-300 transition-colors"
-          >
-            <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>
-            </svg>
-            Règles du dashboard
-          </Link>
-        </div>
-
-        {/* Utilisateur connecté + déconnexion */}
-        <div className="px-4 py-3 border-t border-slate-800">
-          <div className="flex items-center gap-2.5 mb-3">
-            <div className="w-7 h-7 rounded-full bg-[#AF2125] flex items-center justify-center text-white text-xs font-bold shrink-0">
-              {userName.slice(0, 1).toUpperCase()}
-            </div>
-            <div className="min-w-0">
-              <p className="text-xs font-semibold text-slate-200 truncate">{ROLE_LABELS[userRole]}</p>
-              <p className="text-[10px] text-slate-500 truncate">{userName}</p>
-            </div>
-            <button
-              onClick={handleLogout}
-              title="Se déconnecter"
-              className="ml-auto p-1.5 rounded-md text-slate-500 hover:bg-slate-800 hover:text-slate-300 transition-colors shrink-0"
-            >
-              <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-                <polyline points="16 17 21 12 16 7"/>
-                <line x1="21" y1="12" x2="9" y2="12"/>
-              </svg>
-            </button>
-          </div>
-        </div>
-
-        {/* Footer sync */}
-        <div className="px-4 py-4 border-t border-slate-800">
-          <p className="text-[11px] text-slate-500 mb-2">
-            {formatSync ? `Dernière sync : ${formatSync}` : 'Aucune synchronisation'}
+        {/* Synchronisation */}
+        <div className="shrink-0 border-t border-sidebar-border px-3 py-3">
+          <p className="mb-2 flex items-center justify-between gap-2 text-label">
+            <span className="shrink-0 whitespace-nowrap text-sidebar-fg-faint">Dernière synchro</span>
+            <span className="truncate font-semibold text-sidebar-fg-muted tabular-nums" title={formatSync ?? undefined}>{formatSync ?? 'aucune'}</span>
           </p>
-          {/* Sync uniquement pour administrateur et maintenance */}
-          {(userRole === 'administrateur' || userRole === 'maintenance') && (
+
+          {canSync && (
             <>
               <button
+                type="button"
                 onClick={handleSync}
                 disabled={syncing}
-                className={[
-                  'w-full flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-medium transition-colors',
+                className={cx(
+                  'flex h-8 w-full items-center justify-center gap-2 rounded-control text-caption font-semibold transition-colors',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40',
                   syncing
-                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white',
-                ].join(' ')}
+                    ? 'cursor-not-allowed bg-sidebar-raised text-sidebar-fg-faint'
+                    : 'bg-sidebar-active text-sidebar-fg hover:bg-sidebar-raised'
+                )}
               >
-                <SyncIcon spinning={syncing} />
-                {syncing
-                  ? (() => {
-                      const t = TERRITORIES[currentStep - 1]
-                      return t ? `${t.label}… (${currentStep}/3)` : 'Sync en cours…'
-                    })()
-                  : 'Synchroniser maintenant'
-                }
+                <RefreshCw className={cx('h-3.5 w-3.5 shrink-0', syncing && 'animate-spin')} />
+                {syncing ? 'Synchronisation en cours…' : 'Synchroniser maintenant'}
               </button>
 
-              {/* Indicateur de progression par territoire */}
-              {syncing && territoryStatus && (
-                <div className="mt-2 flex items-center gap-2">
-                  {TERRITORIES.map(({ key, label }) => {
-                    const s = territoryStatus[key]
-                    return (
-                      <div key={key} className="flex items-center gap-1" title={label}>
-                        {s === 'running'  && <SyncIcon spinning />}
-                        {s === 'success'  && <span className="text-emerald-400 text-xs">✓</span>}
-                        {s === 'error'    && <span className="text-red-400 text-xs">✗</span>}
-                        {s === 'pending'  && <span className="text-slate-600 text-xs">·</span>}
-                        <span className={`text-[10px] ${
-                          s === 'running' ? 'text-slate-300' :
-                          s === 'success' ? 'text-emerald-400' :
-                          s === 'error'   ? 'text-red-400' : 'text-slate-600'
-                        }`}>{label.slice(0, 3)}</span>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-
-              {/* Résultat final avec statut par territoire */}
-              {!syncing && territoryStatus && doneMsg && (
-                <div className="mt-2 space-y-1">
-                  <p className="text-[10px] text-slate-400">{doneMsg}</p>
-                  <div className="flex items-center gap-2">
+              {/* Progression / résultat par territoire */}
+              {territoryStatus && (syncing || doneMsg) && (
+                <div className="mt-2 flex items-center justify-between gap-2 text-label">
+                  <div className="flex items-center gap-2.5">
                     {TERRITORIES.map(({ key, label }) => {
                       const s = territoryStatus[key]
                       return (
-                        <span key={key} className={`text-[10px] ${s === 'success' ? 'text-emerald-400' : s === 'error' ? 'text-red-400' : 'text-slate-500'}`}>
-                          {label.slice(0, 3)} {s === 'success' ? '✅' : s === 'error' ? '❌' : ''}
+                        <span key={key} className={cx('inline-flex items-center gap-1 font-semibold', STATUS_CLASS[s])} title={label}>
+                          {s === 'running' && <Loader2 className="h-3 w-3 animate-spin" />}
+                          {s === 'success' && '✓'}
+                          {s === 'error'   && '✗'}
+                          {s === 'pending' && '·'}
+                          {key.toUpperCase()}
                         </span>
                       )
                     })}
                   </div>
+                  {!syncing && doneMsg && <span className="truncate text-sidebar-fg-muted">{doneMsg}</span>}
                 </div>
               )}
             </>
