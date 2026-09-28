@@ -535,7 +535,7 @@ function AnomaliesPanel({ journal, loading, onRefresh, onReconcile, reconciling,
                         <td className={cx(tdClass, 'text-xs text-slate-500 tabular-nums')}>{fmtDate(a.last_seen_at)}</td>
                         <td className={cx(tdClass, 'text-xs')}>
                           {a.defibrillator_id
-                            ? <Link href={`/parc/${a.defibrillator_id}`} className="font-medium text-brand hover:underline">Voir</Link>
+                            ? <Link prefetch={false} href={`/parc/${a.defibrillator_id}`} className="font-medium text-brand hover:underline">Voir</Link>
                             : <span className="text-slate-300">—</span>}
                         </td>
                         <td className={cx(tdClass, 'text-xs')}>

@@ -489,7 +489,7 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
                           )}
                         </td>
                         <td className={cx(tdClass, 'sticky right-0 whitespace-nowrap bg-white text-right shadow-[-8px_0_12px_-4px_rgba(15,23,42,0.06)]')}>
-                          <Link href={`/parc/${dae.id}`} className="inline-flex items-center gap-0.5 text-xs font-medium text-brand hover:underline">
+                          <Link prefetch={false} href={`/parc/${dae.id}`} className="inline-flex items-center gap-0.5 text-xs font-medium text-brand hover:underline">
                             Voir
                             <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M9 18l6-6-6-6"/></svg>
                           </Link>

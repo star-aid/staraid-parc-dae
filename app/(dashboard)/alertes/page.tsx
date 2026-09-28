@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic'
 
 import { createServiceClient } from '@/lib/supabase'
+import { fetchAllRows } from '@/lib/supabase-rows'
 import AlertesClient, { type AlertRow } from './AlertesClient'
 import { parseContratParam, parseAutreTypesParam, buildContratOrFilter } from '@/lib/contract-groups'
 
@@ -22,20 +23,28 @@ type RawRow = {
   territories: { code: string; name: string } | null
 }
 
-async function getAlerts(contratFilter: string | null, clientId: string | null): Promise<AlertRow[]> {
-  try {
-    const supabase = createServiceClient()
+// Cache mémoire par instance serveur : la liste ne change qu'à la synchronisation
+// quotidienne et au recalcul des statuts. Une minute suffit pour rendre les
+// retours sur la page instantanés sans afficher de données périmées.
+const ALERTS_TTL_MS = 60_000
+const alertsCache = new Map<string, { at: number; promise: Promise<AlertRow[]> }>()
 
-    // Filtre client via OR (client_id direct OU site_id via le site du client)
-    let clientOrFilter: string | null = null
-    if (clientId) {
-      const { data: cs } = await supabase.from('sites').select('id').eq('client_id', clientId).limit(100)
-      const siteIds = (cs ?? []).map((s: { id: string }) => s.id)
-      const parts = [`client_id.eq.${clientId}`]
-      if (siteIds.length > 0) parts.push(`site_id.in.(${siteIds.join(',')})`)
-      clientOrFilter = parts.join(',')
-    }
+async function fetchAlerts(contratFilter: string | null, clientId: string | null): Promise<AlertRow[]> {
+  const supabase = createServiceClient()
 
+  // Filtre client via OR (client_id direct OU site_id via le site du client)
+  let clientOrFilter: string | null = null
+  if (clientId) {
+    const { data: cs } = await supabase.from('sites').select('id').eq('client_id', clientId).limit(100)
+    const siteIds = (cs ?? []).map((s: { id: string }) => s.id)
+    const parts = [`client_id.eq.${clientId}`]
+    if (siteIds.length > 0) parts.push(`site_id.in.(${siteIds.join(',')})`)
+    clientOrFilter = parts.join(',')
+  }
+
+  // Toutes les lignes, pages lues en parallèle : l'ancienne limite à 1 000 lignes
+  // laissait de côté les DAE au-delà (1 293 concernés le 28/09/2026) sans prévenir.
+  const rows = await fetchAllRows<RawRow>('alertes', (from, to, withCount) => {
     let q = supabase
       .from('defibrillators')
       .select(`
@@ -45,36 +54,45 @@ async function getAlerts(contratFilter: string | null, clientId: string | null):
         clients(name),
         sites(name),
         territories(code, name)
-      `)
+      `, withCount ? { count: 'exact' } : undefined)
       .in('status', ['critique', 'vigilance', 'inconnu'])
-      .limit(1000)
+      .order('id')
+      .range(from, to)
     if (contratFilter)  q = q.or(contratFilter)
     if (clientOrFilter) q = q.or(clientOrFilter)
-    const { data, error } = await q
+    return q
+  }, { expectedPages: 2 })
 
-    if (error) throw error
+  return rows.map((d) => ({
+    id:                       d.id,
+    serial_number:            d.serial_number,
+    model:                    d.model,
+    brand:                    d.brand,
+    status:                   d.status as 'critique' | 'vigilance' | 'inconnu',
+    status_reason:            d.status_reason,
+    battery_expiry:           d.battery_expiry,
+    electrodes_adult_expiry:  d.electrodes_adult_expiry,
+    electrodes_pediatric_expiry: d.electrodes_pediatric_expiry,
+    next_maintenance_date:    d.next_maintenance_date,
+    active:                   d.active,
+    client_name:    (d.clients    as { name: string } | null)?.name    ?? null,
+    site_name:      (d.sites      as { name: string } | null)?.name    ?? null,
+    territory_code: (d.territories as { code: string; name: string } | null)?.code ?? null,
+    territory_name: (d.territories as { code: string; name: string } | null)?.name ?? null,
+  }))
+}
 
-    return ((data ?? []) as unknown as RawRow[]).map((d) => ({
-      id:                       d.id,
-      serial_number:            d.serial_number,
-      model:                    d.model,
-      brand:                    d.brand,
-      status:                   d.status as 'critique' | 'vigilance' | 'inconnu',
-      status_reason:            d.status_reason,
-      battery_expiry:           d.battery_expiry,
-      electrodes_adult_expiry:  d.electrodes_adult_expiry,
-      electrodes_pediatric_expiry: d.electrodes_pediatric_expiry,
-      next_maintenance_date:    d.next_maintenance_date,
-      active:                   d.active,
-      client_name:    (d.clients    as { name: string } | null)?.name    ?? null,
-      site_name:      (d.sites      as { name: string } | null)?.name    ?? null,
-      territory_code: (d.territories as { code: string; name: string } | null)?.code ?? null,
-      territory_name: (d.territories as { code: string; name: string } | null)?.name ?? null,
-    }))
-  } catch (err) {
+async function getAlerts(contratFilter: string | null, clientId: string | null): Promise<AlertRow[]> {
+  const key = `${contratFilter ?? ''}|${clientId ?? ''}`
+  const hit = alertsCache.get(key)
+  if (hit && Date.now() - hit.at < ALERTS_TTL_MS) return hit.promise
+  const promise = fetchAlerts(contratFilter, clientId).catch((err: unknown) => {
+    alertsCache.delete(key)
     console.error('getAlerts:', err)
-    return []
-  }
+    return [] as AlertRow[]
+  })
+  alertsCache.set(key, { at: Date.now(), promise })
+  return promise
 }
 
 export default async function AlertesPage({

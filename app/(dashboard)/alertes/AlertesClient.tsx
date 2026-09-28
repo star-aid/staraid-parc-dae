@@ -308,7 +308,7 @@ export default function AlertesClient({ rows, initInconnu = false }: { rows: Ale
                           {expired && <span className="ml-1.5 rounded bg-red-50 px-1 text-2xs font-semibold uppercase tracking-wide text-red-600">échue</span>}
                         </td>
                         <td className={cx(tdClass, 'sticky right-0 whitespace-nowrap bg-white text-right shadow-[-8px_0_12px_-4px_rgba(15,23,42,0.06)]')}>
-                          <Link href={`/parc/${row.id}`} className="inline-flex items-center gap-0.5 text-xs font-medium text-brand hover:underline">
+                          <Link prefetch={false} href={`/parc/${row.id}`} className="inline-flex items-center gap-0.5 text-xs font-medium text-brand hover:underline">
                             Voir
                             <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M9 18l6-6-6-6"/></svg>
                           </Link>

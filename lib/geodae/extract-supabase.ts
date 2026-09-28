@@ -15,6 +15,7 @@
 // Fichier serveur uniquement.
 
 import { createServiceClient } from '@/lib/supabase'
+import { fetchAllRows } from '@/lib/supabase-rows'
 import { buildAccounts } from '@/lib/sync-territory-route'
 import { LOCATION_TYPES } from '@/lib/contract-groups'
 import { isLocationContract } from '@/lib/geodae/extract-synchroteam'
@@ -22,8 +23,6 @@ import type { AccountExtraction, ContractTypeCount, ExtractionResult, LocationDa
 import type { TerritoryCode } from '@/types'
 
 const ACCOUNTS: TerritoryCode[] = ['REU', 'MYT', 'GLP']
-/** Taille maximale d'une réponse PostgREST (max_rows du projet) */
-const PAGE = 1000
 const CACHE_TTL_MS = 60_000
 
 /** Ligne lue dans defibrillators, avec les noms du client et du site */
@@ -46,8 +45,6 @@ interface LightRow {
   synced_at: string | null
 }
 
-type PageResult = PromiseLike<{ data: unknown[] | null; error: { message: string } | null; count: number | null }>
-
 /** Compte Synchroteam et identifiant brut, d'après le préfixe posé par la synchronisation */
 export function splitSynchroteamId(id: string): { account: TerritoryCode; rawId: string } {
   if (id.startsWith('GLP_')) return { account: 'GLP', rawId: id.slice(4) }
@@ -59,25 +56,6 @@ function str(val: unknown): string | null {
   if (val == null) return null
   const s = String(val).trim()
   return s === '' ? null : s
-}
-
-/**
- * Lit toutes les lignes d'une requête : la première page demande le total, les
- * suivantes partent en parallèle (2 allers-retours au lieu de N).
- */
-async function fetchAllRows<T>(label: string, build: (from: number, to: number, withCount: boolean) => PageResult): Promise<T[]> {
-  const first = await build(0, PAGE - 1, true)
-  if (first.error) throw new Error(`${label} : ${first.error.message}`)
-  const rows = (first.data ?? []) as T[]
-  const total = first.count ?? rows.length
-  if (total <= rows.length) return rows
-  const pages = Math.ceil(total / PAGE)
-  const rest = await Promise.all(Array.from({ length: pages - 1 }, (_, i) => build((i + 1) * PAGE, (i + 2) * PAGE - 1, false)))
-  for (const r of rest) {
-    if (r.error) throw new Error(`${label} : ${r.error.message}`)
-    rows.push(...((r.data ?? []) as T[]))
-  }
-  return rows
 }
 
 async function computeExtraction(): Promise<ExtractionResult> {
@@ -93,7 +71,8 @@ async function computeExtraction(): Promise<ExtractionResult> {
         .eq('active', true)
         .in('contract_type', LOCATION_TYPES)
         .order('synchroteam_id')
-        .range(from, to)
+        .range(from, to),
+      { expectedPages: 2 } // ~1 100 DAE en location : deux pages demandées d'emblée
     ),
     // Tous les DAE actifs, sans jointure : compteurs et types de contrat par compte
     fetchAllRows<LightRow>('lecture des DAE actifs', (from, to, withCount) =>
@@ -102,7 +81,8 @@ async function computeExtraction(): Promise<ExtractionResult> {
         .select('synchroteam_id, contract_type, synced_at', withCount ? { count: 'exact' } : undefined)
         .eq('active', true)
         .order('synchroteam_id')
-        .range(from, to)
+        .range(from, to),
+      { expectedPages: 3 } // ~2 300 DAE actifs : trois pages demandées d'emblée
     ),
   ])
 

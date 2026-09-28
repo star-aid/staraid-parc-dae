@@ -48,6 +48,7 @@ export default function NextExpirations({ items }: { items: Expiration[] }) {
             <tr key={item.id} className={trClass}>
               <td className={tdClass}>
                 <Link
+                  prefetch={false}
                   href={`/parc/${item.id}`}
                   className="font-mono text-xs font-medium text-slate-800 hover:text-brand hover:underline"
                 >
