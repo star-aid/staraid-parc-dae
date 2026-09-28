@@ -7,6 +7,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase'
+import { markLookupReported, saveLookups } from '@/lib/geodae/lookups'
 import type {
   AnomalyRow, AnomalyType, JournalItem, JournalRun, JournalSummary, WritebackRequest, WritebackResult, WritebackRow,
 } from '@/lib/geodae/types'
@@ -79,6 +80,9 @@ export interface RecordResult {
   run_id: string | null
   anomalies_upserted: number
   resolved: number
+  /** Résultats de recherche conservés (table geodae_lookups, migration 12) */
+  lookups_saved: number
+  lookups_reason?: string
 }
 
 /**
@@ -116,13 +120,17 @@ export async function recordLookupRun(params: {
       .single()
     if (error) {
       const reason = unavailableReason(error)
-      if (reason) return { persisted: false, reason, run_id: null, anomalies_upserted: 0, resolved: 0 }
+      if (reason) return { persisted: false, reason, run_id: null, anomalies_upserted: 0, resolved: 0, lookups_saved: 0 }
       throw new Error(`journal (exécution) : ${error.message}`)
     }
     runId = (data as { id: string }).id
   }
 
   const daeIds = await resolveDefibrillatorIds(supabase, items)
+  const daeIdFor = (item: JournalItem) => daeIds.get(`${ID_PREFIX[item.account] ?? ''}${item.synchroteam_id}`) ?? null
+
+  // ── Résultats conservés par DAE (brique 2) ───────────────────────────────
+  const lookups = await saveLookups(supabase, items, daeIdFor, triggeredBy, runId)
 
   // ── Anomalies à ouvrir ou rouvrir ─────────────────────────────────────────
   const rows = items.flatMap((item) => {
@@ -133,7 +141,7 @@ export async function recordLookupRun(params: {
       type,
       account: item.account,
       synchroteam_id: item.synchroteam_id,
-      defibrillator_id: daeIds.get(`${ID_PREFIX[item.account] ?? ''}${item.synchroteam_id}`) ?? null,
+      defibrillator_id: daeIdFor(item),
       serial_number: item.serial_number,
       synchroteam_geo_dae_id: item.synchroteam_geo_dae_id,
       geodae_gid: item.candidates.length === 1 ? item.candidates[0].gid : null,
@@ -154,7 +162,7 @@ export async function recordLookupRun(params: {
     const { error } = await supabase.from('geodae_anomalies').upsert(batch, { onConflict: 'anomaly_key' })
     if (error) {
       const reason = unavailableReason(error)
-      if (reason) return { persisted: false, reason, run_id: runId, anomalies_upserted: 0, resolved: 0 }
+      if (reason) return { persisted: false, reason, run_id: runId, anomalies_upserted: 0, resolved: 0, lookups_saved: lookups.saved, lookups_reason: lookups.reason }
       throw new Error(`journal (anomalies) : ${error.message}`)
     }
     upserted += batch.length
@@ -182,7 +190,14 @@ export async function recordLookupRun(params: {
     }
   }
 
-  return { persisted: true, run_id: runId, anomalies_upserted: upserted, resolved }
+  return {
+    persisted: true,
+    run_id: runId,
+    anomalies_upserted: upserted,
+    resolved,
+    lookups_saved: lookups.saved,
+    ...(lookups.reason ? { lookups_reason: lookups.reason } : {}),
+  }
 }
 
 export interface WritebackRecord {
@@ -246,6 +261,8 @@ export async function recordWriteback(params: {
 
   // Copie locale, au mieux : la synchronisation quotidienne fera foi de toute façon
   if (localId) await supabase.from('defibrillators').update({ geo_dae_id: request.gid }).eq('id', localId)
+  // Le résultat de recherche conservé porte la date du report (au mieux également)
+  await markLookupReported(supabase, request, now)
 
   return { persisted: true, resolved }
 }

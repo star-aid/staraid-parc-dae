@@ -3,6 +3,10 @@
     {
       "path": "/api/sync/reu",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/geodae/cron",
+      "schedule": "0 7 * * *"
     }
   ]
 }

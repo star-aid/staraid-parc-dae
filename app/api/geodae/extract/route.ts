@@ -5,6 +5,7 @@ import { createSynchroteamClient } from '@/lib/synchroteam'
 import { buildAccounts } from '@/lib/sync-territory-route'
 import { extractLocationDae, type AccountInput } from '@/lib/geodae/extract-synchroteam'
 import { extractLocationDaeFromDb } from '@/lib/geodae/extract-supabase'
+import { attachLookups, loadPersistedLookups } from '@/lib/geodae/lookups'
 import { toCsv, type ExtractionResult } from '@/lib/geodae/types'
 import type { TerritoryCode } from '@/types'
 
@@ -43,6 +44,11 @@ export async function GET(req: NextRequest) {
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 })
   }
+
+  // Dernier résultat de recherche conservé pour chaque DAE (brique 2, migration 012)
+  const { byKey, reason } = await loadPersistedLookups()
+  attachLookups(result.rows, byKey)
+  if (reason) result.lookups_reason = reason
 
   if (req.nextUrl.searchParams.get('format') === 'csv') {
     const date = result.extracted_at.split('T')[0]

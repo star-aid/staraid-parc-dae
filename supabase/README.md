@@ -82,6 +82,7 @@ WHERE id = '<user-uuid>';
 | `geodae_reconciliation_runs` | Recherches groupées d'identifiants Géo'DAE (migration 9) |
 | `geodae_anomalies` | Anomalies Synchroteam ↔ Géo'DAE, ouvertes / clôturées (migration 9) |
 | `geodae_writebacks` | Reports d'identifiant Géo'DAE écrits dans Synchroteam, par qui et quand (migration 11) |
+| `geodae_lookups` | Dernier résultat de recherche Géo'DAE par DAE : statut, candidats, date du contrôle (migration 12) |
 
 ## Fonctions RPC disponibles
 

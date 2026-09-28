@@ -9,7 +9,7 @@ pour activer un nouveau compte Synchroteam (Mayotte, Guadeloupe).
 | Point | Contenu | État |
 |---|---|---|
 | 1 | Extraire les DAE actifs sous contrat de location avec identifiant Synchroteam, n° de série et identifiant Géo'DAE | Fait (menu **Contrôle Géo'DAE**) |
-| 2 | Pour chaque DAE sans identifiant : interroger Géo'DAE par n° de série ; trouvé → mettre à jour Synchroteam ; introuvable → journaliser | Fait, avec validation humaine du report. Reste : exécution automatique (cron) |
+| 2 | Pour chaque DAE sans identifiant : interroger Géo'DAE par n° de série ; trouvé → mettre à jour Synchroteam ; introuvable → journaliser | Fait : recherche automatique quotidienne (cron), report validé par un utilisateur |
 | 3 | Rapport d'anomalies (identifiant divergent, DAE Géo'DAE absent de Synchroteam…) | Non commencé, tables prêtes |
 
 Décisions prises :
@@ -30,6 +30,8 @@ Décisions prises :
 | Recherche d'identifiant par n° de série (open data + API exploitants) | `lib/geodae/client.ts` |
 | Report dans Synchroteam avec garde-fous | `lib/geodae/writeback.ts`, méthode `sendEquipment` de `lib/synchroteam.ts` |
 | Journal : exécutions, anomalies, reports | `lib/geodae/journal.ts` |
+| Résultats de recherche conservés par DAE | `lib/geodae/lookups.ts` |
+| Contrôle automatique (moteur du cron) | `lib/geodae/cron.ts`, route `app/api/geodae/cron`, planification `vercel.json` |
 | Types partagés, URL du portail, CSV | `lib/geodae/types.ts` |
 | Autorisation des routes (administrateur, maintenance) | `lib/geodae/route-auth.ts` |
 | Mapping des champs personnalisés (table `custom_field_mapping`) | `lib/geodae/mappings.ts` |
@@ -44,6 +46,7 @@ Décisions prises :
 | `20260922000009_geodae_reconciliation.sql` | `geodae_reconciliation_runs` (recherches groupées), `geodae_anomalies` (une ligne par DAE et par type, rouverte ou clôturée) |
 | `20260928000010_geodae_grants.sql` | Droits du rôle service sur ces tables |
 | `20260928000011_geodae_writebacks.sql` | `geodae_writebacks` : trace de chaque report (qui, quand, valeur précédente, résultat) |
+| `20260928000012_geodae_lookups.sql` | `geodae_lookups` : dernier résultat de recherche par DAE (statut, candidats, date et auteur du contrôle, date de report) |
 
 Colonne utilisée dans la table existante `defibrillators` : `geo_dae_id` (migration 005).
 Un report réussi la met à jour aussitôt, sans attendre la synchronisation.
@@ -63,8 +66,16 @@ au rôle service : les privilèges par défaut du projet n'en donnent aucun.
    `GEODAE_SIREN`) et API exploitants Atlasanté (champ `num_serie`, compte `GEODAE_USERNAME` /
    `GEODAE_PASSWORD`). Résultat : une, plusieurs ou aucune correspondance.
 4. **Journal** : introuvable, ambigu ou erreur ouvrent une anomalie ; un identifiant retrouvé
-   clôt celles du DAE.
-5. **Report** (« Reporter dans Synchroteam », confirmation obligatoire) : relecture de
+   clôt celles du DAE. Le résultat de chaque DAE est aussi conservé dans `geodae_lookups`
+   et rechargé à l'ouverture de la page (mention « Contrôlé le … par … » sous le résultat) :
+   les identifiants trouvés restent à valider d'une session à l'autre.
+5. **Contrôle automatique** (cron Vercel 07:00 UTC, `/api/geodae/cron`, moteur
+   `lib/geodae/cron.ts`) : DAE en location sans identifiant, jamais contrôlés d'abord puis
+   contrôles de plus de 7 jours, par lots de 30 avec un budget de 40 s ; la route se rappelle
+   elle-même tant qu'il reste des DAE (10 fois au plus). Résultats dans le journal et dans
+   `geodae_lookups` avec « cron » comme auteur. Le bouton « Contrôle automatique (un lot) »
+   de la page lance le même moteur à la main. Le report reste manuel.
+6. **Report** (« Reporter dans Synchroteam », confirmation obligatoire) : relecture de
    l'équipement, n° de série identique exigé, jamais d'écrasement d'un champ déjà
    renseigné, écriture partielle (`POST /Api/v3/equipment/send`, seuls les champs fournis
    changent), relecture de contrôle, trace dans `geodae_writebacks`, clôture des anomalies,
@@ -111,13 +122,25 @@ au rôle service : les privilèges par défaut du projet n'en donnent aucun.
 7. **Géo'DAE** : le compte exploitant et le SIREN sont nationaux, rien à changer, sauf si les
    DAE du territoire sont déclarés sous un autre SIREN (adapter `GEODAE_SIREN` ou lever le filtre).
 
-## 7. Reste à faire
+## 7. Avant la mise en production
 
-- **Brique 2** : table des résultats de recherche (statut par DAE, candidats, date du dernier
-  contrôle) pour que les identifiants trouvés survivent au rechargement de la page et
-  que le cron ait où écrire.
-- **Brique 3** : cron Géo'DAE après la synchro, incrémental par lots (limite 60 s), journalisé
-  avec `cron` comme déclencheur ; report toujours manuel dans un premier temps.
+- **Variables Vercel** : `GEODAE_USERNAME`, `GEODAE_PASSWORD` et `GEODAE_SIREN` ont été créées en
+  local après l'export des variables du projet ; elles doivent être ajoutées dans Vercel
+  (Production et Preview). Sans elles, la recherche et le cron ne voient que l'open data.
+- **Migrations** : `npm run db:status` doit montrer toutes les migrations appliquées.
+- **Crons** : `vercel.json` planifie `/api/sync/reu` (06:00 UTC) et `/api/geodae/cron` (07:00 UTC).
+  En plan Vercel gratuit c'est le maximum (deux crons, quotidiens). Pour couvrir les trois
+  territoires, remplacer la cible de synchro par `/api/sync/trigger` (GET), qui déclenche les
+  trois synchros ; ajouter d'abord le contrôle du secret (`Authorization: Bearer CRON_SECRET`)
+  sur ce GET, absent aujourd'hui. `CRON_SECRET` doit exister sur Vercel (déjà utilisé par la synchro).
+- **Variables Mayotte et Guadeloupe** (`SYNCHROTEAM_DOMAIN_MYT`, `SYNCHROTEAM_API_KEY_MYT`, `_GLP`) :
+  présentes sur Vercel d'après les données du 7 septembre en base, à confirmer.
+- **Premier report réel** sur un seul DAE, vérification de la fiche Synchroteam, puis le lot.
+
+## 8. Reste à faire
+
+- **Report automatique** des correspondances uniques par le cron, quand la confiance sera
+  acquise (aujourd'hui volontairement manuel).
 - **Point 3 du cahier des charges** : rapport d'anomalies, types `divergence_id` et
   `non_reference_synchroteam` déjà prévus dans `geodae_anomalies`.
 - Champ Synchroteam « Date dernière Maintenance » (id 238257) non mappé, décision à prendre.

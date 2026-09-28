@@ -11,6 +11,8 @@ import {
   ANOMALY_LABELS,
   TERRITORY_LABELS,
   geodaeSheetUrl,
+  outcomeOf,
+  sourcesFailureMessage,
   toCsv,
   type AccountExtraction,
   type AnomalyType,
@@ -26,10 +28,11 @@ import type { TerritoryCode } from '@/types'
 type RowFilter = 'all' | 'sans_geo' | 'sans_serie'
 const PAGE_SIZE = 50
 
+/** Résultat de recherche d'une ligne ; checked_* renseignés quand il vient de la base */
 type LookupState =
   | { status: 'loading' }
-  | { status: 'done'; result: LookupResult }
-  | { status: 'error'; message: string }
+  | { status: 'done'; result: LookupResult; checked_at?: string; checked_by?: string | null }
+  | { status: 'error'; message: string; checked_at?: string; checked_by?: string | null }
 
 /** Report d'un identifiant dans Synchroteam, par ligne */
 type WritebackState =
@@ -85,6 +88,28 @@ function applyWrittenGid(result: ExtractionResult, row: LocationDae, gid: string
   }
 }
 
+/** Résultats conservés en base (brique 2) → même état que juste après une recherche */
+function seedLookups(rows: LocationDae[]): Record<string, LookupState> {
+  const seeded: Record<string, LookupState> = {}
+  for (const r of rows) {
+    const l = r.lookup
+    if (!l) continue
+    seeded[rowKey(r)] = l.status === 'erreur'
+      ? { status: 'error', message: l.error ?? 'erreur inconnue', checked_at: l.checked_at, checked_by: l.checked_by }
+      : {
+          status: 'done',
+          result: {
+            serial: r.serial_number ?? '',
+            candidates: l.candidates,
+            sources: l.sources ?? { open_data: 'inconnu', geodae_api: 'inconnu' },
+          },
+          checked_at: l.checked_at,
+          checked_by: l.checked_by,
+        }
+  }
+  return seeded
+}
+
 /** Convertit une ligne et son résultat de recherche en élément de journal */
 function toJournalItem(row: LocationDae, state: LookupState): JournalItem | null {
   if (state.status === 'loading') return null
@@ -95,12 +120,13 @@ function toJournalItem(row: LocationDae, state: LookupState): JournalItem | null
     synchroteam_geo_dae_id: row.geo_dae_id,
   }
   if (state.status === 'error') return { ...base, outcome: 'error', candidates: [], error: state.message }
-  const n = state.result.candidates.length
+  const outcome = outcomeOf(state.result)
   return {
     ...base,
-    outcome: n === 1 ? 'found' : n === 0 ? 'not_found' : 'ambiguous',
+    outcome,
     candidates: state.result.candidates,
     sources: state.result.sources,
+    error: outcome === 'error' ? sourcesFailureMessage(state.result) : null,
   }
 }
 
@@ -267,24 +293,50 @@ function MissingGidCell({
     return <span className="inline-flex items-center gap-1.5 text-xs text-slate-500"><SpinnerIcon />Recherche…</span>
   }
 
+  // Provenance du résultat quand il vient de la base (contrôle antérieur)
+  const checked = state.checked_at ? (
+    <span className="text-2xs text-slate-400">
+      Contrôlé le {fmtDateTime(state.checked_at)}{state.checked_by ? ` par ${state.checked_by}` : ''}
+    </span>
+  ) : null
+
   if (state.status === 'error') {
     return (
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-red-700">Erreur : {state.message}</span>
-        <Button variant="ghost" size="sm" onClick={onLookup}>Réessayer</Button>
+      <div className="flex flex-col gap-0.5">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-red-700">Erreur : {state.message}</span>
+          <Button variant="ghost" size="sm" onClick={onLookup}>Réessayer</Button>
+        </div>
+        {checked}
       </div>
     )
   }
 
   const { candidates } = state.result
 
+  // Aucune correspondance et aucune source n'a répondu : ce n'est pas un « introuvable »
+  if (outcomeOf(state.result) === 'error') {
+    return (
+      <div className="flex flex-col gap-0.5">
+        <div className="flex items-center gap-2">
+          <span className="max-w-[320px] truncate text-xs text-red-700" title={sourcesFailureMessage(state.result)}>Sources injoignables</span>
+          <Button variant="ghost" size="sm" onClick={onLookup}>Réessayer</Button>
+        </div>
+        {checked}
+      </div>
+    )
+  }
+
   if (candidates.length === 0) {
     return (
-      <div className="flex items-center gap-2">
-        <span className="inline-flex rounded-md bg-red-50 px-1.5 py-0.5 text-2xs font-medium text-red-700 ring-1 ring-inset ring-red-600/20">
-          Introuvable dans Géo&apos;DAE
-        </span>
-        <Button variant="ghost" size="sm" onClick={onLookup} title="Relancer la recherche">Réessayer</Button>
+      <div className="flex flex-col gap-0.5">
+        <div className="flex items-center gap-2">
+          <span className="inline-flex rounded-md bg-red-50 px-1.5 py-0.5 text-2xs font-medium text-red-700 ring-1 ring-inset ring-red-600/20">
+            Introuvable dans Géo&apos;DAE
+          </span>
+          <Button variant="ghost" size="sm" onClick={onLookup} title="Relancer la recherche">Réessayer</Button>
+        </div>
+        {checked}
       </div>
     )
   }
@@ -306,6 +358,7 @@ function MissingGidCell({
         {c.etat_fonct && c.etat_fonct !== 'En fonctionnement' && (
           <span className="text-2xs font-medium text-amber-700">Déclaré « {c.etat_fonct} »</span>
         )}
+        {checked}
       </div>
     )
   }
@@ -321,6 +374,7 @@ function MissingGidCell({
           <WriteControls gid={c.gid} writeback={writeback} compact onRequest={onWriteRequest} onConfirm={onWriteConfirm} onCancel={onWriteCancel} />
         </span>
       ))}
+      {checked}
     </div>
   )
 }
@@ -559,6 +613,10 @@ export default function GeodaeClient() {
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState<string | null>(null)
 
+  // Contrôle automatique (brique 3) lancé à la main : un seul lot, comme le cron
+  const [autoRunning, setAutoRunning] = useState(false)
+  const [autoMsg, setAutoMsg] = useState<string | null>(null)
+
   // Journal des contrôles (tables de la migration 009)
   const [journal, setJournal] = useState<JournalSummary | null>(null)
   const [journalLoading, setJournalLoading] = useState(false)
@@ -589,13 +647,22 @@ export default function GeodaeClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items, scope, createRun }),
       })
-      const body = (await res.json().catch(() => null)) as { persisted?: boolean; reason?: string; anomalies_upserted?: number; resolved?: number; error?: string } | null
+      const body = (await res.json().catch(() => null)) as {
+        persisted?: boolean; reason?: string; anomalies_upserted?: number; resolved?: number
+        lookups_saved?: number; lookups_reason?: string; error?: string
+      } | null
       if (!res.ok || !body) throw new Error(body?.error ?? `HTTP ${res.status}`)
+      const parts: string[] = []
       if (!body.persisted) {
-        setJournalMsg(body.reason ?? 'Journal non enregistré.')
+        parts.push(body.reason ?? 'Journal non enregistré.')
       } else if (createRun) {
-        setJournalMsg(`Journal enregistré : ${body.anomalies_upserted ?? 0} anomalie${(body.anomalies_upserted ?? 0) > 1 ? 's' : ''} ouverte${(body.anomalies_upserted ?? 0) > 1 ? 's' : ''} ou mise${(body.anomalies_upserted ?? 0) > 1 ? 's' : ''} à jour, ${body.resolved ?? 0} clôturée${(body.resolved ?? 0) > 1 ? 's' : ''}.`)
+        const n = body.anomalies_upserted ?? 0
+        const closed = body.resolved ?? 0
+        const kept = body.lookups_saved ?? 0
+        parts.push(`Journal enregistré : ${n} anomalie${n > 1 ? 's' : ''} ouverte${n > 1 ? 's' : ''} ou mise${n > 1 ? 's' : ''} à jour, ${closed} clôturée${closed > 1 ? 's' : ''}, ${kept} résultat${kept > 1 ? 's' : ''} conservé${kept > 1 ? 's' : ''}.`)
       }
+      if (body.lookups_reason) parts.push(body.lookups_reason)
+      if (parts.length > 0) setJournalMsg(parts.join(' '))
       await loadJournal()
     } catch (err) {
       setJournalMsg(`Journal non enregistré : ${err instanceof Error ? err.message : String(err)}`)
@@ -612,8 +679,9 @@ export default function GeodaeClient() {
         const body = (await res.json().catch(() => null)) as { error?: string } | null
         throw new Error(body?.error ?? `HTTP ${res.status}`)
       }
-      setResult((await res.json()) as ExtractionResult)
-      setLookups({})
+      const body = (await res.json()) as ExtractionResult
+      setResult(body)
+      setLookups(seedLookups(body.rows))
       setBulk(null)
       setWritebacks({})
       setBulkWrite(null)
@@ -654,6 +722,38 @@ export default function GeodaeClient() {
       setSyncMsg(`Synchronisation terminée avec ${errors.length} erreur${errors.length > 1 ? 's' : ''} : ${errors.slice(0, 3).join(' · ')}`)
     }
     await load()
+  }
+
+  /**
+   * Lance à la main un lot du contrôle automatique (même moteur que le cron
+   * quotidien), puis recharge les DAE et le journal.
+   */
+  async function runAutoControl() {
+    if (autoRunning) return
+    setAutoRunning(true)
+    setAutoMsg(null)
+    try {
+      const res = await fetch('/api/geodae/cron', { method: 'POST' })
+      const body = (await res.json().catch(() => null)) as {
+        due?: number; examined?: number; found?: number; ambiguous?: number; not_found?: number; errors?: number
+        remaining?: number; candidates_total?: number; reason?: string; lookups_reason?: string; error?: string
+      } | null
+      if (!res.ok || !body) throw new Error(body?.error ?? `HTTP ${res.status}`)
+      const parts = [
+        `${body.examined ?? 0} DAE examiné${(body.examined ?? 0) > 1 ? 's' : ''} sur ${body.due ?? 0} à contrôler (${body.candidates_total ?? 0} sans identifiant)`,
+        `${body.found ?? 0} trouvé${(body.found ?? 0) > 1 ? 's' : ''}`,
+        `${body.not_found ?? 0} introuvable${(body.not_found ?? 0) > 1 ? 's' : ''}`,
+      ]
+      if ((body.ambiguous ?? 0) > 0) parts.push(`${body.ambiguous} ambigu${(body.ambiguous ?? 0) > 1 ? 's' : ''}`)
+      if ((body.errors ?? 0) > 0) parts.push(`${body.errors} erreur${(body.errors ?? 0) > 1 ? 's' : ''}`)
+      if ((body.remaining ?? 0) > 0) parts.push(`${body.remaining} restant${(body.remaining ?? 0) > 1 ? 's' : ''} pour un prochain lot`)
+      setAutoMsg(`Contrôle automatique : ${parts.join(', ')}.${body.reason ? ` ${body.reason}` : ''}${body.lookups_reason ? ` ${body.lookups_reason}` : ''}`)
+      await Promise.all([load(), loadJournal()])
+    } catch (err) {
+      setAutoMsg(`Contrôle automatique impossible : ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setAutoRunning(false)
+    }
   }
 
   /** Recherche pour une ligne ; renvoie l'état final pour que l'appelant puisse le journaliser */
@@ -829,10 +929,11 @@ export default function GeodaeClient() {
       if (st.status === 'error') { errors++; continue }
       if (st.status !== 'done') continue
       apiStatus = st.result.sources.geodae_api
-      const n = st.result.candidates.length
-      if (n === 1) found++
-      else if (n === 0) notFound++
-      else ambiguous++
+      const outcome = outcomeOf(st.result)
+      if (outcome === 'found') found++
+      else if (outcome === 'not_found') notFound++
+      else if (outcome === 'ambiguous') ambiguous++
+      else errors++
     }
     return { found, ambiguous, notFound, errors, total: found + ambiguous + notFound + errors, apiStatus }
   }, [filtered, lookups])
@@ -935,7 +1036,7 @@ export default function GeodaeClient() {
             <div className="min-w-0 flex-1 text-13 text-slate-600">
               <span className="font-medium text-slate-800">Identifiants manquants.</span>{' '}
               La recherche part du n° de série et interroge l&apos;open data Géo&apos;DAE de data.gouv.fr
-              {lookupSummary.apiStatus === 'ok' ? ' et l’API exploitants Géo’DAE' : ''}. Les résultats sont journalisés.
+              {lookupSummary.apiStatus === 'ok' ? ' et l’API exploitants Géo’DAE' : ''}. Les résultats sont conservés en base et journalisés.
               {lookupSummary.total > 0 && (
                 <span className="ml-2 tabular-nums">
                   <span className="text-emerald-700">{lookupSummary.found} trouvé{lookupSummary.found > 1 ? 's' : ''}</span>
@@ -944,14 +1045,26 @@ export default function GeodaeClient() {
                   {lookupSummary.errors > 0 && <> · <span className="text-red-700">{lookupSummary.errors} erreur{lookupSummary.errors > 1 ? 's' : ''}</span></>}
                 </span>
               )}
-              {lookupSummary.apiStatus && lookupSummary.apiStatus !== 'ok' && (
+              {lookupSummary.apiStatus && lookupSummary.apiStatus !== 'ok' && lookupSummary.apiStatus !== 'inconnu' && (
                 <span className="ml-2 text-2xs text-slate-400">API exploitants : {lookupSummary.apiStatus}</span>
+              )}
+              {result.lookups_reason && (
+                <span className="ml-2 text-2xs text-amber-700">{result.lookups_reason}</span>
               )}
             </div>
             <Button
+              variant="ghost"
+              onClick={runAutoControl}
+              disabled={autoRunning || bulk?.running}
+              title="Lance un lot du contrôle automatique, celui que le cron exécute chaque matin : DAE jamais contrôlés d'abord, puis contrôles les plus anciens"
+            >
+              {autoRunning ? <SpinnerIcon /> : null}
+              {autoRunning ? 'Contrôle automatique…' : 'Contrôle automatique (un lot)'}
+            </Button>
+            <Button
               variant="secondary"
               onClick={lookupMissing}
-              disabled={bulk?.running || missingTargets.length === 0}
+              disabled={bulk?.running || autoRunning || missingTargets.length === 0}
               title="Lance la recherche pour toutes les lignes affichées sans identifiant"
             >
               {bulk?.running
@@ -982,6 +1095,9 @@ export default function GeodaeClient() {
           )}
           {writeMsg && (
             <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs text-emerald-800">{writeMsg}</div>
+          )}
+          {autoMsg && (
+            <div className="mb-4 rounded-md border border-slate-200 bg-white px-4 py-2 text-xs text-slate-700 shadow-card">{autoMsg}</div>
           )}
 
           {/* ── Types de contrat rencontrés ─────────────────────────────────── */}

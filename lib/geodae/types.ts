@@ -20,6 +20,8 @@ export interface LocationDae {
   contract_type: string
   /** Identifiant retrouvé par la recherche Géo'DAE (étape 2), non encore reporté dans Synchroteam */
   found_geo_dae_id?: string | null
+  /** Dernier résultat de recherche conservé en base (migration 012), s'il existe */
+  lookup?: PersistedLookup | null
 }
 
 /** Un DAE Géo'DAE candidat pour un numéro de série recherché. */
@@ -43,6 +45,45 @@ export interface LookupResult {
   candidates: GidCandidate[]
   /** État de chaque source : 'ok', 'non configuré' ou 'erreur : …' */
   sources: { open_data: string; geodae_api: string }
+}
+
+/**
+ * Issue d'une recherche : une correspondance = trouvé, plusieurs = ambigu, aucune =
+ * introuvable si au moins une source a répondu, erreur sinon.
+ */
+export function outcomeOf(result: LookupResult): 'found' | 'ambiguous' | 'not_found' | 'error' {
+  const n = result.candidates.length
+  if (n === 1) return 'found'
+  if (n > 1) return 'ambiguous'
+  const anySourceOk = result.sources.open_data === 'ok' || result.sources.geodae_api === 'ok'
+  return anySourceOk ? 'not_found' : 'error'
+}
+
+/** Message d'erreur quand aucune source n'a répondu */
+export function sourcesFailureMessage(result: LookupResult): string {
+  return `aucune source n'a répondu (open data : ${result.sources.open_data} ; API exploitants : ${result.sources.geodae_api})`
+}
+
+/** Dernier résultat de recherche conservé pour un DAE (table geodae_lookups) */
+export interface PersistedLookup {
+  status: 'trouve' | 'ambigu' | 'introuvable' | 'erreur'
+  /** Identifiant retenu quand la correspondance est unique */
+  geodae_gid: string | null
+  candidates: GidCandidate[]
+  sources: LookupResult['sources'] | null
+  error: string | null
+  checked_at: string
+  /** Utilisateur ayant lancé le contrôle, ou 'cron' */
+  checked_by: string | null
+  /** Date du report dans Synchroteam, si fait depuis ce contrôle */
+  reported_at: string | null
+}
+
+export const LOOKUP_STATUS_LABELS: Record<PersistedLookup['status'], string> = {
+  trouve:      'Trouvé',
+  ambigu:      'Plusieurs correspondances',
+  introuvable: "Introuvable dans Géo'DAE",
+  erreur:      'Erreur de recherche',
 }
 
 // ─── Report dans Synchroteam (étape 2, migration 20260928000011) ─────────────
@@ -207,6 +248,8 @@ export interface ExtractionResult {
   rows: LocationDae[]
   /** Avertissement global (ex. mapping Supabase indisponible) */
   warning: string | null
+  /** Renseigné si les résultats de recherche conservés n'ont pas pu être lus (migration 012) */
+  lookups_reason?: string
 }
 
 /**
@@ -241,7 +284,10 @@ function csvEscape(v: string | null | undefined): string {
 
 /** CSV (séparateur « ; », compatible Excel FR) des DAE extraits. */
 export function toCsv(rows: LocationDae[]): string {
-  const cols = ['Compte', 'ID Synchroteam', 'N° série', "Identifiant Géo'DAE", "Identifiant Géo'DAE trouvé", 'Client', 'Site', 'Nom équipement', 'Type de contrat']
+  const cols = [
+    'Compte', 'ID Synchroteam', 'N° série', "Identifiant Géo'DAE", "Identifiant Géo'DAE trouvé",
+    'Client', 'Site', 'Nom équipement', 'Type de contrat', "Recherche Géo'DAE", 'Contrôlé le', 'Contrôlé par',
+  ]
   const lines = [cols.join(';')]
   for (const r of rows) {
     lines.push([
@@ -254,6 +300,9 @@ export function toCsv(rows: LocationDae[]): string {
       r.site_name,
       r.name,
       r.contract_type,
+      r.lookup ? LOOKUP_STATUS_LABELS[r.lookup.status] : null,
+      r.lookup?.checked_at ?? null,
+      r.lookup?.checked_by ?? null,
     ].map(csvEscape).join(';'))
   }
   return '﻿' + lines.join('\n')
