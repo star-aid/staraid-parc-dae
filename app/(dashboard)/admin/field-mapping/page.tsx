@@ -3,8 +3,9 @@
 import { useEffect, useState, useCallback } from 'react'
 import { INTERNAL_FIELDS } from '@/lib/field-mapping'
 import BackButton from '@/components/BackButton'
+import { RefreshCw, Settings2, Trash2 } from 'lucide-react'
 import {
-  Button, Card, EmptyState, PageContainer, PageHeader, cx, selectClass,
+  Button, Card, EmptyState, Notice, PageContainer, PageHeader, Select, cx,
   tableClass, tbodyClass, tdClass, thClass, theadClass, trClass,
 } from '@/components/ui/primitives'
 
@@ -131,35 +132,29 @@ export default function FieldMappingPage() {
         title="Mapping des champs Synchroteam"
         subtitle="Associe chaque champ personnalisé Synchroteam à un champ interne du parc DAE. La discovery lit les champs du compte et propose un mapping automatique."
         actions={
-          <Button variant="primary" onClick={handleDiscover} disabled={discovering}>
-            <svg viewBox="0 0 24 24" className={cx('h-3.5 w-3.5', discovering && 'animate-spin')} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M23 4v6h-6" /><path d="M1 20v-6h6" />
-              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-            </svg>
+          <Button variant="primary" size="md" icon={RefreshCw} loading={discovering} onClick={handleDiscover}>
             {discovering ? 'Discovery en cours…' : 'Lancer la discovery'}
           </Button>
         }
       />
 
-      {error && (
-        <div role="alert" className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-2.5 text-13 text-red-700">{error}</div>
-      )}
+      {error && <Notice tone="danger" className="mb-4">{error}</Notice>}
 
       {discoverResult && (
-        <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-13 text-emerald-800 tabular-nums">
+        <Notice tone="success" className="mb-4 tabular-nums">
           <strong className="font-semibold">Discovery terminée.</strong>{' '}
           {discoverResult.total} champ{discoverResult.total > 1 ? 's' : ''} trouvé{discoverResult.total > 1 ? 's' : ''}, {discoverResult.auto_mapped} mappé{discoverResult.auto_mapped > 1 ? 's' : ''} automatiquement.
-        </div>
+        </Notice>
       )}
 
       {/* ── Mappings actifs ─────────────────────────────────────────────────── */}
       <Card title={`Mappings actifs (${mappings.length})`} className="mb-4" padded={false}>
         {loading ? (
           <div className="space-y-2 p-4">
-            {[0, 1, 2].map((i) => <div key={i} className="h-9 animate-pulse rounded-md bg-slate-100" />)}
+            {[0, 1, 2].map((i) => <div key={i} className="h-9 animate-pulse rounded-control bg-surface-sunken" />)}
           </div>
         ) : mappings.length === 0 ? (
-          <EmptyState>Aucun mapping. Lancez la discovery ou ajoutez-en manuellement ci-dessous.</EmptyState>
+          <EmptyState icon={Settings2} title="Aucun mapping" description="Lancez la discovery ou ajoutez-en manuellement ci-dessous." />
         ) : (
           <div className="overflow-x-auto">
             <table className={tableClass}>
@@ -176,19 +171,19 @@ export default function FieldMappingPage() {
               <tbody className={tbodyClass}>
                 {mappings.map((m) => (
                   <tr key={m.id} className={trClass}>
-                    <td className={cx(tdClass, 'font-mono text-xs text-slate-400')}>{m.synchroteam_field_id}</td>
-                    <td className={cx(tdClass, 'text-slate-800')}>{m.synchroteam_label}</td>
+                    <td className={cx(tdClass, 'font-mono text-caption text-fg-faint')}>{m.synchroteam_field_id}</td>
+                    <td className={cx(tdClass, 'text-fg')}>{m.synchroteam_label}</td>
                     <td className={tdClass}>
-                      <span className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-1.5 py-0.5 text-xs text-slate-700">
-                        <code className="font-mono text-2xs text-slate-500">{m.internal_field}</code>
-                        <span className="text-slate-300">·</span>
+                      <span className="inline-flex items-center gap-1.5 rounded-control bg-surface-sunken px-1.5 py-0.5 text-caption text-fg-secondary">
+                        <code className="font-mono text-label text-fg-muted">{m.internal_field}</code>
+                        <span className="text-border-strong">·</span>
                         {internalLabel(m.internal_field)}
                       </span>
                     </td>
-                    <td className={cx(tdClass, 'text-xs text-slate-500')}>{m.field_type}</td>
-                    <td className={cx(tdClass, 'text-xs text-slate-400 tabular-nums')}>{new Date(m.updated_at).toLocaleDateString('fr-FR')}</td>
+                    <td className={cx(tdClass, 'text-caption text-fg-muted')}>{m.field_type}</td>
+                    <td className={cx(tdClass, 'text-caption text-fg-faint tabular-nums')}>{new Date(m.updated_at).toLocaleDateString('fr-FR')}</td>
                     <td className={cx(tdClass, 'text-right')}>
-                      <Button variant="ghost" size="sm" onClick={() => handleDelete(m.synchroteam_field_id)} className="text-red-600 hover:bg-red-50 hover:text-red-700">
+                      <Button variant="danger-outline" size="xs" icon={Trash2} onClick={() => handleDelete(m.synchroteam_field_id)}>
                         Supprimer
                       </Button>
                     </td>
@@ -204,7 +199,7 @@ export default function FieldMappingPage() {
       {unmapped.length > 0 && (
         <Card
           title={`Champs non mappés (${unmapped.length})`}
-          actions={<span className="text-xs text-amber-700">Choisissez le champ interne, puis enregistrez</span>}
+          actions={<span className="text-caption text-warning">Choisissez le champ interne, puis enregistrez</span>}
           padded={false}
         >
           <div className="overflow-x-auto">
@@ -224,12 +219,12 @@ export default function FieldMappingPage() {
                   const pending = pendingMappings[f.id]
                   return (
                     <tr key={f.id} className={trClass}>
-                      <td className={cx(tdClass, 'font-mono text-xs text-slate-400')}>{f.id}</td>
-                      <td className={cx(tdClass, 'text-slate-800')}>{f.label}</td>
-                      <td className={cx(tdClass, 'text-xs text-slate-500')}>{f.type}</td>
+                      <td className={cx(tdClass, 'font-mono text-caption text-fg-faint')}>{f.id}</td>
+                      <td className={cx(tdClass, 'text-fg')}>{f.label}</td>
+                      <td className={cx(tdClass, 'text-caption text-fg-muted')}>{f.type}</td>
                       <td className={tdClass}>
-                        <select
-                          className={cx(selectClass, 'h-7 w-full min-w-[220px] text-xs')}
+                        <Select
+                          wrapperClassName="w-full min-w-[220px]"
                           value={pending?.internal ?? ''}
                           onChange={(e) =>
                             setPendingMappings((prev) => ({
@@ -242,11 +237,10 @@ export default function FieldMappingPage() {
                           {INTERNAL_FIELDS.map((opt) => (
                             <option key={opt.value} value={opt.value}>{opt.label}</option>
                           ))}
-                        </select>
+                        </Select>
                       </td>
                       <td className={tdClass}>
-                        <select
-                          className={cx(selectClass, 'h-7 text-xs')}
+                        <Select
                           value={pending?.type ?? f.type ?? 'text'}
                           onChange={(e) =>
                             setPendingMappings((prev) => ({
@@ -258,10 +252,10 @@ export default function FieldMappingPage() {
                           <option value="date">date</option>
                           <option value="text">text</option>
                           <option value="number">number</option>
-                        </select>
+                        </Select>
                       </td>
                       <td className={cx(tdClass, 'text-right')}>
-                        <Button variant="primary" size="sm" disabled={!pending?.internal || saving} onClick={() => handleSaveMapping(f.id, f.label)}>
+                        <Button variant="primary" size="xs" disabled={!pending?.internal || saving} onClick={() => handleSaveMapping(f.id, f.label)}>
                           Enregistrer
                         </Button>
                       </td>

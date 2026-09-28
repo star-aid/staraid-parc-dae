@@ -55,7 +55,7 @@ export default function DetailMap({ latitude, longitude, siteName, status }: Pro
         opacity: 1,
         fillOpacity: 0.9,
       })
-        .bindPopup(`<b style="font-size:13px;color:#0f172a">${siteName ?? 'Site DAE'}</b>`)
+        .bindPopup(`<b style="font-size:13px;color:#171921">${siteName ?? 'Site DAE'}</b>`)
         .addTo(mapRef.current)
     }
 

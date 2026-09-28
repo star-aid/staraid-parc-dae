@@ -111,18 +111,18 @@ export default function ParcMap({ markers, statusFilter, territoryFilter }: Prop
 
         // Le libellé de statut reste en encre foncée : la couleur est portée par le point
         circle.bindPopup(`
-          <div style="min-width:210px;font-size:12px;line-height:1.5;color:#334155">
-            <div style="font-weight:600;font-size:13px;color:#0f172a">${m.site_name ?? 'Site inconnu'}</div>
-            <div style="color:#64748b;margin-bottom:8px">${m.client_name ?? '—'}</div>
+          <div style="min-width:210px;font-size:12px;line-height:1.5;color:#414552">
+            <div style="font-weight:600;font-size:13px;color:#171921">${m.site_name ?? 'Site inconnu'}</div>
+            <div style="color:#575c6b;margin-bottom:8px">${m.client_name ?? '—'}</div>
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
               <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></span>
-              <span style="font-weight:600;color:#0f172a">${label}</span>
-              ${m.status_reason ? `<span style="color:#64748b">· ${m.status_reason}</span>` : ''}
+              <span style="font-weight:600;color:#171921">${label}</span>
+              ${m.status_reason ? `<span style="color:#575c6b">· ${m.status_reason}</span>` : ''}
             </div>
-            ${m.serial_number ? `<div style="color:#64748b;font-size:11px">N° série <span style="color:#334155;font-family:ui-monospace,monospace">${m.serial_number}</span></div>` : ''}
-            ${expiry ? `<div style="color:#64748b;font-size:11px">Prochaine échéance <span style="color:#b91c1c;font-weight:500">${expiry}</span></div>` : ''}
-            <div style="margin-top:8px;padding-top:6px;border-top:1px solid #e2e8f0">
-              <a href="/parc/${m.id}" style="color:#AF2125;font-size:12px;font-weight:600;text-decoration:none">Voir la fiche ›</a>
+            ${m.serial_number ? `<div style="color:#575c6b;font-size:11px">N° série <span style="color:#414552;font-family:ui-monospace,monospace">${m.serial_number}</span></div>` : ''}
+            ${expiry ? `<div style="color:#575c6b;font-size:11px">Prochaine échéance <span style="color:#dc2626;font-weight:500">${expiry}</span></div>` : ''}
+            <div style="margin-top:8px;padding-top:6px;border-top:1px solid #e2e4ea">
+              <a href="/parc/${m.id}" style="color:#ad2022;font-size:12px;font-weight:600;text-decoration:none">Voir la fiche ›</a>
             </div>
           </div>
         `, { maxWidth: 280, className: 'dae-popup' })

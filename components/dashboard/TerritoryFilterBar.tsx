@@ -1,7 +1,7 @@
 'use client'
 import { useCallback, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Chip, ChipGroup, cx, selectClass } from '@/components/ui/primitives'
+import { Chip, ChipGroup, Select, cx } from '@/components/ui/primitives'
 
 const TERRITORIES = [
   { code: 'REU', label: 'La Réunion' },
@@ -48,17 +48,13 @@ export default function TerritoryFilterBar() {
         ))}
       </ChipGroup>
 
-      <label className="inline-flex items-center gap-1.5">
-        <span className="text-2xs font-medium uppercase tracking-wider text-slate-400">Équipements</span>
-        <select
-          value={actif}
-          onChange={(e) => navigateActif(e.target.value)}
-          className={cx(selectClass, 'h-7 text-xs')}
-        >
+      <label className="inline-flex items-center gap-2">
+        <span className="text-label font-bold uppercase tracking-wide text-fg-faint">Équipements</span>
+        <Select value={actif} onChange={(e) => navigateActif(e.target.value)} controlSize="sm">
           <option value="actif">Actifs</option>
           <option value="inactif">Inactifs</option>
           <option value="tous">Tous</option>
-        </select>
+        </Select>
       </label>
     </div>
   )

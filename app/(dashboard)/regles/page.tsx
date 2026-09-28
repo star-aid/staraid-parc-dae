@@ -1,7 +1,7 @@
 import BackButton from '@/components/BackButton'
 import { DAEStatusBadge } from '@/components/table/StatusBadge'
 import { LOCATION_TYPES, MAINTENANCE_TYPES } from '@/lib/contract-groups'
-import { Card, PageContainer, PageHeader, tableClass, tbodyClass, tdClass, thClass, theadClass } from '@/components/ui/primitives'
+import { Card, PageContainer, PageHeader, Tag, tableClass, tbodyClass, tdClass, thClass, theadClass, type TagTone } from '@/components/ui/primitives'
 
 const STATUS_RULES = [
   {
@@ -42,11 +42,11 @@ const STATUS_RULES = [
   },
 ]
 
-const CONSUMABLE_RULES = [
-  { label: 'OK',          cls: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20', rule: 'Date d\'expiration > aujourd\'hui + 30 jours' },
-  { label: 'À remplacer', cls: 'bg-amber-50 text-amber-800 ring-amber-500/30',       rule: 'Date d\'expiration ≤ aujourd\'hui + 30 jours, sans être dépassée' },
-  { label: 'Expirée',     cls: 'bg-red-50 text-red-700 ring-red-600/20',             rule: 'Date d\'expiration < aujourd\'hui' },
-  { label: 'Inconnu',     cls: 'bg-slate-100 text-slate-600 ring-slate-300',         rule: 'Date d\'expiration non renseignée dans Synchroteam' },
+const CONSUMABLE_RULES: Array<{ label: string; tone: TagTone; rule: string }> = [
+  { label: 'OK',          tone: 'success', rule: 'Date d\'expiration > aujourd\'hui + 30 jours' },
+  { label: 'À remplacer', tone: 'warning', rule: 'Date d\'expiration ≤ aujourd\'hui + 30 jours, sans être dépassée' },
+  { label: 'Expirée',     tone: 'danger',  rule: 'Date d\'expiration < aujourd\'hui' },
+  { label: 'Inconnu',     tone: 'neutral', rule: 'Date d\'expiration non renseignée dans Synchroteam' },
 ]
 
 const ELECTRODES_RULES = [
@@ -78,8 +78,8 @@ const BATTERY_RULES = [
 function SectionHeading({ children, description }: { children: React.ReactNode; description?: React.ReactNode }) {
   return (
     <div className="mb-3">
-      <h2 className="text-13 font-semibold uppercase tracking-wider text-slate-500">{children}</h2>
-      {description && <p className="mt-1 text-13 text-slate-500">{description}</p>}
+      <h2 className="text-label font-bold uppercase tracking-wide text-fg-muted">{children}</h2>
+      {description && <p className="mt-1 text-body text-fg-muted">{description}</p>}
     </div>
   )
 }
@@ -98,7 +98,7 @@ function RuleTable({ head, rows }: { head: [string, string]; rows: Array<[React.
           {rows.map(([a, b], i) => (
             <tr key={i}>
               <td className={`${tdClass} whitespace-nowrap`}>{a}</td>
-              <td className={`${tdClass} text-slate-600`}>{b}</td>
+              <td className={`${tdClass} text-fg-secondary`}>{b}</td>
             </tr>
           ))}
         </tbody>
@@ -126,11 +126,11 @@ export default function ReglesPage() {
             {STATUS_RULES.map((s) => (
               <Card key={s.status}>
                 <div className="mb-2"><DAEStatusBadge status={s.status} /></div>
-                <p className="text-13 text-slate-800">{s.description}</p>
+                <p className="text-body text-fg">{s.description}</p>
                 <ul className="mt-2 space-y-1">
                   {s.conditions.map((c, i) => (
-                    <li key={i} className="flex items-start gap-2 text-xs text-slate-500">
-                      <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-300" aria-hidden />
+                    <li key={i} className="flex items-start gap-2 text-caption text-fg-muted">
+                      <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-border-strong" aria-hidden />
                       {c}
                     </li>
                   ))}
@@ -146,7 +146,7 @@ export default function ReglesPage() {
           <RuleTable
             head={['Statut', 'Condition']}
             rows={CONSUMABLE_RULES.map((r) => [
-              <span key={r.label} className={`inline-flex rounded-md px-1.5 py-0.5 text-2xs font-semibold ring-1 ring-inset ${r.cls}`}>{r.label}</span>,
+              <Tag key={r.label} tone={r.tone} dot>{r.label}</Tag>,
               r.rule,
             ])}
           />
@@ -160,11 +160,11 @@ export default function ReglesPage() {
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             {CONTRACT_GROUPS.map((g) => (
               <Card key={g.label} title={g.label}>
-                {g.note && <p className="mb-2 text-xs text-slate-500">{g.note}</p>}
+                {g.note && <p className="mb-2 text-caption text-fg-muted">{g.note}</p>}
                 <ul className="space-y-1">
                   {g.values.map((v) => (
-                    <li key={v} className="flex items-start gap-2 text-xs text-slate-600">
-                      <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-300" aria-hidden />
+                    <li key={v} className="flex items-start gap-2 text-caption text-fg-secondary">
+                      <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-border-strong" aria-hidden />
                       {v}
                     </li>
                   ))}
@@ -179,7 +179,7 @@ export default function ReglesPage() {
           <SectionHeading>Règle électrodes pédiatriques</SectionHeading>
           <RuleTable
             head={['Cas', 'Règle appliquée']}
-            rows={ELECTRODES_RULES.map((r) => [<span key={r.label} className="font-medium text-slate-800">{r.label}</span>, r.rule])}
+            rows={ELECTRODES_RULES.map((r) => [<span key={r.label} className="font-medium text-fg">{r.label}</span>, r.rule])}
           />
         </section>
 
@@ -190,7 +190,7 @@ export default function ReglesPage() {
           </SectionHeading>
           <RuleTable
             head={['Marque / modèle', 'Durée de vie']}
-            rows={BATTERY_RULES.map((r) => [<span key={r.brand} className="text-slate-800">{r.brand}</span>, <span key={`${r.brand}-y`} className="font-semibold text-slate-900 tabular-nums">{r.years} ans</span>])}
+            rows={BATTERY_RULES.map((r) => [<span key={r.brand} className="text-fg">{r.brand}</span>, <span key={`${r.brand}-y`} className="font-semibold text-fg tabular-nums">{r.years} ans</span>])}
           />
         </section>
       </div>

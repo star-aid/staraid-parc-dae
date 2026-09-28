@@ -1,7 +1,8 @@
 'use client'
 import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Button, Chip, ChipGroup, cx, inputClass, selectClass } from '@/components/ui/primitives'
+import { Download, Search, X } from 'lucide-react'
+import { Button, Chip, ChipGroup, Select, cx, inputClass } from '@/components/ui/primitives'
 
 const TERRITORIES = [
   { code: 'REU', label: 'La Réunion' },
@@ -11,10 +12,10 @@ const TERRITORIES = [
 
 // Point coloré : la couleur de statut accompagne toujours un libellé
 const STATUTS = [
-  { code: 'critique',  label: 'Critique',  dot: 'bg-red-500' },
-  { code: 'vigilance', label: 'Vigilance', dot: 'bg-amber-500' },
-  { code: 'conforme',  label: 'Conforme',  dot: 'bg-emerald-500' },
-  { code: 'inconnu',   label: 'Inconnu',   dot: 'bg-slate-400' },
+  { code: 'critique',  label: 'Critique',  dot: 'bg-danger' },
+  { code: 'vigilance', label: 'Vigilance', dot: 'bg-warning' },
+  { code: 'conforme',  label: 'Conforme',  dot: 'bg-success' },
+  { code: 'inconnu',   label: 'Inconnu',   dot: 'bg-fg-faint' },
 ]
 
 interface Props {
@@ -109,9 +110,7 @@ export default function ParcFiltersBar({ total, shown }: Props) {
     <div className={cx('mb-3 flex flex-wrap items-center gap-2 transition-opacity', isPending && 'opacity-60')}>
       {/* Recherche */}
       <div className="relative">
-        <svg viewBox="0 0 24 24" className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" strokeWidth="2">
-          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-        </svg>
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-fg-faint" />
         <input
           type="search"
           value={inputQ}
@@ -137,42 +136,37 @@ export default function ParcFiltersBar({ total, shown }: Props) {
         ))}
       </ChipGroup>
 
-      <label className="inline-flex items-center gap-1.5">
-        <span className="text-2xs font-medium uppercase tracking-wider text-slate-400">Équipements</span>
-        <select
+      <label className="inline-flex items-center gap-2">
+        <span className="text-label font-bold uppercase tracking-wide text-fg-faint">Équipements</span>
+        <Select
           value={currentActif}
           onChange={(e) => navigate(buildParams({ actif: e.target.value === 'actif' ? null : e.target.value }))}
-          className={cx(selectClass, 'h-7 text-xs')}
+          controlSize="sm"
         >
           <option value="actif">Actifs</option>
           <option value="inactif">Inactifs</option>
           <option value="tous">Tous</option>
-        </select>
+        </Select>
       </label>
 
       {hasFilters && (
-        <Button variant="ghost" size="sm" onClick={clearAll}>
-          <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg>
-          Effacer
-        </Button>
+        <Button variant="ghost" size="sm" icon={X} onClick={clearAll}>Effacer</Button>
       )}
 
       {/* Compteur + export, alignés à droite */}
       <div className="ml-auto flex items-center gap-2">
-        <span className="text-xs text-slate-500 tabular-nums">
+        <span className="text-caption text-fg-muted tabular-nums">
           {shown.toLocaleString('fr-FR')} / {total.toLocaleString('fr-FR')} DAE
         </span>
         <Button
           variant="secondary"
           size="sm"
+          icon={Download}
+          loading={exporting}
           onClick={exportAllCSV}
-          disabled={exporting || total === 0}
+          disabled={total === 0}
           title={`Exporter les ${total.toLocaleString('fr-FR')} DAE filtrés, pas seulement la page affichée`}
         >
-          <svg viewBox="0 0 24 24" className={cx('h-3.5 w-3.5', exporting && 'animate-pulse')} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-          </svg>
           {exporting ? 'Export…' : 'CSV'}
         </Button>
       </div>

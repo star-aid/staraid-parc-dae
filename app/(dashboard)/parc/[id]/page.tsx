@@ -5,15 +5,16 @@ import { notFound } from 'next/navigation'
 import dynamicImport from 'next/dynamic'
 import { DAEStatusBadge } from '@/components/table/StatusBadge'
 import BackButton from '@/components/BackButton'
+import { HeartPulse, Mail, Phone } from 'lucide-react'
 import {
-  Card, EmptyState, PageContainer, cx,
+  Card, EmptyState, PageContainer, Tag, cx,
   tableClass, tbodyClass, tdClass, thClass, theadClass, trClass,
 } from '@/components/ui/primitives'
 
 const DetailMap = dynamicImport(() => import('./DetailMap'), {
   ssr: false,
   loading: () => (
-    <div className="flex h-full min-h-[260px] animate-pulse items-center justify-center bg-slate-100 text-xs text-slate-400">
+    <div className="flex h-full min-h-[260px] animate-pulse items-center justify-center bg-surface-sunken text-caption text-fg-faint">
       Chargement de la carte…
     </div>
   ),
@@ -92,25 +93,25 @@ function progressPct(installDate: string | null, expiryDate: string | null): num
 
 function barColor(expiryDate: string | null): string {
   const days = daysUntil(expiryDate)
-  if (days === null)  return 'bg-slate-300'
-  if (days < 30)      return 'bg-red-500'
-  if (days < 180)     return 'bg-amber-500'
-  return 'bg-emerald-500'
+  if (days === null)  return 'bg-border-strong'
+  if (days < 30)      return 'bg-danger'
+  if (days < 180)     return 'bg-warning'
+  return 'bg-success'
 }
 
 function daysBadge(days: number | null): { label: string; cls: string } | null {
   if (days === null) return null
-  if (days < 0)   return { label: `${Math.abs(days)} j de dépassement`, cls: 'bg-red-50 text-red-700 ring-red-600/20' }
-  if (days < 30)  return { label: `${days} j restants`, cls: 'bg-amber-50 text-amber-800 ring-amber-500/30' }
-  if (days < 180) return { label: `${days} j restants`, cls: 'bg-slate-100 text-slate-600 ring-slate-300' }
-  return { label: `${days} j restants`, cls: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20' }
+  if (days < 0)   return { label: `${Math.abs(days)} j de dépassement`, cls: 'bg-danger-soft text-danger' }
+  if (days < 30)  return { label: `${days} j restants`, cls: 'bg-warning-soft text-warning' }
+  if (days < 180) return { label: `${days} j restants`, cls: 'bg-surface-sunken text-fg-secondary' }
+  return { label: `${days} j restants`, cls: 'bg-success-soft text-success' }
 }
 
 function dateTone(d: string | null): string {
   const days = daysUntil(d)
   if (days === null) return ''
-  if (days < 0)  return 'text-red-700'
-  if (days < 30) return 'text-amber-700'
+  if (days < 0)  return 'text-danger'
+  if (days < 30) return 'text-warning'
   return ''
 }
 
@@ -123,10 +124,10 @@ const JOB_TYPE_LABEL: Record<string, string> = {
 
 // Types d'intervention : couleurs catégorielles, distinctes des couleurs de statut
 const JOB_TYPE_CLASS: Record<string, string> = {
-  maintenance:  'bg-blue-50 text-blue-700 ring-blue-600/20',
-  depannage:    'bg-orange-50 text-orange-700 ring-orange-600/20',
-  installation: 'bg-teal-50 text-teal-700 ring-teal-600/20',
-  autre:        'bg-slate-100 text-slate-600 ring-slate-300',
+  maintenance:  'bg-info-soft text-info',
+  depannage:    'bg-accent-orange-soft text-accent-orange-strong',
+  installation: 'bg-accent-violet-soft text-accent-violet-strong',
+  autre:        'bg-surface-sunken text-fg-secondary',
 }
 
 const JOB_STATUS_LABEL: Record<string, string> = {
@@ -137,17 +138,17 @@ const JOB_STATUS_LABEL: Record<string, string> = {
 }
 
 const JOB_STATUS_CLASS: Record<string, string> = {
-  termine:  'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
-  planifie: 'bg-blue-50 text-blue-700 ring-blue-600/20',
-  en_cours: 'bg-amber-50 text-amber-800 ring-amber-500/30',
-  annule:   'bg-slate-100 text-slate-500 ring-slate-300 line-through',
+  termine:  'bg-success-soft text-success',
+  planifie: 'bg-info-soft text-info',
+  en_cours: 'bg-warning-soft text-warning',
+  annule:   'bg-surface-sunken text-fg-muted line-through',
 }
 
 // ─── Sous-composants ──────────────────────────────────────────────────────────
 
 function Pill({ className, children }: { className: string; children: React.ReactNode }) {
   return (
-    <span className={cx('inline-flex items-center whitespace-nowrap rounded-md px-1.5 py-0.5 text-2xs font-semibold ring-1 ring-inset', className)}>
+    <span className={cx('inline-flex h-5 items-center whitespace-nowrap rounded-full px-2 text-label font-semibold', className)}>
       {children}
     </span>
   )
@@ -155,16 +156,16 @@ function Pill({ className, children }: { className: string; children: React.Reac
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-3 border-b border-slate-100 py-1.5 last:border-0">
-      <dt className="shrink-0 text-xs text-slate-500">{label}</dt>
-      <dd className="text-right text-13 font-medium text-slate-800">{value ?? <span className="text-slate-300">—</span>}</dd>
+    <div className="flex items-start justify-between gap-3 border-b border-border-subtle py-1.5 last:border-0">
+      <dt className="shrink-0 text-caption text-fg-muted">{label}</dt>
+      <dd className="text-right text-body font-medium text-fg">{value ?? <span className="text-border-strong">—</span>}</dd>
     </div>
   )
 }
 
 function YesNo({ value }: { value: boolean | null }) {
   if (value === null) return null
-  return value ? <span className="text-emerald-700">Oui</span> : <span className="text-slate-400">Non</span>
+  return value ? <span className="text-success">Oui</span> : <span className="text-fg-faint">Non</span>
 }
 
 function ConsumableBar({ label, installDate, expiryDate }: { label: string; installDate?: string | null; expiryDate?: string | null }) {
@@ -175,28 +176,28 @@ function ConsumableBar({ label, installDate, expiryDate }: { label: string; inst
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-13 font-medium text-slate-800">{label}</span>
+        <span className="text-body font-medium text-fg">{label}</span>
         {badge && <Pill className={cx(badge.cls, 'tabular-nums')}>{badge.label}</Pill>}
       </div>
 
       {expiryDate ? (
         <>
-          <div className="h-1.5 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+          <div className="h-1.5 overflow-hidden rounded-full bg-surface-sunken" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
             <div className={cx('h-full rounded-full', barColor(expiryDate))} style={{ width: `${pct}%` }} />
           </div>
-          <div className="flex items-center justify-between text-2xs text-slate-400 tabular-nums">
+          <div className="flex items-center justify-between text-label text-fg-faint tabular-nums">
             {installDate
               ? <span>Installée le {fmtDate(installDate)}</span>
               : <span className="italic">Date d&apos;installation inconnue</span>}
-            <span className={cx('font-medium', dateTone(expiryDate) || 'text-slate-600')}>Expire le {fmtDate(expiryDate)}</span>
+            <span className={cx('font-medium', dateTone(expiryDate) || 'text-fg-secondary')}>Expire le {fmtDate(expiryDate)}</span>
           </div>
         </>
       ) : installDate ? (
-        <p className="text-2xs text-slate-400">
+        <p className="text-label text-fg-faint">
           Installée le {fmtDate(installDate)} · <span className="italic">date d&apos;expiration non renseignée dans Synchroteam</span>
         </p>
       ) : (
-        <p className="text-xs italic text-slate-400">Non renseigné</p>
+        <p className="text-caption italic text-fg-faint">Non renseigné</p>
       )}
     </div>
   )
@@ -263,41 +264,39 @@ export default async function ParcDetailPage({ params }: Props) {
   return (
     <PageContainer>
       {/* ── Fil d'Ariane ────────────────────────────────────────────────────── */}
-      <div className="mb-3 flex items-center gap-2 text-13 text-slate-500">
+      <div className="mb-3 flex items-center gap-2 text-body text-fg-muted">
         <BackButton label="Parc DAE" />
-        <span className="text-slate-300">/</span>
-        <span className="truncate font-medium text-slate-700">{d.serial_number ?? `Fiche ${d.id.slice(0, 8)}`}</span>
+        <span className="text-border-strong">/</span>
+        <span className="truncate font-medium text-fg-secondary">{d.serial_number ?? `Fiche ${d.id.slice(0, 8)}`}</span>
       </div>
 
       {/* ── En-tête ─────────────────────────────────────────────────────────── */}
       <Card className="mb-4">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand">
-            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-            </svg>
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-card bg-brand-soft text-brand">
+            <HeartPulse className="h-5 w-5" />
           </div>
 
           <div className="min-w-0 flex-1">
-            <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            <div className="mb-1 flex flex-wrap items-center gap-2 text-caption text-fg-muted">
               <DAEStatusBadge status={d.status} />
               {territory && <span>{territory.name}</span>}
               {d.status_reason && <span>· {d.status_reason}</span>}
             </div>
-            <h1 className="truncate text-lg font-semibold tracking-tight text-slate-900">
+            <h1 className="truncate text-lg font-bold tracking-tight text-fg">
               {[d.brand, d.model].filter(Boolean).join(' · ') || 'Modèle non renseigné'}
             </h1>
             {d.serial_number && (
               <p className="mt-1.5">
-                <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-13 text-slate-700">{d.serial_number}</span>
+                <Tag tone="neutral" size="md" className="font-mono">{d.serial_number}</Tag>
               </p>
             )}
           </div>
 
-          <div className="shrink-0 text-13 sm:text-right">
-            {client && <p className="font-semibold text-slate-800">{client.name}</p>}
-            {site && <p className="text-slate-600">{site.name}</p>}
-            {site?.city && <p className="text-xs text-slate-400">{site.city}</p>}
+          <div className="shrink-0 text-body sm:text-right">
+            {client && <p className="font-semibold text-fg">{client.name}</p>}
+            {site && <p className="text-fg-secondary">{site.name}</p>}
+            {site?.city && <p className="text-caption text-fg-faint">{site.city}</p>}
           </div>
         </div>
       </Card>
@@ -321,7 +320,7 @@ export default async function ParcDetailPage({ params }: Props) {
               </>
             )}
             {!d.battery_expiry && !d.electrodes_adult_expiry && (
-              <p className="py-2 text-center text-xs italic text-slate-400">Aucune date de consommable renseignée</p>
+              <p className="py-2 text-center text-caption italic text-fg-faint">Aucune date de consommable renseignée</p>
             )}
           </div>
         </Card>
@@ -333,7 +332,7 @@ export default async function ParcDetailPage({ params }: Props) {
               value={d.last_maintenance_date ? (
                 <span className="tabular-nums">
                   {fmtDate(d.last_maintenance_date)}
-                  {lastMaintDays !== null && <span className="ml-1.5 text-xs font-normal text-slate-400">il y a {Math.abs(lastMaintDays)} j</span>}
+                  {lastMaintDays !== null && <span className="ml-1.5 text-caption font-normal text-fg-faint">il y a {Math.abs(lastMaintDays)} j</span>}
                 </span>
               ) : null}
             />
@@ -343,7 +342,7 @@ export default async function ParcDetailPage({ params }: Props) {
             />
             <InfoRow label="Technicien" value={lastMaintTech} />
           </dl>
-          {ivs.length === 0 && <p className="mt-3 text-center text-xs italic text-slate-400">Aucune intervention enregistrée</p>}
+          {ivs.length === 0 && <p className="mt-3 text-center text-caption italic text-fg-faint">Aucune intervention enregistrée</p>}
         </Card>
 
         <Card title="Contrat et informations">
@@ -366,26 +365,21 @@ export default async function ParcDetailPage({ params }: Props) {
         <Card title="Localisation">
           {client && (
             <div className="mb-4">
-              <p className="mb-1 text-2xs font-medium uppercase tracking-wider text-slate-400">Client</p>
-              <p className="text-13 font-semibold text-slate-800">{client.name}</p>
-              {client.address && <p className="text-13 text-slate-500">{client.address}</p>}
-              {client.city && <p className="text-13 text-slate-500">{client.city}</p>}
+              <p className="mb-1 text-label font-bold uppercase tracking-wide text-fg-muted">Client</p>
+              <p className="text-body font-semibold text-fg">{client.name}</p>
+              {client.address && <p className="text-body text-fg-muted">{client.address}</p>}
+              {client.city && <p className="text-body text-fg-muted">{client.city}</p>}
               {(client.contact_phone || client.contact_email) && (
                 <div className="mt-2 flex flex-wrap gap-3">
                   {client.contact_phone && (
-                    <a href={`tel:${client.contact_phone}`} className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline">
-                      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 9.77 19.79 19.79 0 0 1 1.62 6.06 2 2 0 0 1 3.64 4h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 11.5a16 16 0 0 0 6 6l.92-.92a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z" />
-                      </svg>
+                    <a href={`tel:${client.contact_phone}`} className="inline-flex items-center gap-1.5 text-caption font-semibold text-brand hover:underline">
+                      <Phone className="h-3.5 w-3.5" />
                       {client.contact_phone}
                     </a>
                   )}
                   {client.contact_email && (
-                    <a href={`mailto:${client.contact_email}`} className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline">
-                      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-                        <polyline points="22,6 12,13 2,6" />
-                      </svg>
+                    <a href={`mailto:${client.contact_email}`} className="inline-flex items-center gap-1.5 text-caption font-semibold text-brand hover:underline">
+                      <Mail className="h-3.5 w-3.5" />
                       {client.contact_email}
                     </a>
                   )}
@@ -396,28 +390,28 @@ export default async function ParcDetailPage({ params }: Props) {
 
           {site && (
             <div>
-              <p className="mb-1 text-2xs font-medium uppercase tracking-wider text-slate-400">Site</p>
-              <p className="text-13 font-semibold text-slate-800">{site.name}</p>
-              {site.address && <p className="text-13 text-slate-500">{site.address}</p>}
-              {site.city && <p className="text-13 text-slate-500">{site.city}</p>}
+              <p className="mb-1 text-label font-bold uppercase tracking-wide text-fg-muted">Site</p>
+              <p className="text-body font-semibold text-fg">{site.name}</p>
+              {site.address && <p className="text-body text-fg-muted">{site.address}</p>}
+              {site.city && <p className="text-body text-fg-muted">{site.city}</p>}
               {hasGPS && (
-                <p className="mt-1.5 font-mono text-2xs text-slate-400 tabular-nums">
+                <p className="mt-1.5 font-mono text-label text-fg-faint tabular-nums">
                   {site.latitude?.toFixed(5)}, {site.longitude?.toFixed(5)}
                 </p>
               )}
             </div>
           )}
 
-          {!client && !site && <p className="text-xs italic text-slate-400">Aucune information de localisation</p>}
+          {!client && !site && <p className="text-caption italic text-fg-faint">Aucune information de localisation</p>}
         </Card>
 
-        <Card title="Carte" padded={false} bodyClassName="h-[280px] overflow-hidden rounded-b-lg">
+        <Card title="Carte" padded={false} bodyClassName="h-[280px] overflow-hidden rounded-b-card">
           {hasGPS ? (
             <DetailMap latitude={site!.latitude!} longitude={site!.longitude!} siteName={site?.name ?? null} status={d.status} />
           ) : (
             <EmptyState className="flex h-full flex-col items-center justify-center gap-1 py-0">
-              <span className="font-medium text-slate-500">Coordonnées GPS non disponibles</span>
-              <span className="text-xs">Le site n&apos;a pas de position enregistrée</span>
+              <span className="font-medium text-fg-muted">Coordonnées GPS non disponibles</span>
+              <span className="text-caption">Le site n&apos;a pas de position enregistrée</span>
             </EmptyState>
           )}
         </Card>
@@ -425,7 +419,7 @@ export default async function ParcDetailPage({ params }: Props) {
 
       {/* ── Historique des interventions ────────────────────────────────────── */}
       <Card
-        title={<>Historique des interventions{ivs.length > 0 && <span className="ml-1.5 font-normal text-slate-400 tabular-nums">({ivs.length})</span>}</>}
+        title={<>Historique des interventions{ivs.length > 0 && <span className="ml-1.5 font-normal text-fg-faint tabular-nums">({ivs.length})</span>}</>}
         padded={false}
       >
         {ivs.length === 0 ? (
@@ -452,19 +446,19 @@ export default async function ParcDetailPage({ params }: Props) {
 
                   return (
                     <tr key={iv.id} className={trClass}>
-                      <td className={cx(tdClass, 'whitespace-nowrap font-medium text-slate-800 tabular-nums')}>{fmtDate(dateRef)}</td>
+                      <td className={cx(tdClass, 'whitespace-nowrap font-medium text-fg tabular-nums')}>{fmtDate(dateRef)}</td>
                       <td className={cx(tdClass, 'whitespace-nowrap')}>
                         <Pill className={JOB_TYPE_CLASS[typeKey] ?? JOB_TYPE_CLASS.autre}>{JOB_TYPE_LABEL[typeKey] ?? typeKey}</Pill>
                       </td>
-                      <td className={cx(tdClass, 'whitespace-nowrap text-slate-700')}>{iv.technician_name ?? <span className="text-slate-300">—</span>}</td>
-                      <td className={cx(tdClass, 'whitespace-nowrap text-slate-500 tabular-nums')}>{durationLabel ?? <span className="text-slate-300">—</span>}</td>
+                      <td className={cx(tdClass, 'whitespace-nowrap text-fg-secondary')}>{iv.technician_name ?? <span className="text-border-strong">—</span>}</td>
+                      <td className={cx(tdClass, 'whitespace-nowrap text-fg-muted tabular-nums')}>{durationLabel ?? <span className="text-border-strong">—</span>}</td>
                       <td className={cx(tdClass, 'whitespace-nowrap')}>
                         <Pill className={JOB_STATUS_CLASS[statusKey] ?? JOB_STATUS_CLASS.planifie}>{JOB_STATUS_LABEL[statusKey] ?? statusKey}</Pill>
                       </td>
                       <td className={cx(tdClass, 'max-w-sm')}>
                         {iv.report
-                          ? <span className="block truncate text-xs text-slate-500" title={iv.report}>{iv.report}</span>
-                          : <span className="text-slate-300">—</span>}
+                          ? <span className="block truncate text-caption text-fg-muted" title={iv.report}>{iv.report}</span>
+                          : <span className="text-border-strong">—</span>}
                       </td>
                     </tr>
                   )

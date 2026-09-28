@@ -12,7 +12,8 @@ import {
   parseContratParam,
   parseAutreTypesParam,
 } from '@/lib/contract-groups'
-import { Chip, ChipGroup, cx } from '@/components/ui/primitives'
+import { ChevronDown, X } from 'lucide-react'
+import { Button, Chip, ChipGroup, cx } from '@/components/ui/primitives'
 
 interface Props {
   autreTypes: AutreType[]
@@ -116,12 +117,12 @@ export default function ContratFilterBar({ autreTypes }: Props) {
             <div key={code} className="group/tip relative">
               <Chip active={isActive} onClick={() => toggleFixed(code)}>{label}</Chip>
               <div className="pointer-events-none absolute left-0 top-full z-50 mt-2 hidden group-hover/tip:block">
-                <div className="w-max max-w-xs rounded-md bg-slate-900 px-3 py-2 text-white shadow-pop">
-                  <p className="mb-1 text-2xs font-medium uppercase tracking-wider text-slate-400">Valeurs incluses</p>
+                <div className="w-max max-w-xs rounded-control bg-fg px-3 py-2 text-white shadow-float">
+                  <p className="mb-1 text-label font-medium uppercase tracking-wider text-sidebar-fg-faint">Valeurs incluses</p>
                   <ul className="space-y-0.5">
                     {tooltip.map((v) => (
-                      <li key={v} className="flex items-center gap-1.5 text-xs text-slate-200">
-                        <span className="h-1 w-1 shrink-0 rounded-full bg-slate-500" />
+                      <li key={v} className="flex items-center gap-1.5 text-caption text-sidebar-fg">
+                        <span className="h-1 w-1 shrink-0 rounded-full bg-sidebar-fg-faint" />
                         {v}
                       </li>
                     ))}
@@ -144,60 +145,52 @@ export default function ContratFilterBar({ autreTypes }: Props) {
           >
             Autres
             {autrePartial && <span className="tabular-nums opacity-70">{nbSelected}/{autreTypes.length}</span>}
-            <svg
-              viewBox="0 0 24 24"
-              className={cx('h-3 w-3 transition-transform', showMenu && 'rotate-180')}
-              fill="none" stroke="currentColor" strokeWidth="2.5"
-            >
-              <path d="M6 9l6 6 6-6"/>
-            </svg>
+            <ChevronDown className={cx('h-3.5 w-3.5 transition-transform', showMenu && 'rotate-180')} />
           </Chip>
 
           {showMenu && autreIsActive && (
-            <div className="absolute left-0 top-full z-50 mt-2 w-72 rounded-lg border border-slate-200 bg-white shadow-pop">
-              <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
-                <span className="text-2xs font-medium uppercase tracking-wider text-slate-400">
+            <div className="absolute left-0 top-full z-50 mt-2 w-72 rounded-card border border-border bg-surface shadow-float">
+              <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2">
+                <span className="text-label font-bold uppercase tracking-wide text-fg-muted">
                   Types inclus dans « Autres »
                 </span>
-                <div className="flex items-center gap-2 text-2xs">
-                  <button type="button" onClick={() => toggleAllAutreTypes(true)} className="font-medium text-slate-700 hover:underline">Tout</button>
-                  <span className="text-slate-300">·</span>
-                  <button type="button" onClick={() => toggleAllAutreTypes(false)} className="text-slate-500 hover:underline">Aucun</button>
+                <div className="flex items-center gap-2 text-caption">
+                  <button type="button" onClick={() => toggleAllAutreTypes(true)} className="font-semibold text-brand hover:underline">Tout</button>
+                  <span className="text-border-strong">·</span>
+                  <button type="button" onClick={() => toggleAllAutreTypes(false)} className="font-semibold text-fg-muted hover:underline">Aucun</button>
                 </div>
               </div>
 
               <div className="scrollbar-thin max-h-64 overflow-y-auto py-1">
                 {autreTypes.length === 0 ? (
-                  <p className="px-3 py-4 text-center text-xs text-slate-400">Aucun type disponible</p>
+                  <p className="px-3 py-4 text-center text-caption text-fg-faint">Aucun type disponible</p>
                 ) : (
                   autreTypes.map(({ type, count }) => {
                     const checked = !autreTypesSelected || autreTypesSelected.includes(type)
                     const isSansContrat = type === SANS_CONTRAT_SENTINEL
                     return (
-                      <label key={type} className="group flex cursor-pointer items-center gap-2.5 px-3 py-1.5 hover:bg-slate-50">
+                      <label key={type} className="group flex cursor-pointer items-center gap-2.5 px-3 py-1.5 hover:bg-surface-muted">
                         <input
                           type="checkbox"
                           checked={checked}
                           onChange={() => toggleAutreType(type)}
-                          className="h-3.5 w-3.5 rounded border-slate-300 text-brand focus:ring-brand/40"
+                          className="h-3.5 w-3.5 rounded border-border-strong text-brand focus:ring-brand/40"
                         />
-                        <span className={cx('flex-1 text-xs leading-tight group-hover:text-slate-900', isSansContrat ? 'italic text-slate-400' : 'text-slate-700')}>
+                        <span className={cx('flex-1 text-caption leading-tight group-hover:text-fg', isSansContrat ? 'italic text-fg-faint' : 'text-fg-secondary')}>
                           {isSansContrat ? 'Sans contrat' : type}
                         </span>
-                        <span className="shrink-0 text-2xs text-slate-400 tabular-nums">{count}</span>
+                        <span className="shrink-0 text-label text-fg-faint tabular-nums">{count}</span>
                       </label>
                     )
                   })
                 )}
               </div>
 
-              <div className="flex items-center justify-between border-t border-slate-100 px-3 py-2">
-                <button type="button" onClick={() => { toggleAutre(); setShowMenu(false) }} className="text-2xs text-red-600 hover:underline">
+              <div className="flex items-center justify-between border-t border-border-subtle px-3 py-2">
+                <button type="button" onClick={() => { toggleAutre(); setShowMenu(false) }} className="text-caption font-semibold text-danger hover:underline">
                   Retirer « Autres »
                 </button>
-                <button type="button" onClick={() => setShowMenu(false)} className="rounded-md bg-slate-900 px-2.5 py-1 text-2xs font-medium text-white hover:bg-slate-800">
-                  Fermer
-                </button>
+                <Button variant="secondary" size="xs" onClick={() => setShowMenu(false)}>Fermer</Button>
               </div>
             </div>
           )}
@@ -206,15 +199,9 @@ export default function ContratFilterBar({ autreTypes }: Props) {
 
       {/* Réinitialisation */}
       {!showAll && (
-        <button
-          type="button"
-          onClick={() => { navigate([]); setShowMenu(false) }}
-          className="inline-flex h-6 items-center gap-1 rounded px-1.5 text-xs text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
-          title="Réinitialiser le filtre contrat"
-        >
-          <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        <Button variant="ghost" size="xs" icon={X} onClick={() => { navigate([]); setShowMenu(false) }} title="Réinitialiser le filtre contrat">
           Tout
-        </button>
+        </Button>
       )}
     </div>
   )

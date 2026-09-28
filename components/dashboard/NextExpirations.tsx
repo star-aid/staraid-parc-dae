@@ -1,6 +1,7 @@
 import Link from 'next/link'
+import { CalendarCheck } from 'lucide-react'
 import type { ParkSummary, TerritoryCode } from '@/types'
-import { EmptyState, tableClass, tbodyClass, tdClass, thClass, theadClass, trClass } from '@/components/ui/primitives'
+import { EmptyState, Tag, tableClass, tbodyClass, tdClass, thClass, theadClass, trClass, type TagTone } from '@/components/ui/primitives'
 
 type Expiration = ParkSummary['next_expirations'][number]
 
@@ -12,14 +13,12 @@ const TERRITORY_LABELS: Record<TerritoryCode, string> = {
 
 const OVERDUE_REASONS = new Set(['Maintenance échue', 'Batterie expirée', 'Électrodes expirées'])
 
-// Pastille de date : rouge si dépassée ou sous 7 jours, orange sous 30 jours, sinon verte
-function urgencyClass(dateStr: string) {
-  const d = new Date(dateStr)
-  const now = new Date()
-  const days = (d.getTime() - now.getTime()) / 86_400_000
-  if (days <= 7)  return 'bg-red-50 text-red-700 ring-red-600/20'
-  if (days <= 30) return 'bg-amber-50 text-amber-800 ring-amber-500/30'
-  return 'bg-emerald-50 text-emerald-700 ring-emerald-600/20'
+// Pastille de date : rouge si dépassée ou sous 7 jours, ambre sous 30 jours, sinon verte
+function urgencyTone(dateStr: string): TagTone {
+  const days = (new Date(dateStr).getTime() - Date.now()) / 86_400_000
+  if (days <= 7)  return 'danger'
+  if (days <= 30) return 'warning'
+  return 'success'
 }
 
 function formatDate(s: string) {
@@ -28,7 +27,7 @@ function formatDate(s: string) {
 
 export default function NextExpirations({ items }: { items: Expiration[] }) {
   if (items.length === 0) {
-    return <EmptyState className="py-8">Aucune échéance à venir</EmptyState>
+    return <EmptyState compact icon={CalendarCheck} title="Aucune échéance à venir" description="Aucun DAE en vigilance ou critique sur ce périmètre." />
   }
 
   return (
@@ -50,24 +49,22 @@ export default function NextExpirations({ items }: { items: Expiration[] }) {
                 <Link
                   prefetch={false}
                   href={`/parc/${item.id}`}
-                  className="font-mono text-xs font-medium text-slate-800 hover:text-brand hover:underline"
+                  className="font-mono text-caption font-semibold text-fg hover:text-brand hover:underline"
                 >
                   {item.serial_number ?? item.model ?? item.id.slice(0, 8)}
                 </Link>
               </td>
-              <td className={`${tdClass} max-w-[180px] truncate text-slate-600`}>{item.client_name ?? '—'}</td>
-              <td className={`${tdClass} text-xs text-slate-500`}>
+              <td className={`${tdClass} max-w-[180px] truncate`}>{item.client_name ?? '—'}</td>
+              <td className={`${tdClass} text-caption text-fg-muted`}>
                 {item.territory_code ? (TERRITORY_LABELS[item.territory_code] ?? item.territory_code) : '—'}
               </td>
               <td className={tdClass}>
-                <span className={`text-xs font-medium ${OVERDUE_REASONS.has(item.reason) ? 'text-red-700' : 'text-slate-600'}`}>
+                <span className={`text-caption font-semibold ${OVERDUE_REASONS.has(item.reason) ? 'text-danger' : 'text-fg-secondary'}`}>
                   {item.reason}
                 </span>
               </td>
               <td className={`${tdClass} text-right`}>
-                <span className={`inline-flex whitespace-nowrap rounded-md px-1.5 py-0.5 text-2xs font-medium ring-1 ring-inset tabular-nums ${urgencyClass(item.next_date)}`}>
-                  {formatDate(item.next_date)}
-                </span>
+                <Tag tone={urgencyTone(item.next_date)} className="tabular-nums">{formatDate(item.next_date)}</Tag>
               </td>
             </tr>
           ))}

@@ -1,6 +1,7 @@
 'use client'
 import { useState, useRef, useEffect, useCallback, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { ChevronDown, Search, X } from 'lucide-react'
 import { cx } from '@/components/ui/primitives'
 
 export type ClientOption = { id: string; name: string }
@@ -68,13 +69,11 @@ export default function ClientFilterBar({ clients }: Props) {
       <div
         onClick={() => inputRef.current?.focus()}
         className={cx(
-          'flex h-7 cursor-text items-center gap-1.5 rounded-md border bg-white pl-2 pr-1 shadow-card transition-colors',
-          selectedClient ? 'border-slate-900' : 'border-slate-200 hover:border-slate-300'
+          'flex h-8 cursor-text items-center gap-1.5 rounded-control border bg-surface pl-2.5 pr-1 transition-colors',
+          selectedClient ? 'border-brand ring-[3px] ring-brand/10' : 'border-border hover:border-border-strong focus-within:border-brand focus-within:ring-[3px] focus-within:ring-brand/10'
         )}
       >
-        <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0 text-slate-400" fill="none" stroke="currentColor" strokeWidth="2">
-          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-        </svg>
+        <Search className={cx('h-3.5 w-3.5 shrink-0', selectedClient ? 'text-brand' : 'text-fg-faint')} />
 
         <input
           ref={inputRef}
@@ -86,10 +85,10 @@ export default function ClientFilterBar({ clients }: Props) {
           onBlur={() => { setTimeout(() => { setOpen(false); setQuery('') }, 150) }}
           aria-label="Filtrer par client"
           className={cx(
-            'w-44 bg-transparent text-xs outline-none',
+            'w-44 bg-transparent text-caption outline-none',
             selectedClient && !open
-              ? 'font-medium text-slate-900 placeholder:text-slate-900'
-              : 'text-slate-700 placeholder:text-slate-400'
+              ? 'font-semibold text-fg placeholder:text-fg'
+              : 'text-fg placeholder:text-fg-faint'
           )}
         />
 
@@ -97,25 +96,21 @@ export default function ClientFilterBar({ clients }: Props) {
           <button
             type="button"
             onClick={clear}
-            className="shrink-0 rounded p-0.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-red-600"
+            className="shrink-0 rounded-[4px] p-0.5 text-fg-faint transition-colors hover:bg-surface-sunken hover:text-danger"
             title="Retirer le filtre client"
             aria-label="Retirer le filtre client"
           >
-            <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <path d="M18 6 6 18M6 6l12 12"/>
-            </svg>
+            <X className="h-3.5 w-3.5" />
           </button>
         ) : (
-          <svg viewBox="0 0 24 24" className="mr-0.5 h-3 w-3 shrink-0 text-slate-300" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="m6 9 6 6 6-6"/>
-          </svg>
+          <ChevronDown className="mr-0.5 h-3.5 w-3.5 shrink-0 text-fg-faint" />
         )}
       </div>
 
       {open && (
-        <div className="scrollbar-thin absolute left-0 top-full z-50 mt-1.5 max-h-64 w-72 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-pop">
+        <div className="scrollbar-thin absolute left-0 top-full z-50 mt-1.5 max-h-64 w-72 overflow-y-auto rounded-card border border-border bg-surface py-1 shadow-float">
           {displayed.length === 0 ? (
-            <p className="px-3 py-3 text-center text-xs text-slate-400">Aucun client trouvé</p>
+            <p className="px-3 py-3 text-center text-caption text-fg-faint">Aucun client trouvé</p>
           ) : (
             displayed.map((client) => (
               <button
@@ -123,8 +118,8 @@ export default function ClientFilterBar({ clients }: Props) {
                 type="button"
                 onClick={() => select(client)}
                 className={cx(
-                  'w-full px-3 py-1.5 text-left text-xs transition-colors',
-                  client.id === selectedId ? 'bg-slate-100 font-medium text-slate-900' : 'text-slate-700 hover:bg-slate-50'
+                  'w-full px-3 py-1.5 text-left text-caption transition-colors',
+                  client.id === selectedId ? 'bg-brand/5 font-semibold text-brand' : 'text-fg-secondary hover:bg-surface-muted hover:text-fg'
                 )}
               >
                 {client.name}
@@ -132,7 +127,7 @@ export default function ClientFilterBar({ clients }: Props) {
             ))
           )}
           {overflow && (
-            <p className="border-t border-slate-100 px-3 py-1.5 text-center text-2xs text-slate-400">
+            <p className="border-t border-border-subtle px-3 py-1.5 text-center text-label text-fg-faint">
               {matchingClients.length - 20} autres, affinez la recherche
             </p>
           )}

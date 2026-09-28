@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { AlertCircle, AlertTriangle, CheckCircle2, HeartPulse, HelpCircle, type LucideIcon } from 'lucide-react'
 import { Suspense } from 'react'
 import dynamicImport from 'next/dynamic'
 import { createServiceClient } from '@/lib/supabase'
@@ -7,7 +7,7 @@ import NextExpirations from '@/components/dashboard/NextExpirations'
 import Link from 'next/link'
 import { parseContratParam, parseAutreTypesParam, buildContratOrFilter, buildContratSqlParams, type ContratSqlParams } from '@/lib/contract-groups'
 import TerritoryFilterBar from '@/components/dashboard/TerritoryFilterBar'
-import { Card, EmptyState, LinkButton, PageContainer, PageHeader } from '@/components/ui/primitives'
+import { Card, EmptyState, LinkButton, Notice, PageContainer, PageHeader } from '@/components/ui/primitives'
 import { createSessionClient } from '@/lib/supabase-server'
 import { getSessionUser } from '@/lib/auth/session'
 
@@ -205,22 +205,24 @@ function pct(n: number, total: number) {
 
 // ─── Tuile indicateur ─────────────────────────────────────────────────────────
 
-type Accent = 'brand' | 'emerald' | 'amber' | 'red' | 'slate'
+type Accent = 'brand' | 'success' | 'warning' | 'danger' | 'neutral'
 
+// La couleur d'identité vit dans la tuile d'icône ; la valeur reste en encre,
+// sauf quand elle signale un état (vigilance, critique).
 const ACCENT_TILE: Record<Accent, string> = {
   brand:   'bg-brand-soft text-brand',
-  emerald: 'bg-emerald-50 text-emerald-600',
-  amber:   'bg-amber-50 text-amber-600',
-  red:     'bg-red-50 text-red-600',
-  slate:   'bg-slate-100 text-slate-500',
+  success: 'bg-success-soft text-success',
+  warning: 'bg-warning-soft text-warning',
+  danger:  'bg-danger-soft text-danger',
+  neutral: 'bg-surface-sunken text-fg-muted',
 }
 
 const ACCENT_VALUE: Record<Accent, string> = {
-  brand:   'text-slate-900',
-  emerald: 'text-emerald-700',
-  amber:   'text-amber-700',
-  red:     'text-red-700',
-  slate:   'text-slate-700',
+  brand:   'text-fg',
+  success: 'text-fg',
+  warning: 'text-warning',
+  danger:  'text-danger',
+  neutral: 'text-fg-secondary',
 }
 
 interface KPICardProps {
@@ -228,28 +230,30 @@ interface KPICardProps {
   value: string | number
   sub?: string
   accent: Accent
-  icon: ReactNode
+  icon: LucideIcon
   /** Cible au clic (liste filtrée correspondante) */
   href?: string
 }
 
-function KPICard({ label, value, sub, accent, icon, href }: KPICardProps) {
+function KPICard({ label, value, sub, accent, icon: Icon, href }: KPICardProps) {
   const body = (
     <>
       <div className="flex items-center justify-between gap-2">
-        <p className="text-2xs font-medium uppercase tracking-wider text-slate-500">{label}</p>
-        <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${ACCENT_TILE[accent]}`}>{icon}</span>
+        <p className="text-label font-bold uppercase tracking-wide text-fg-muted">{label}</p>
+        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-control ${ACCENT_TILE[accent]}`}>
+          <Icon className="h-4 w-4" />
+        </span>
       </div>
-      <p className={`mt-2 text-2xl font-semibold leading-none tracking-tight tabular-nums ${ACCENT_VALUE[accent]}`}>
+      <p className={`mt-3 text-2xl font-extrabold leading-none tracking-tight tabular-nums ${ACCENT_VALUE[accent]}`}>
         {typeof value === 'number' ? value.toLocaleString('fr-FR') : value}
       </p>
-      {sub && <p className="mt-1.5 truncate text-xs text-slate-500">{sub}</p>}
+      {sub && <p className="mt-1.5 truncate text-caption text-fg-muted">{sub}</p>}
     </>
   )
-  const base = 'block rounded-lg border border-slate-200 bg-white p-4 shadow-card'
+  const base = 'block rounded-card border border-border bg-surface p-4 shadow-card'
   if (!href) return <div className={base}>{body}</div>
   return (
-    <Link href={href} className={`${base} transition-colors hover:border-slate-300 hover:bg-slate-50/60`}>
+    <Link href={href} className={`${base} transition-colors hover:border-border-strong`}>
       {body}
     </Link>
   )
@@ -293,7 +297,7 @@ export default async function DashboardPage({
         title="Tableau de bord"
         subtitle={
           selectedClientName
-            ? <>Client : <span className="font-medium text-slate-700">{selectedClientName}</span></>
+            ? <>Client : <span className="font-medium text-fg-secondary">{selectedClientName}</span></>
             : 'Vue d’ensemble du parc DAE, données de la dernière synchronisation'
         }
         actions={
@@ -304,10 +308,10 @@ export default async function DashboardPage({
       />
 
       {dataError && (
-        <div role="alert" className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-2.5 text-13 text-red-700">
+        <Notice tone="danger" className="mb-4">
           Données indisponibles : {dataError}. Si le message évoque une fonction introuvable, appliquer la migration
-          {' '}<code className="font-mono text-xs">20260928000013_dashboard_aggregates.sql</code> (npm run db:push).
-        </div>
+          {' '}<code className="font-mono">20260928000013_dashboard_aggregates.sql</code> (npm run db:push).
+        </Notice>
       )}
 
       {/* Indicateurs */}
@@ -318,50 +322,31 @@ export default async function DashboardPage({
           sub={scopeLabel}
           accent="brand"
           href={actif !== 'actif' ? `/parc?actif=${actif}` : '/parc'}
-          icon={
-            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
-            </svg>
-          }
+          icon={HeartPulse}
         />
         <KPICard
           label="Conformes"
           value={conforme || '—'}
           sub={total ? `${pct(conforme, total)} du parc` : undefined}
-          accent="emerald"
+          accent="success"
           href={`/parc?statut=conforme${actifParam}`}
-          icon={
-            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
-            </svg>
-          }
+          icon={CheckCircle2}
         />
         <KPICard
           label="Vigilance"
           value={vigilance || '—'}
           sub={vigilance > 0 ? 'échéance sous 30 jours' : 'aucune échéance proche'}
-          accent="amber"
+          accent="warning"
           href={`/parc?statut=vigilance${actifParam}`}
-          icon={
-            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-              <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-            </svg>
-          }
+          icon={AlertTriangle}
         />
         <KPICard
           label="Critiques"
           value={critique || '—'}
           sub={critique > 0 ? 'intervention urgente' : 'aucun DAE critique'}
-          accent={critique > 0 ? 'red' : 'slate'}
+          accent={critique > 0 ? 'danger' : 'neutral'}
           href="/alertes"
-          icon={
-            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <circle cx="12" cy="12" r="10"/>
-              <line x1="12" y1="8" x2="12" y2="12"/>
-              <line x1="12" y1="16" x2="12.01" y2="16"/>
-            </svg>
-          }
+          icon={AlertCircle}
         />
       </div>
 
@@ -371,7 +356,7 @@ export default async function DashboardPage({
           {total > 0 ? (
             <StatusDonut conforme={conforme} vigilance={vigilance} critique={critique} inconnu={inconnu} total={total} />
           ) : (
-            <EmptyState className="flex h-44 items-center justify-center py-0">Aucune donnée</EmptyState>
+            <EmptyState compact className="h-44">Aucune donnée</EmptyState>
           )}
         </Card>
         <Card title="DAE par territoire et statut">
@@ -394,18 +379,10 @@ export default async function DashboardPage({
 
       {/* Données incomplètes — visible admins et maintenance uniquement */}
       {inconnu > 0 && (userRole === 'administrateur' || userRole === 'maintenance') && (
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-13 text-slate-600 shadow-card">
-          <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-slate-400" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="12" cy="12" r="10"/>
-            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
-            <line x1="12" y1="17" x2="12.01" y2="17"/>
-          </svg>
-          <span className="flex-1 min-w-[200px]">
-            <strong className="font-semibold text-slate-800 tabular-nums">{inconnu.toLocaleString('fr-FR')} DAE</strong> ont un statut
-            inconnu : batterie, électrodes ou maintenance non renseignées dans Synchroteam.
-          </span>
-          <LinkButton href="/alertes?statut=inconnu" variant="secondary" size="sm">Voir la liste</LinkButton>
-        </div>
+        <Notice tone="neutral" icon={HelpCircle} actions={<LinkButton href="/alertes?statut=inconnu" variant="secondary" size="xs">Voir la liste</LinkButton>}>
+          <strong className="font-semibold text-fg tabular-nums">{inconnu.toLocaleString('fr-FR')} DAE</strong> ont un statut
+          inconnu : batterie, électrodes ou maintenance non renseignées dans Synchroteam.
+        </Notice>
       )}
     </PageContainer>
   )

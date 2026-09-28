@@ -2,12 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Thème clair uniquement. Le gabarit Next.js d'origine basculait --foreground en gris
-   clair quand le système est en mode sombre : tout texte sans couleur Tailwind explicite
-   devenait illisible sur les fonds blancs (tableaux, champs de connexion). */
+/* Thème clair uniquement (les tokens sont dans tailwind.config.ts). Le gabarit
+   Next.js d'origine basculait le texte en gris clair en mode sombre système,
+   ce qui rendait les tableaux illisibles : on force le clair. */
 :root {
-  --background: #f8fafc; /* slate-50 : fond de l'application */
-  --foreground: #0f172a; /* slate-900 */
+  --background: #f4f5f8; /* surface-muted : fond de page */
+  --foreground: #171921; /* fg */
   color-scheme: light;
 }
 
@@ -21,17 +21,22 @@ body {
   /* Geist (chargée par next/font dans app/layout.tsx) ; la variable est posée sur <body> */
   font-family: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
   font-feature-settings: "cv11", "ss01"; /* chiffres et glyphes Geist plus lisibles */
+  /* Chiffres à largeur fixe partout : compteurs, dates et heures restent alignés */
+  font-variant-numeric: tabular-nums;
 }
 
-/* Chiffres alignés dans tout ce qui ressemble à une donnée */
-table, .tabular {
-  font-variant-numeric: tabular-nums;
+/* Les navigateurs appliquent la flèche aux boutons et aux listes déroulantes :
+   la main sur tout ce qui est cliquable, une fois pour toutes. */
+button:not(:disabled),
+select:not(:disabled),
+[role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
 }
 
 /* Barres de défilement discrètes (zones scrollables internes) */
 .scrollbar-thin {
   scrollbar-width: thin;
-  scrollbar-color: rgb(203 213 225) transparent;
+  scrollbar-color: #c2c6d0 transparent;
 }
 
 @layer utilities {
@@ -40,10 +45,10 @@ table, .tabular {
   }
 }
 
-/* Fenêtres d'information Leaflet : même rayon et même ombre que les cartes de l'interface */
+/* Fenêtres d'information Leaflet : même rayon et même ombre que les cartes */
 .leaflet-popup-content-wrapper {
-  border-radius: 8px;
-  box-shadow: 0 8px 24px -8px rgb(15 23 42 / 0.25), 0 0 0 1px rgb(15 23 42 / 0.06);
+  border-radius: 0.75rem;
+  box-shadow: 0 8px 24px rgb(15 18 25 / 0.1), 0 0 0 1px #e2e4ea;
 }
 .leaflet-popup-content {
   margin: 10px 12px;

@@ -3,9 +3,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import BackButton from '@/components/BackButton'
+import { Download, ExternalLink, Loader2, RefreshCw, Search, ShieldCheck, Upload } from 'lucide-react'
 import {
-  Button, Card, EmptyState, PageContainer, PageHeader, Tabs, buttonClass, cx, inputClass, selectClass,
-  tableClass, tableWrapClass, tbodyClass, tdClass, thClass, theadClass, trClass,
+  Button, Card, EmptyState, Notice, PageContainer, PageHeader, Select, Tabs, Tag, buttonClass, cx, inputClass,
+  tableClass, tableFooterClass, tableWrapClass, tbodyClass, tdClass, thClass, theadClass, trClass, type TagTone,
 } from '@/components/ui/primitives'
 import {
   ANOMALY_LABELS,
@@ -56,12 +57,24 @@ const SOURCE_LABEL: Record<GidCandidate['source'], string> = {
   geodae_api: 'API exploitants Géo’DAE',
 }
 
-const ANOMALY_CLASS: Record<AnomalyType, string> = {
-  absent_geodae:             'bg-red-50 text-red-700 ring-red-600/20',
-  ambigu:                    'bg-amber-50 text-amber-800 ring-amber-500/30',
-  erreur_recherche:          'bg-slate-100 text-slate-600 ring-slate-300',
-  divergence_id:             'bg-orange-50 text-orange-700 ring-orange-600/20',
-  non_reference_synchroteam: 'bg-blue-50 text-blue-700 ring-blue-600/20',
+// Ton de pastille par type d'anomalie (mêmes couleurs sémantiques que le reste de l'application)
+const ANOMALY_TONE: Record<AnomalyType, TagTone> = {
+  absent_geodae:             'danger',
+  ambigu:                    'warning',
+  erreur_recherche:          'neutral',
+  divergence_id:             'brand',
+  non_reference_synchroteam: 'info',
+}
+
+// Même palette, pour les pastilles cliquables (filtres par type)
+const TONE_CHIP: Record<TagTone, string> = {
+  neutral:  'bg-surface-sunken text-fg-secondary',
+  brand:    'bg-brand/10 text-brand',
+  success:  'bg-success-soft text-success',
+  warning:  'bg-warning-soft text-warning',
+  danger:   'bg-danger-soft text-danger',
+  info:     'bg-info-soft text-info',
+  inverted: 'bg-white/15 text-white',
 }
 
 function rowKey(r: LocationDae) {
@@ -158,29 +171,11 @@ function fmtDate(iso: string): string {
 }
 
 function ExternalIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-3 w-3 text-slate-400" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
-    </svg>
-  )
+  return <ExternalLink className="h-3 w-3 text-fg-faint" aria-hidden />
 }
 
 function SpinnerIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={cx('h-3.5 w-3.5 animate-spin', className)} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden>
-      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-    </svg>
-  )
-}
-
-/** Icône « actualiser » fixe ; le SpinnerIcon la remplace pendant un chargement */
-function RefreshIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={cx('h-3.5 w-3.5', className)} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
-      <path d="M23 4v6h-6" /><path d="M1 20v-6h6" />
-      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-    </svg>
-  )
+  return <Loader2 className={cx('h-3.5 w-3.5 animate-spin', className)} aria-hidden />
 }
 
 /** Lien vers la fiche du DAE sur le portail Géo'DAE */
@@ -191,7 +186,7 @@ function GidLink({ gid, className }: { gid: string; className?: string }) {
       target="_blank"
       rel="noopener noreferrer"
       title="Ouvrir la fiche sur le portail Géo'DAE (connexion au portail requise)"
-      className={cx('inline-flex items-center gap-1 rounded font-mono text-xs hover:text-brand hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40', className)}
+      className={cx('inline-flex items-center gap-1 rounded font-mono text-caption hover:text-brand hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40', className)}
     >
       {gid}
       <ExternalIcon />
@@ -209,15 +204,15 @@ function WriteControls({ gid, writeback, compact, onRequest, onConfirm, onCancel
   onConfirm: () => void
   onCancel: () => void
 }) {
-  const small = compact ? 'h-5 px-1.5 text-2xs' : undefined
+  const small = compact ? 'h-5 px-1.5 text-label' : undefined
   if (writeback && writeback.gid === gid) {
     if (writeback.status === 'writing') {
-      return <span className="inline-flex items-center gap-1 text-2xs text-slate-500"><SpinnerIcon className="h-3 w-3" />Report dans Synchroteam…</span>
+      return <span className="inline-flex items-center gap-1 text-label text-fg-muted"><SpinnerIcon className="h-3 w-3" />Report dans Synchroteam…</span>
     }
     if (writeback.status === 'confirm') {
       return (
         <span className="inline-flex flex-wrap items-center gap-1">
-          <span className="text-2xs font-medium text-slate-700">Écrire {gid} dans Synchroteam ?</span>
+          <span className="text-label font-medium text-fg-secondary">Écrire {gid} dans Synchroteam ?</span>
           <Button variant="primary" size="sm" onClick={onConfirm} className={small}>Confirmer</Button>
           <Button variant="ghost" size="sm" onClick={onCancel} className={small}>Annuler</Button>
         </span>
@@ -225,7 +220,7 @@ function WriteControls({ gid, writeback, compact, onRequest, onConfirm, onCancel
     }
     if (writeback.status === 'error') {
       return (
-        <span className="inline-flex max-w-[340px] items-center gap-1 text-2xs text-red-700">
+        <span className="inline-flex max-w-[340px] items-center gap-1 text-label text-danger">
           <span className="truncate" title={writeback.message}>Échec : {writeback.message}</span>
           <Button variant="ghost" size="sm" onClick={() => onRequest(gid)} className={small}>Réessayer</Button>
         </span>
@@ -234,15 +229,13 @@ function WriteControls({ gid, writeback, compact, onRequest, onConfirm, onCancel
   }
   return (
     <Button
-      variant={compact ? 'ghost' : 'secondary'}
-      size="sm"
+      variant={compact ? 'ghost' : 'soft'}
+      size={compact ? 'xs' : 'sm'}
+      icon={Upload}
       onClick={() => onRequest(gid)}
       title="Écrire cet identifiant dans le champ « Identifiant Géo'DAE » de l'équipement Synchroteam (après confirmation)"
       className={small}
     >
-      <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
-      </svg>
       Reporter dans Synchroteam
     </Button>
   )
@@ -263,17 +256,13 @@ function MissingGidCell({
   onWriteConfirm: () => void
   onWriteCancel: () => void
 }) {
-  const missingPill = (
-    <span className="inline-flex rounded-md bg-amber-50 px-1.5 py-0.5 text-2xs font-medium text-amber-800 ring-1 ring-inset ring-amber-500/30">
-      à renseigner
-    </span>
-  )
+  const missingPill = <Tag tone="warning">à renseigner</Tag>
 
   if (!row.serial_number) {
     return (
       <div className="flex flex-col gap-0.5">
         {missingPill}
-        <span className="text-2xs italic text-slate-400">n° de série absent, recherche impossible</span>
+        <span className="text-label italic text-fg-faint">n° de série absent, recherche impossible</span>
       </div>
     )
   }
@@ -282,8 +271,7 @@ function MissingGidCell({
     return (
       <div className="flex items-center gap-2">
         {missingPill}
-        <Button variant="ghost" size="sm" onClick={onLookup} title="Chercher l’identifiant Géo’DAE à partir du n° de série">
-          <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <Button variant="ghost" size="xs" icon={Search} onClick={onLookup} title="Chercher l’identifiant Géo’DAE à partir du n° de série">
           Rechercher
         </Button>
       </div>
@@ -291,12 +279,12 @@ function MissingGidCell({
   }
 
   if (state.status === 'loading') {
-    return <span className="inline-flex items-center gap-1.5 text-xs text-slate-500"><SpinnerIcon />Recherche…</span>
+    return <span className="inline-flex items-center gap-1.5 text-caption text-fg-muted"><SpinnerIcon />Recherche…</span>
   }
 
   // Provenance du résultat quand il vient de la base (contrôle antérieur)
   const checked = state.checked_at ? (
-    <span className="text-2xs text-slate-400">
+    <span className="text-label text-fg-faint">
       Contrôlé le {fmtDateTime(state.checked_at)}{state.checked_by ? ` par ${state.checked_by}` : ''}
     </span>
   ) : null
@@ -305,7 +293,7 @@ function MissingGidCell({
     return (
       <div className="flex flex-col gap-0.5">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-red-700">Erreur : {state.message}</span>
+          <span className="text-caption text-danger">Erreur : {state.message}</span>
           <Button variant="ghost" size="sm" onClick={onLookup}>Réessayer</Button>
         </div>
         {checked}
@@ -320,7 +308,7 @@ function MissingGidCell({
     return (
       <div className="flex flex-col gap-0.5">
         <div className="flex items-center gap-2">
-          <span className="max-w-[320px] truncate text-xs text-red-700" title={sourcesFailureMessage(state.result)}>Sources injoignables</span>
+          <span className="max-w-[320px] truncate text-caption text-danger" title={sourcesFailureMessage(state.result)}>Sources injoignables</span>
           <Button variant="ghost" size="sm" onClick={onLookup}>Réessayer</Button>
         </div>
         {checked}
@@ -332,9 +320,7 @@ function MissingGidCell({
     return (
       <div className="flex flex-col gap-0.5">
         <div className="flex items-center gap-2">
-          <span className="inline-flex rounded-md bg-red-50 px-1.5 py-0.5 text-2xs font-medium text-red-700 ring-1 ring-inset ring-red-600/20">
-            Introuvable dans Géo&apos;DAE
-          </span>
+          <Tag tone="danger">Introuvable dans Géo&apos;DAE</Tag>
           <Button variant="ghost" size="sm" onClick={onLookup} title="Relancer la recherche">Réessayer</Button>
         </div>
         {checked}
@@ -347,17 +333,17 @@ function MissingGidCell({
     return (
       <div className="flex flex-col gap-0.5">
         <div className="flex flex-wrap items-center gap-1.5">
-          <GidLink gid={c.gid} className="font-semibold text-emerald-700" />
-          <Button variant="ghost" size="sm" onClick={() => onCopy(c.gid)} title="Copier l’identifiant" className={copied ? 'text-emerald-700' : undefined}>
+          <GidLink gid={c.gid} className="font-semibold text-success" />
+          <Button variant="ghost" size="sm" onClick={() => onCopy(c.gid)} title="Copier l’identifiant" className={copied ? 'text-success' : undefined}>
             {copied ? 'Copié' : 'Copier'}
           </Button>
           <WriteControls gid={c.gid} writeback={writeback} onRequest={onWriteRequest} onConfirm={onWriteConfirm} onCancel={onWriteCancel} />
         </div>
-        <span className="max-w-[280px] truncate text-2xs text-slate-500" title={c.nom ?? undefined}>
+        <span className="max-w-[280px] truncate text-label text-fg-muted" title={c.nom ?? undefined}>
           {c.nom ?? 'Sans nom'} · {SOURCE_LABEL[c.source]}
         </span>
         {c.etat_fonct && c.etat_fonct !== 'En fonctionnement' && (
-          <span className="text-2xs font-medium text-amber-700">Déclaré « {c.etat_fonct} »</span>
+          <span className="text-label font-medium text-warning">Déclaré « {c.etat_fonct} »</span>
         )}
         {checked}
       </div>
@@ -366,12 +352,12 @@ function MissingGidCell({
 
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-2xs font-medium text-amber-700">{candidates.length} correspondances, à trancher</span>
+      <span className="text-label font-medium text-warning">{candidates.length} correspondances, à trancher</span>
       {candidates.slice(0, 3).map((c) => (
-        <span key={c.gid} className="flex flex-wrap items-center gap-1.5 text-2xs text-slate-600">
-          <GidLink gid={c.gid} className="text-slate-800" />
+        <span key={c.gid} className="flex flex-wrap items-center gap-1.5 text-label text-fg-secondary">
+          <GidLink gid={c.gid} className="text-fg" />
           <span className="max-w-[220px] truncate" title={c.nom ?? undefined}>{c.nom}</span>
-          <Button variant="ghost" size="sm" onClick={() => onCopy(c.gid)} className="h-5 px-1.5 text-2xs">Copier</Button>
+          <Button variant="ghost" size="sm" onClick={() => onCopy(c.gid)} className="h-5 px-1.5 text-label">Copier</Button>
           <WriteControls gid={c.gid} writeback={writeback} compact onRequest={onWriteRequest} onConfirm={onWriteConfirm} onCancel={onWriteCancel} />
         </span>
       ))}
@@ -389,13 +375,13 @@ function isReconcileRun(run: JournalRun): boolean {
 
 /** Encadré commun quand le journal n'est pas disponible (migrations 009 / 010) */
 function JournalUnavailable({ journal, loading }: { journal: JournalSummary | null; loading: boolean }) {
-  if (!journal && loading) return <div className="px-4 py-3 text-13 text-slate-400">Chargement du journal…</div>
+  if (!journal && loading) return <div className="px-4 py-3 text-body text-fg-faint">Chargement du journal…</div>
   if (journal && !journal.available) {
     return (
-      <div className="px-4 py-3 text-13 text-amber-800">
+      <div className="px-4 py-3 text-body text-warning">
         <span className="font-medium">Journal non disponible.</span> {journal.reason}
         <br />
-        <span className="text-xs text-amber-700">Les résultats de recherche s&apos;affichent normalement mais ne sont pas conservés tant que le journal n&apos;est pas disponible.</span>
+        <span className="text-caption text-warning">Les résultats de recherche s&apos;affichent normalement mais ne sont pas conservés tant que le journal n&apos;est pas disponible.</span>
       </div>
     )
   }
@@ -431,17 +417,17 @@ function AnomaliesPanel({ journal, loading, onRefresh, onReconcile, reconciling,
       {journal?.available && (
         <>
           {/* Barre d'outils : filtre par type à gauche, actions à droite */}
-          <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-2.5">
+          <div className="flex flex-wrap items-center gap-2 border-b border-border-subtle px-4 py-2.5">
             <div className="flex flex-wrap items-center gap-1.5">
               <button
                 type="button"
                 onClick={() => { setTypeFilter('all'); setShowAll(false) }}
                 className={cx(
-                  'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-2xs font-medium ring-1 ring-inset transition-colors',
-                  typeFilter === 'all' ? 'bg-slate-900 text-white ring-slate-900' : 'bg-white text-slate-600 ring-slate-200 hover:bg-slate-50'
+                  'inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-label font-semibold transition-colors',
+                  typeFilter === 'all' ? 'bg-fg text-white' : 'bg-surface-sunken text-fg-secondary hover:text-fg'
                 )}
               >
-                Toutes <span className="font-semibold tabular-nums">{journal.open_total}</span>
+                Toutes <span className="font-bold tabular-nums">{journal.open_total}</span>
               </button>
               {Object.entries(journal.open_by_type).map(([type, n]) => (
                 <button
@@ -450,12 +436,12 @@ function AnomaliesPanel({ journal, loading, onRefresh, onReconcile, reconciling,
                   onClick={() => { setTypeFilter(typeFilter === type ? 'all' : (type as AnomalyType)); setShowAll(false) }}
                   title={typeFilter === type ? 'Afficher tous les types' : 'Ne montrer que ce type'}
                   className={cx(
-                    'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-2xs font-medium ring-1 ring-inset transition-shadow',
-                    ANOMALY_CLASS[type as AnomalyType],
-                    typeFilter === type ? 'ring-2 ring-offset-1' : typeFilter !== 'all' ? 'opacity-50' : ''
+                    'inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-label font-semibold transition-all',
+                    TONE_CHIP[ANOMALY_TONE[type as AnomalyType] ?? 'neutral'],
+                    typeFilter === type ? 'ring-2 ring-current ring-offset-1' : typeFilter !== 'all' ? 'opacity-50' : ''
                   )}
                 >
-                  {ANOMALY_LABELS[type as AnomalyType] ?? type} <span className="font-semibold tabular-nums">{n}</span>
+                  {ANOMALY_LABELS[type as AnomalyType] ?? type} <span className="font-bold tabular-nums">{n}</span>
                 </button>
               ))}
             </div>
@@ -466,37 +452,37 @@ function AnomaliesPanel({ journal, loading, onRefresh, onReconcile, reconciling,
               <Button
                 variant="secondary"
                 size="sm"
+                icon={ShieldCheck}
+                loading={reconciling}
                 onClick={onReconcile}
-                disabled={reconciling || loading}
+                disabled={loading}
                 title="Compare les DAE Synchroteam en location et les DAE Géo'DAE déclarés sous le SIREN STAR : divergences, absents, non référencés. Fait chaque matin par le cron."
               >
-                {reconciling ? <SpinnerIcon /> : null}
                 {reconciling ? 'Rapprochement…' : 'Rapprocher maintenant'}
               </Button>
-              <Button variant="ghost" size="sm" onClick={onRefresh} disabled={loading} title="Recharger le journal">
-                {loading ? <SpinnerIcon /> : <RefreshIcon />}
+              <Button variant="ghost" size="sm" icon={RefreshCw} loading={loading} onClick={onRefresh} title="Recharger le journal">
                 Actualiser
               </Button>
             </div>
           </div>
 
-          <div className="border-b border-slate-100 px-4 py-2 text-xs text-slate-600 tabular-nums">
+          <div className="border-b border-border-subtle px-4 py-2 text-caption text-fg-secondary tabular-nums">
             {lastReconcile ? (
               <span>
-                Dernier rapprochement Synchroteam ↔ Géo&apos;DAE le <span className="font-medium text-slate-800">{fmtDateTime(lastReconcile.started_at)}</span>
+                Dernier rapprochement Synchroteam ↔ Géo&apos;DAE le <span className="font-medium text-fg">{fmtDateTime(lastReconcile.started_at)}</span>
                 {lastReconcile.triggered_by && <> par {lastReconcile.triggered_by}</>} :
                 {' '}{lastReconcile.examined} DAE en location, {lastReconcile.found} apparié{lastReconcile.found > 1 ? 's' : ''},
-                {' '}<span className="text-orange-700">{reconcileCounts.divergence ?? 0} divergent{(reconcileCounts.divergence ?? 0) > 1 ? 's' : ''}</span>,
-                {' '}<span className="text-red-700">{reconcileCounts.absent ?? 0} absent{(reconcileCounts.absent ?? 0) > 1 ? 's' : ''} de Géo&apos;DAE</span>,
-                {' '}<span className="text-blue-700">{reconcileCounts.non_reference ?? 0} non référencé{(reconcileCounts.non_reference ?? 0) > 1 ? 's' : ''} dans Synchroteam</span>
+                {' '}<span className="text-accent-orange-strong">{reconcileCounts.divergence ?? 0} divergent{(reconcileCounts.divergence ?? 0) > 1 ? 's' : ''}</span>,
+                {' '}<span className="text-danger">{reconcileCounts.absent ?? 0} absent{(reconcileCounts.absent ?? 0) > 1 ? 's' : ''} de Géo&apos;DAE</span>,
+                {' '}<span className="text-info">{reconcileCounts.non_reference ?? 0} non référencé{(reconcileCounts.non_reference ?? 0) > 1 ? 's' : ''} dans Synchroteam</span>
               </span>
             ) : (
-              <span className="text-slate-400">Aucun rapprochement complet enregistré : il a lieu chaque matin, ou via « Rapprocher maintenant ».</span>
+              <span className="text-fg-faint">Aucun rapprochement complet enregistré : il a lieu chaque matin, ou via « Rapprocher maintenant ».</span>
             )}
           </div>
 
           {anomalies.length === 0 ? (
-            <EmptyState>{typeFilter === 'all' ? 'Aucune anomalie ouverte.' : 'Aucune anomalie ouverte de ce type.'}</EmptyState>
+            <EmptyState icon={ShieldCheck} title={typeFilter === 'all' ? 'Aucune anomalie ouverte' : 'Aucune anomalie ouverte de ce type'} description="Le rapprochement quotidien n'a rien relevé, ou tout a été traité." />
           ) : (
             <div className="overflow-x-auto">
               <table className={tableClass}>
@@ -522,23 +508,21 @@ function AnomaliesPanel({ journal, loading, onRefresh, onReconcile, reconciling,
                     return (
                       <tr key={a.id} className={trClass}>
                         <td className={tdClass}>
-                          <span className={cx('inline-flex rounded-md px-1.5 py-0.5 text-2xs font-medium ring-1 ring-inset', ANOMALY_CLASS[a.type])}>
-                            {ANOMALY_LABELS[a.type] ?? a.type}
-                          </span>
+                          <Tag tone={ANOMALY_TONE[a.type] ?? 'neutral'}>{ANOMALY_LABELS[a.type] ?? a.type}</Tag>
                         </td>
-                        <td className={cx(tdClass, 'text-xs text-slate-600')}>{a.account ?? '—'}</td>
-                        <td className={cx(tdClass, 'font-mono text-xs text-slate-800')}>{a.serial_number ?? '—'}</td>
-                        <td className={tdClass}>{a.synchroteam_geo_dae_id ? <GidLink gid={a.synchroteam_geo_dae_id} /> : <span className="text-slate-300">—</span>}</td>
-                        <td className={tdClass}>{a.geodae_gid ? <GidLink gid={a.geodae_gid} /> : <span className="text-slate-300">—</span>}</td>
-                        <td className={cx(tdClass, 'max-w-[280px] truncate text-xs text-slate-500')} title={detail || undefined}>{detail || '—'}</td>
-                        <td className={cx(tdClass, 'text-xs text-slate-500 tabular-nums')}>{fmtDate(a.first_seen_at)}</td>
-                        <td className={cx(tdClass, 'text-xs text-slate-500 tabular-nums')}>{fmtDate(a.last_seen_at)}</td>
-                        <td className={cx(tdClass, 'text-xs')}>
+                        <td className={cx(tdClass, 'text-caption text-fg-secondary')}>{a.account ?? '—'}</td>
+                        <td className={cx(tdClass, 'font-mono text-caption text-fg')}>{a.serial_number ?? '—'}</td>
+                        <td className={tdClass}>{a.synchroteam_geo_dae_id ? <GidLink gid={a.synchroteam_geo_dae_id} /> : <span className="text-border-strong">—</span>}</td>
+                        <td className={tdClass}>{a.geodae_gid ? <GidLink gid={a.geodae_gid} /> : <span className="text-border-strong">—</span>}</td>
+                        <td className={cx(tdClass, 'max-w-[280px] truncate text-caption text-fg-muted')} title={detail || undefined}>{detail || '—'}</td>
+                        <td className={cx(tdClass, 'text-caption text-fg-muted tabular-nums')}>{fmtDate(a.first_seen_at)}</td>
+                        <td className={cx(tdClass, 'text-caption text-fg-muted tabular-nums')}>{fmtDate(a.last_seen_at)}</td>
+                        <td className={cx(tdClass, 'text-caption')}>
                           {a.defibrillator_id
                             ? <Link prefetch={false} href={`/parc/${a.defibrillator_id}`} className="font-medium text-brand hover:underline">Voir</Link>
-                            : <span className="text-slate-300">—</span>}
+                            : <span className="text-border-strong">—</span>}
                         </td>
-                        <td className={cx(tdClass, 'text-xs')}>
+                        <td className={cx(tdClass, 'text-caption')}>
                           {editing ? (
                             <span className="flex items-center gap-1">
                               <input
@@ -548,13 +532,13 @@ function AnomaliesPanel({ journal, loading, onRefresh, onReconcile, reconciling,
                                 onKeyDown={(e) => { if (e.key === 'Escape') setResolving(null) }}
                                 placeholder="Motif de clôture"
                                 aria-label="Motif de clôture"
-                                className={cx(inputClass, 'h-6 w-44 text-2xs')}
+                                className={cx(inputClass, 'h-7 w-44')}
                               />
-                              <Button variant="primary" size="sm" className="h-6 px-1.5 text-2xs" disabled={!resolving.text.trim()} onClick={() => onResolve(a.id, resolving.text.trim()).then(() => setResolving(null))}>Clore</Button>
-                              <Button variant="ghost" size="sm" className="h-6 px-1.5 text-2xs" onClick={() => setResolving(null)}>Annuler</Button>
+                              <Button variant="primary" size="xs" disabled={!resolving.text.trim()} onClick={() => onResolve(a.id, resolving.text.trim()).then(() => setResolving(null))}>Clore</Button>
+                              <Button variant="ghost" size="xs" onClick={() => setResolving(null)}>Annuler</Button>
                             </span>
                           ) : (
-                            <Button variant="ghost" size="sm" className="h-6 px-1.5 text-2xs" onClick={() => setResolving({ id: a.id, text: '' })} title="Clôturer manuellement une anomalie traitée hors outil (déclaration faite sur le portail, DAE désactivé…)">
+                            <Button variant="ghost" size="xs" onClick={() => setResolving({ id: a.id, text: '' })} title="Clôturer manuellement une anomalie traitée hors outil (déclaration faite sur le portail, DAE désactivé…)">
                               Clore
                             </Button>
                           )}
@@ -565,11 +549,11 @@ function AnomaliesPanel({ journal, loading, onRefresh, onReconcile, reconciling,
                 </tbody>
               </table>
               {anomalies.length > ANOMALIES_PAGE && (
-                <div className="border-t border-slate-100 px-4 py-2 text-xs">
-                  <button type="button" onClick={() => setShowAll((v) => !v)} className="font-medium text-slate-600 hover:text-slate-900 hover:underline">
+                <div className="border-t border-border-subtle px-4 py-2 text-caption">
+                  <button type="button" onClick={() => setShowAll((v) => !v)} className="font-medium text-fg-secondary hover:text-fg hover:underline">
                     {showAll ? 'Réduire' : `Afficher les ${anomalies.length} anomalies`}
                   </button>
-                  {journal.open_total > allAnomalies.length && <span className="ml-2 text-slate-400">({journal.open_total} au total, les 200 plus récentes sont listées ; l&apos;export CSV les contient toutes)</span>}
+                  {journal.open_total > allAnomalies.length && <span className="ml-2 text-fg-faint">({journal.open_total} au total, les 200 plus récentes sont listées ; l&apos;export CSV les contient toutes)</span>}
                 </div>
               )}
             </div>
@@ -588,17 +572,12 @@ function HistoryPanel({ journal, loading, onRefresh }: {
 }) {
   const runs = journal?.runs ?? []
   const writebacks = journal?.writebacks ?? []
-  const pill = (cls: string, text: string) => (
-    <span className={cx('inline-flex rounded-md px-1.5 py-0.5 text-2xs font-medium ring-1 ring-inset', cls)}>{text}</span>
-  )
-
   return (
     <div className="flex flex-col gap-4">
       <Card
         title="Dernières exécutions"
         actions={
-          <Button variant="ghost" size="sm" onClick={onRefresh} disabled={loading} title="Recharger le journal">
-            {loading ? <SpinnerIcon /> : <RefreshIcon />}
+          <Button variant="ghost" size="xs" icon={RefreshCw} loading={loading} onClick={onRefresh} title="Recharger le journal">
             Actualiser
           </Button>
         }
@@ -606,7 +585,7 @@ function HistoryPanel({ journal, loading, onRefresh }: {
       >
         <JournalUnavailable journal={journal} loading={loading} />
         {journal?.available && (runs.length === 0 ? (
-          <EmptyState>Aucune exécution enregistrée pour l&apos;instant.</EmptyState>
+          <EmptyState compact>Aucune exécution enregistrée pour l&apos;instant.</EmptyState>
         ) : (
           <div className="overflow-x-auto">
             <table className={tableClass}>
@@ -625,28 +604,28 @@ function HistoryPanel({ journal, loading, onRefresh }: {
                   const c = (r.sources ?? {}) as { divergence?: number; absent?: number; non_reference?: number }
                   return (
                     <tr key={r.id} className={trClass}>
-                      <td className={cx(tdClass, 'text-xs text-slate-500 tabular-nums')}>{fmtDateTime(r.started_at)}</td>
+                      <td className={cx(tdClass, 'text-caption text-fg-muted tabular-nums')}>{fmtDateTime(r.started_at)}</td>
                       <td className={tdClass}>
                         {reconcile
-                          ? pill('bg-blue-50 text-blue-700 ring-blue-600/20', 'Rapprochement')
-                          : pill('bg-slate-100 text-slate-700 ring-slate-300', 'Recherche')}
+                          ? <Tag tone="info">Rapprochement</Tag>
+                          : <Tag tone="neutral">Recherche</Tag>}
                       </td>
-                      <td className={cx(tdClass, 'text-xs text-slate-600')}>{r.triggered_by ?? '—'}</td>
-                      <td className={cx(tdClass, 'max-w-[360px] truncate text-xs text-slate-500')} title={r.scope ?? undefined}>{r.scope ?? '—'}</td>
-                      <td className={cx(tdClass, 'text-xs text-slate-600 tabular-nums')}>
+                      <td className={cx(tdClass, 'text-caption text-fg-secondary')}>{r.triggered_by ?? '—'}</td>
+                      <td className={cx(tdClass, 'max-w-[360px] truncate text-caption text-fg-muted')} title={r.scope ?? undefined}>{r.scope ?? '—'}</td>
+                      <td className={cx(tdClass, 'text-caption text-fg-secondary tabular-nums')}>
                         {reconcile ? (
                           <>
                             {r.examined} DAE, {r.found} apparié{r.found > 1 ? 's' : ''},
-                            {' '}<span className="text-orange-700">{c.divergence ?? 0} divergent{(c.divergence ?? 0) > 1 ? 's' : ''}</span>,
-                            {' '}<span className="text-red-700">{c.absent ?? 0} absent{(c.absent ?? 0) > 1 ? 's' : ''}</span>,
-                            {' '}<span className="text-blue-700">{c.non_reference ?? 0} non référencé{(c.non_reference ?? 0) > 1 ? 's' : ''}</span>
+                            {' '}<span className="text-accent-orange-strong">{c.divergence ?? 0} divergent{(c.divergence ?? 0) > 1 ? 's' : ''}</span>,
+                            {' '}<span className="text-danger">{c.absent ?? 0} absent{(c.absent ?? 0) > 1 ? 's' : ''}</span>,
+                            {' '}<span className="text-info">{c.non_reference ?? 0} non référencé{(c.non_reference ?? 0) > 1 ? 's' : ''}</span>
                           </>
                         ) : (
                           <>
                             {r.examined} examiné{r.examined > 1 ? 's' : ''},
-                            {' '}<span className="text-emerald-700">{r.found} trouvé{r.found > 1 ? 's' : ''}</span>,
-                            {' '}<span className="text-red-700">{r.not_found} introuvable{r.not_found > 1 ? 's' : ''}</span>
-                            {r.ambiguous > 0 && <>, <span className="text-amber-700">{r.ambiguous} ambigu{r.ambiguous > 1 ? 's' : ''}</span></>}
+                            {' '}<span className="text-success">{r.found} trouvé{r.found > 1 ? 's' : ''}</span>,
+                            {' '}<span className="text-danger">{r.not_found} introuvable{r.not_found > 1 ? 's' : ''}</span>
+                            {r.ambiguous > 0 && <>, <span className="text-warning">{r.ambiguous} ambigu{r.ambiguous > 1 ? 's' : ''}</span></>}
                             {r.errors > 0 && <>, {r.errors} erreur{r.errors > 1 ? 's' : ''}</>}
                           </>
                         )}
@@ -661,14 +640,14 @@ function HistoryPanel({ journal, loading, onRefresh }: {
       </Card>
 
       <Card
-        title={<>Reports dans Synchroteam{journal?.available && journal.writebacks_total > 0 && <span className="ml-1.5 font-normal text-slate-400 tabular-nums">({journal.writebacks_total} au total, {writebacks.length} dernier{writebacks.length > 1 ? 's' : ''} affiché{writebacks.length > 1 ? 's' : ''})</span>}</>}
+        title={<>Reports dans Synchroteam{journal?.available && journal.writebacks_total > 0 && <span className="ml-1.5 font-normal text-fg-faint tabular-nums">({journal.writebacks_total} au total, {writebacks.length} dernier{writebacks.length > 1 ? 's' : ''} affiché{writebacks.length > 1 ? 's' : ''})</span>}</>}
         padded={false}
       >
         {journal?.available && journal.writebacks_reason && (
-          <div className="px-4 py-2 text-xs text-amber-800">Reports non tracés. {journal.writebacks_reason}</div>
+          <div className="px-4 py-2 text-caption text-warning">Reports non tracés. {journal.writebacks_reason}</div>
         )}
         {journal?.available && !journal.writebacks_reason && (writebacks.length === 0 ? (
-          <EmptyState>Aucun report effectué pour l&apos;instant.</EmptyState>
+          <EmptyState compact>Aucun report effectué pour l&apos;instant.</EmptyState>
         ) : (
           <div className="overflow-x-auto">
             <table className={tableClass}>
@@ -685,15 +664,15 @@ function HistoryPanel({ journal, loading, onRefresh }: {
               <tbody className={tbodyClass}>
                 {writebacks.map((w) => (
                   <tr key={w.id} className={trClass}>
-                    <td className={cx(tdClass, 'text-xs text-slate-500 tabular-nums')}>{fmtDateTime(w.written_at)}</td>
-                    <td className={cx(tdClass, 'text-xs text-slate-600')}>{w.account ?? '—'}</td>
-                    <td className={cx(tdClass, 'font-mono text-xs text-slate-800')}>{w.serial_number ?? '—'}</td>
+                    <td className={cx(tdClass, 'text-caption text-fg-muted tabular-nums')}>{fmtDateTime(w.written_at)}</td>
+                    <td className={cx(tdClass, 'text-caption text-fg-secondary')}>{w.account ?? '—'}</td>
+                    <td className={cx(tdClass, 'font-mono text-caption text-fg')}>{w.serial_number ?? '—'}</td>
                     <td className={tdClass}><GidLink gid={w.geodae_gid} /></td>
-                    <td className={cx(tdClass, 'text-xs text-slate-600')}>{w.written_by ?? '—'}</td>
-                    <td className={cx(tdClass, 'text-xs')}>
+                    <td className={cx(tdClass, 'text-caption text-fg-secondary')}>{w.written_by ?? '—'}</td>
+                    <td className={cx(tdClass, 'text-caption')}>
                       {w.status === 'ok'
-                        ? <span className="text-emerald-700">{w.verified ? 'Écrit et vérifié' : 'Écrit, relecture non confirmée'}</span>
-                        : <span className="text-red-700" title={w.error ?? undefined}>Échec{w.error ? ` : ${w.error}` : ''}</span>}
+                        ? <span className="text-success">{w.verified ? 'Écrit et vérifié' : 'Écrit, relecture non confirmée'}</span>
+                        : <span className="text-danger" title={w.error ?? undefined}>Échec{w.error ? ` : ${w.error}` : ''}</span>}
                     </td>
                   </tr>
                 ))}
@@ -710,15 +689,15 @@ function HistoryPanel({ journal, loading, onRefresh }: {
 
 function Metric({ label, value, tone = 'default' }: { label: string; value: number; tone?: 'default' | 'strong' | 'good' | 'warn' | 'bad' }) {
   const cls = {
-    default: 'text-slate-700',
-    strong:  'font-semibold text-slate-900',
-    good:    'text-emerald-700',
-    warn:    value > 0 ? 'text-amber-700' : 'text-slate-700',
-    bad:     value > 0 ? 'text-red-700' : 'text-slate-700',
+    default: 'text-fg-secondary',
+    strong:  'font-semibold text-fg',
+    good:    'text-success',
+    warn:    value > 0 ? 'text-warning' : 'text-fg-secondary',
+    bad:     value > 0 ? 'text-danger' : 'text-fg-secondary',
   }[tone]
   return (
     <>
-      <dt className="text-slate-500">{label}</dt>
+      <dt className="text-fg-muted">{label}</dt>
       <dd className={cx('text-right font-medium tabular-nums', cls)}>{value.toLocaleString('fr-FR')}</dd>
     </>
   )
@@ -727,8 +706,8 @@ function Metric({ label, value, tone = 'default' }: { label: string; value: numb
 function AccountCard({ a }: { a: AccountExtraction }) {
   if (!a.configured) {
     return (
-      <div className="rounded-lg border border-dashed border-slate-200 bg-white/60 p-4 text-13 text-slate-400">
-        <p className="font-semibold text-slate-500">{TERRITORY_LABELS[a.account]}</p>
+      <div className="rounded-card border border-dashed border-border bg-surface/60 p-4 text-body text-fg-faint">
+        <p className="font-semibold text-fg-muted">{TERRITORY_LABELS[a.account]}</p>
         <p className="mt-1">Compte Synchroteam non configuré</p>
       </div>
     )
@@ -736,22 +715,22 @@ function AccountCard({ a }: { a: AccountExtraction }) {
   return (
     <Card
       title={TERRITORY_LABELS[a.account]}
-      actions={<span className="text-2xs text-slate-400 tabular-nums">{(a.duration_ms / 1000).toFixed(1)} s</span>}
+      actions={<span className="text-label text-fg-faint tabular-nums">{(a.duration_ms / 1000).toFixed(1)} s</span>}
     >
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-13">
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-body">
         <Metric label="DAE actifs" value={a.active_total} />
         <Metric label="dont en location" value={a.location_total} tone="strong" />
         <Metric label="avec identifiant Géo'DAE" value={a.with_geo_dae_id} tone="good" />
         <Metric label="sans identifiant Géo'DAE" value={a.without_geo_dae_id} tone="warn" />
         <Metric label="sans n° de série" value={a.without_serial} tone="bad" />
       </dl>
-      <p className="mt-3 text-2xs text-slate-400">
+      <p className="mt-3 text-label text-fg-faint">
         {a.synced_at ? <>Synchronisé le {fmtDateTime(a.synced_at)}</> : <>Mapping des champs : {a.mapping_source || '—'}</>}
       </p>
       {a.missing_fields.length > 0 && (
-        <p className="mt-1 text-xs text-red-700">Champs non résolus : {a.missing_fields.join(', ')}</p>
+        <p className="mt-1 text-caption text-danger">Champs non résolus : {a.missing_fields.join(', ')}</p>
       )}
-      {a.error && <p className="mt-1 text-xs text-amber-700">{a.error}</p>}
+      {a.error && <p className="mt-1 text-caption text-warning">{a.error}</p>}
     </Card>
   )
 }
@@ -1181,45 +1160,35 @@ export default function GeodaeClient() {
       <PageHeader
         eyebrow={<BackButton label="Tableau de bord" />}
         title="Contrôle Géo'DAE"
-        subtitle={<>DAE <strong className="font-medium text-slate-700">actifs</strong> sous contrat de <strong className="font-medium text-slate-700">location</strong> d&apos;après la copie Synchroteam synchronisée chaque matin, recherche des identifiants Géo&apos;DAE manquants à partir du n° de série, report dans Synchroteam, rapport d&apos;anomalies.</>}
+        subtitle={<>DAE <strong className="font-medium text-fg-secondary">actifs</strong> sous contrat de <strong className="font-medium text-fg-secondary">location</strong> d&apos;après la copie Synchroteam synchronisée chaque matin, recherche des identifiants Géo&apos;DAE manquants à partir du n° de série, report dans Synchroteam, rapport d&apos;anomalies.</>}
         actions={
           <Button
             variant="primary"
+            size="md"
+            icon={RefreshCw}
+            loading={syncing}
             onClick={refreshFromSynchroteam}
-            disabled={syncing || loading}
+            disabled={loading}
             title="Relance la synchronisation Synchroteam → Supabase des comptes configurés, puis recharge la page (jusqu’à une minute)"
           >
-            {syncing ? <SpinnerIcon /> : <RefreshIcon />}
             {syncing ? 'Synchronisation en cours…' : 'Actualiser depuis Synchroteam'}
           </Button>
         }
       />
 
       {/* ── Messages et états ─────────────────────────────────────────────── */}
-      {error && (
-        <div role="alert" className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-2.5 text-13 text-red-700">
-          Échec du chargement : {error}
-        </div>
-      )}
-      {syncMsg && (
-        <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">{syncMsg}</div>
-      )}
-      {journalMsg && (
-        <div className="mb-4 rounded-md border border-slate-200 bg-white px-4 py-2 text-xs text-slate-700 shadow-card">{journalMsg}</div>
-      )}
-      {writeMsg && (
-        <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs text-emerald-800">{writeMsg}</div>
-      )}
-      {autoMsg && (
-        <div className="mb-4 rounded-md border border-slate-200 bg-white px-4 py-2 text-xs text-slate-700 shadow-card">{autoMsg}</div>
-      )}
+      {error && <Notice tone="danger" className="mb-4">Échec du chargement : {error}</Notice>}
+      {syncMsg && <Notice tone="warning" className="mb-4">{syncMsg}</Notice>}
+      {journalMsg && <Notice tone="neutral" className="mb-4">{journalMsg}</Notice>}
+      {writeMsg && <Notice tone="success" className="mb-4">{writeMsg}</Notice>}
+      {autoMsg && <Notice tone="neutral" className="mb-4">{autoMsg}</Notice>}
       {syncing && (
-        <div className="mb-4 animate-pulse rounded-lg border border-slate-200 bg-white p-6 text-13 text-slate-500 shadow-card">
+        <div className="mb-4 animate-pulse rounded-card border border-border bg-surface p-6 text-body text-fg-muted shadow-card">
           Synchronisation Synchroteam → Supabase en cours sur chaque compte configuré. Cela peut prendre jusqu&apos;à une minute.
         </div>
       )}
       {loading && !syncing && (
-        <div className="mb-4 animate-pulse rounded-lg border border-slate-200 bg-white p-6 text-13 text-slate-500 shadow-card">
+        <div className="mb-4 animate-pulse rounded-card border border-border bg-surface p-6 text-body text-fg-muted shadow-card">
           Chargement de la copie Supabase…
         </div>
       )}
@@ -1239,81 +1208,79 @@ export default function GeodaeClient() {
       {/* ── Onglet DAE en location ────────────────────────────────────────── */}
       {tab === 'dae' && result && !loading && (
         <>
-          {result.warning && (
-            <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">{result.warning}</div>
-          )}
+          {result.warning && <Notice tone="warning" className="mb-4">{result.warning}</Notice>}
 
           {/* Bilan par compte */}
           <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
             {result.accounts.map((a) => <AccountCard key={a.account} a={a} />)}
           </div>
 
-          <div className="mb-4 flex flex-wrap items-center gap-x-5 gap-y-1 text-13 text-slate-600 tabular-nums">
-            <span><strong className="font-semibold text-slate-900">{result.totals.location_total}</strong> DAE actifs en location sur <strong className="font-medium">{result.totals.active_total}</strong> actifs</span>
-            <span className="text-emerald-700"><strong className="font-semibold">{result.totals.with_geo_dae_id}</strong> avec identifiant</span>
-            <span className="text-amber-700"><strong className="font-semibold">{result.totals.without_geo_dae_id}</strong> sans identifiant</span>
-            <span className="text-red-700"><strong className="font-semibold">{result.totals.without_serial}</strong> sans n° de série</span>
-            <span className="text-2xs text-slate-400">
+          <div className="mb-4 flex flex-wrap items-center gap-x-5 gap-y-1 text-body text-fg-secondary tabular-nums">
+            <span><strong className="font-semibold text-fg">{result.totals.location_total}</strong> DAE actifs en location sur <strong className="font-medium">{result.totals.active_total}</strong> actifs</span>
+            <span className="text-success"><strong className="font-semibold">{result.totals.with_geo_dae_id}</strong> avec identifiant</span>
+            <span className="text-warning"><strong className="font-semibold">{result.totals.without_geo_dae_id}</strong> sans identifiant</span>
+            <span className="text-danger"><strong className="font-semibold">{result.totals.without_serial}</strong> sans n° de série</span>
+            <span className="text-label text-fg-faint">
               {result.source === 'synchroteam' ? 'Lecture directe Synchroteam du' : 'Copie Synchroteam synchronisée le'} {fmtDateTime(result.extracted_at)}
             </span>
           </div>
 
           {/* Recherche des identifiants manquants */}
-          <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-2.5 shadow-card">
-            <div className="min-w-0 flex-1 text-13 text-slate-600">
-              <span className="font-medium text-slate-800">Identifiants manquants.</span>{' '}
+          <div className="mb-4 flex flex-wrap items-center gap-3 rounded-card border border-border bg-surface px-4 py-2.5 shadow-card">
+            <div className="min-w-0 flex-1 text-body text-fg-secondary">
+              <span className="font-medium text-fg">Identifiants manquants.</span>{' '}
               La recherche part du n° de série et interroge l&apos;open data Géo&apos;DAE de data.gouv.fr
               {lookupSummary.apiStatus === 'ok' ? ' et l’API exploitants Géo’DAE' : ''}. Les résultats sont conservés en base et journalisés.
               {lookupSummary.total > 0 && (
                 <span className="ml-2 tabular-nums">
-                  <span className="text-emerald-700">{lookupSummary.found} trouvé{lookupSummary.found > 1 ? 's' : ''}</span>
-                  {lookupSummary.ambiguous > 0 && <> · <span className="text-amber-700">{lookupSummary.ambiguous} à trancher</span></>}
-                  {lookupSummary.notFound > 0 && <> · <span className="text-red-700">{lookupSummary.notFound} introuvable{lookupSummary.notFound > 1 ? 's' : ''}</span></>}
-                  {lookupSummary.errors > 0 && <> · <span className="text-red-700">{lookupSummary.errors} erreur{lookupSummary.errors > 1 ? 's' : ''}</span></>}
+                  <span className="text-success">{lookupSummary.found} trouvé{lookupSummary.found > 1 ? 's' : ''}</span>
+                  {lookupSummary.ambiguous > 0 && <> · <span className="text-warning">{lookupSummary.ambiguous} à trancher</span></>}
+                  {lookupSummary.notFound > 0 && <> · <span className="text-danger">{lookupSummary.notFound} introuvable{lookupSummary.notFound > 1 ? 's' : ''}</span></>}
+                  {lookupSummary.errors > 0 && <> · <span className="text-danger">{lookupSummary.errors} erreur{lookupSummary.errors > 1 ? 's' : ''}</span></>}
                 </span>
               )}
               {lookupSummary.apiStatus && lookupSummary.apiStatus !== 'ok' && lookupSummary.apiStatus !== 'inconnu' && (
-                <span className="ml-2 text-2xs text-slate-400">API exploitants : {lookupSummary.apiStatus}</span>
+                <span className="ml-2 text-label text-fg-faint">API exploitants : {lookupSummary.apiStatus}</span>
               )}
               {result.lookups_reason && (
-                <span className="ml-2 text-2xs text-amber-700">{result.lookups_reason}</span>
+                <span className="ml-2 text-label text-warning">{result.lookups_reason}</span>
               )}
             </div>
             <Button
               variant="ghost"
+              loading={autoRunning}
               onClick={runAutoControl}
-              disabled={autoRunning || bulk?.running}
+              disabled={bulk?.running}
               title="Lance un lot du contrôle automatique, celui que le cron exécute chaque matin : DAE jamais contrôlés d'abord, puis contrôles les plus anciens"
             >
-              {autoRunning ? <SpinnerIcon /> : null}
               {autoRunning ? 'Contrôle automatique…' : 'Contrôle automatique (un lot)'}
             </Button>
             <Button
               variant="secondary"
+              icon={Search}
+              loading={bulk?.running}
               onClick={lookupMissing}
-              disabled={bulk?.running || autoRunning || missingTargets.length === 0}
+              disabled={autoRunning || missingTargets.length === 0}
               title="Lance la recherche pour toutes les lignes affichées sans identifiant"
             >
-              {bulk?.running
-                ? <><SpinnerIcon />Recherche {bulk.done} / {bulk.total}</>
-                : <>Rechercher les manquants ({missingTargets.length})</>}
+              {bulk?.running ? `Recherche ${bulk.done} / ${bulk.total}` : `Rechercher les manquants (${missingTargets.length})`}
             </Button>
             <Button
               variant="primary"
+              icon={Upload}
+              loading={bulkWrite?.running}
               onClick={() => setBulkWriteConfirm(true)}
-              disabled={bulkWrite?.running || bulkWriteConfirm || uniqueTargets.length === 0}
+              disabled={bulkWriteConfirm || uniqueTargets.length === 0}
               title="Écrit dans Synchroteam les identifiants trouvés avec une correspondance unique, après confirmation"
             >
-              {bulkWrite?.running
-                ? <><SpinnerIcon />Report {bulkWrite.done} / {bulkWrite.total}</>
-                : <>Reporter les correspondances uniques ({uniqueTargets.length})</>}
+              {bulkWrite?.running ? `Report ${bulkWrite.done} / ${bulkWrite.total}` : `Reporter les correspondances uniques (${uniqueTargets.length})`}
             </Button>
           </div>
 
           {bulkWriteConfirm && (
-            <div role="alertdialog" aria-label="Confirmer le report dans Synchroteam" className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-brand/30 bg-red-50/50 px-4 py-2.5 text-13 text-slate-700">
+            <div role="alertdialog" aria-label="Confirmer le report dans Synchroteam" className="mb-4 flex flex-wrap items-center gap-3 rounded-card border border-brand/30 bg-brand-soft px-4 py-3 text-body text-fg-secondary">
               <span className="min-w-0 flex-1">
-                Vous allez écrire <strong className="font-semibold">{uniqueTargets.length}</strong> identifiant{uniqueTargets.length > 1 ? 's' : ''} dans le champ « Identifiant Géo&apos;DAE » des équipements Synchroteam.
+                Vous allez écrire <strong className="font-semibold text-fg">{uniqueTargets.length}</strong> identifiant{uniqueTargets.length > 1 ? 's' : ''} dans le champ « Identifiant Géo&apos;DAE » des équipements Synchroteam.
                 {' '}Chaque équipement est relu juste avant l&apos;écriture et un champ déjà renseigné n&apos;est jamais écrasé.
               </span>
               <Button variant="primary" onClick={writeUniqueMatches}>Confirmer le report</Button>
@@ -1322,53 +1289,47 @@ export default function GeodaeClient() {
           )}
 
           {/* Types de contrat rencontrés */}
-          <details className="mb-4 rounded-lg border border-slate-200 bg-white shadow-card">
-            <summary className="cursor-pointer select-none px-4 py-2.5 text-13 font-medium text-slate-700">
+          <details className="mb-4 rounded-card border border-border bg-surface shadow-card">
+            <summary className="cursor-pointer select-none px-4 py-2.5 text-body font-medium text-fg-secondary">
               Types de contrat rencontrés sur les DAE actifs ({contractTypes.length})
-              <span className="ml-2 text-xs font-normal text-slate-400">en vert, les valeurs comptées comme « location »</span>
+              <span className="ml-2 text-caption font-normal text-fg-faint">en vert, les valeurs comptées comme « location »</span>
             </summary>
-            <div className="flex flex-wrap gap-1.5 border-t border-slate-100 px-4 py-3">
+            <div className="flex flex-wrap gap-1.5 border-t border-border-subtle px-4 py-3">
               {contractTypes.map((t) => (
-                <span
-                  key={t.type}
-                  className={cx(
-                    'inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs ring-1 ring-inset tabular-nums',
-                    t.is_location ? 'bg-emerald-50 text-emerald-700 ring-emerald-600/20' : 'bg-slate-50 text-slate-600 ring-slate-200'
-                  )}
-                >
+                <Tag key={t.type} tone={t.is_location ? 'success' : 'neutral'} size="md" outline={!t.is_location} className="tabular-nums">
                   {t.type}
-                  <span className="font-semibold">{t.count}</span>
-                </span>
+                  <span className="font-bold">{t.count}</span>
+                </Tag>
               ))}
             </div>
           </details>
 
           {/* Filtres */}
           <div className="mb-3 flex flex-wrap items-center gap-2">
-            <select value={account} onChange={(e) => { setAccount(e.target.value as 'all' | TerritoryCode); setPage(1) }} className={selectClass} aria-label="Compte">
+            <Select value={account} onChange={(e) => { setAccount(e.target.value as 'all' | TerritoryCode); setPage(1) }} aria-label="Compte">
               <option value="all">Tous les comptes</option>
               {result.accounts.filter((a) => a.configured).map((a) => (
                 <option key={a.account} value={a.account}>{TERRITORY_LABELS[a.account]}</option>
               ))}
-            </select>
-            <select value={filter} onChange={(e) => { setFilter(e.target.value as RowFilter); setPage(1) }} className={selectClass} aria-label="Filtre">
+            </Select>
+            <Select value={filter} onChange={(e) => { setFilter(e.target.value as RowFilter); setPage(1) }} aria-label="Filtre">
               <option value="all">Tous les DAE en location</option>
               <option value="sans_geo">Sans identifiant Géo&apos;DAE</option>
               <option value="sans_serie">Sans n° de série</option>
-            </select>
-            <input
-              type="search"
-              value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1) }}
-              placeholder="N° série, identifiant, client, site…"
-              aria-label="Rechercher"
-              className={cx(inputClass, 'w-72')}
-            />
-            <span className="ml-auto text-xs text-slate-500 tabular-nums">{filtered.length} résultat{filtered.length > 1 ? 's' : ''}</span>
-            <Button variant="secondary" size="sm" onClick={() => downloadCsv(exportRows())} disabled={filtered.length === 0} title="Exporter les lignes affichées, avec les identifiants trouvés et l'état des recherches">
-              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
+            </Select>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-fg-faint" />
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => { setSearch(e.target.value); setPage(1) }}
+                placeholder="N° série, identifiant, client, site…"
+                aria-label="Rechercher"
+                className={cx(inputClass, 'w-72 pl-8')}
+              />
+            </div>
+            <span className="ml-auto text-caption text-fg-muted tabular-nums">{filtered.length} résultat{filtered.length > 1 ? 's' : ''}</span>
+            <Button variant="secondary" size="sm" icon={Download} onClick={() => downloadCsv(exportRows())} disabled={filtered.length === 0} title="Exporter les lignes affichées, avec les identifiants trouvés et l'état des recherches">
               Exporter CSV
             </Button>
           </div>
@@ -1391,29 +1352,26 @@ export default function GeodaeClient() {
                 </thead>
                 <tbody className={tbodyClass}>
                   {pageRows.length === 0 && (
-                    <tr><td colSpan={8}><EmptyState>Aucun DAE ne correspond aux filtres.</EmptyState></td></tr>
+                    <tr><td colSpan={8}><EmptyState compact>Aucun DAE ne correspond aux filtres.</EmptyState></td></tr>
                   )}
                   {pageRows.map((r) => {
                     const key = rowKey(r)
                     const wb = writebacks[key]
                     return (
                       <tr key={key} className={trClass}>
-                        <td className={cx(tdClass, 'text-xs font-medium text-slate-600')}>{r.account}</td>
-                        <td className={cx(tdClass, 'font-mono text-xs font-medium text-slate-800')}>
-                          {r.serial_number ?? <span className="font-sans font-medium text-red-700">manquant</span>}
+                        <td className={cx(tdClass, 'text-caption font-medium text-fg-secondary')}>{r.account}</td>
+                        <td className={cx(tdClass, 'font-mono text-caption font-medium text-fg')}>
+                          {r.serial_number ?? <span className="font-sans font-medium text-danger">manquant</span>}
                         </td>
-                        <td className={cx(tdClass, 'text-slate-700')}>
+                        <td className={cx(tdClass, 'text-fg-secondary')}>
                           {r.geo_dae_id
                             ? (
                               <span className="inline-flex flex-wrap items-center gap-1.5">
                                 <GidLink gid={r.geo_dae_id} />
                                 {wb?.status === 'done' && (
-                                  <span
-                                    className="inline-flex rounded-md bg-emerald-50 px-1.5 py-0.5 text-2xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20"
-                                    title={wb.verified ? 'Valeur relue dans Synchroteam après l’écriture' : 'Écriture acceptée par Synchroteam, relecture non confirmée'}
-                                  >
+                                  <Tag tone="success" title={wb.verified ? 'Valeur relue dans Synchroteam après l’écriture' : 'Écriture acceptée par Synchroteam, relecture non confirmée'}>
                                     Reporté dans Synchroteam
-                                  </span>
+                                  </Tag>
                                 )}
                               </span>
                             )
@@ -1431,11 +1389,11 @@ export default function GeodaeClient() {
                               />
                             )}
                         </td>
-                        <td className={cx(tdClass, 'max-w-[200px] truncate text-slate-700')} title={r.customer_name ?? undefined}>{r.customer_name ?? '—'}</td>
-                        <td className={cx(tdClass, 'max-w-[200px] truncate text-slate-700')} title={r.site_name ?? undefined}>{r.site_name ?? '—'}</td>
-                        <td className={cx(tdClass, 'max-w-[220px] truncate text-slate-500')} title={r.name ?? undefined}>{r.name ?? '—'}</td>
-                        <td className={cx(tdClass, 'text-xs text-slate-500')}>{r.contract_type}</td>
-                        <td className={cx(tdClass, 'font-mono text-xs text-slate-400')}>{r.synchroteam_id}</td>
+                        <td className={cx(tdClass, 'max-w-[200px] truncate text-fg-secondary')} title={r.customer_name ?? undefined}>{r.customer_name ?? '—'}</td>
+                        <td className={cx(tdClass, 'max-w-[200px] truncate text-fg-secondary')} title={r.site_name ?? undefined}>{r.site_name ?? '—'}</td>
+                        <td className={cx(tdClass, 'max-w-[220px] truncate text-fg-muted')} title={r.name ?? undefined}>{r.name ?? '—'}</td>
+                        <td className={cx(tdClass, 'text-caption text-fg-muted')}>{r.contract_type}</td>
+                        <td className={cx(tdClass, 'font-mono text-caption text-fg-faint')}>{r.synchroteam_id}</td>
                       </tr>
                     )
                   })}
@@ -1444,11 +1402,11 @@ export default function GeodaeClient() {
             </div>
 
             {totalPages > 1 && (
-              <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/60 px-3 py-2 text-xs text-slate-500">
+              <div className={tableFooterClass}>
                 <span className="tabular-nums">Page {safePage} / {totalPages}</span>
                 <div className="flex gap-1">
-                  <Button variant="secondary" size="sm" onClick={() => setPage(Math.max(1, safePage - 1))} disabled={safePage === 1}>Précédent</Button>
-                  <Button variant="secondary" size="sm" onClick={() => setPage(Math.min(totalPages, safePage + 1))} disabled={safePage === totalPages}>Suivant</Button>
+                  <Button variant="secondary" size="xs" onClick={() => setPage(Math.max(1, safePage - 1))} disabled={safePage === 1}>Précédent</Button>
+                  <Button variant="secondary" size="xs" onClick={() => setPage(Math.min(totalPages, safePage + 1))} disabled={safePage === totalPages}>Suivant</Button>
                 </div>
               </div>
             )}

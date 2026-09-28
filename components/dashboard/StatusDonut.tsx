@@ -27,10 +27,10 @@ function CustomTooltip({ active, payload }: TooltipProps) {
   if (!active || !payload?.length) return null
   const { name, value, payload: { color } } = payload[0]
   return (
-    <div className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs shadow-pop">
+    <div className="rounded-control border border-border bg-surface px-2.5 py-1.5 text-caption shadow-float">
       <span className="mr-1.5 inline-block h-2 w-2 rounded-full align-middle" style={{ background: color }} />
-      <span className="font-medium text-slate-800">{name}</span>
-      <span className="ml-2 text-slate-500 tabular-nums">{value.toLocaleString('fr-FR')} DAE</span>
+      <span className="font-medium text-fg">{name}</span>
+      <span className="ml-2 text-fg-muted tabular-nums">{value.toLocaleString('fr-FR')} DAE</span>
     </div>
   )
 }
@@ -65,8 +65,8 @@ export default function StatusDonut({ conforme, vigilance, critique, inconnu, to
           </PieChart>
         </ResponsiveContainer>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-2xl font-semibold tracking-tight text-slate-900 tabular-nums">{total.toLocaleString('fr-FR')}</span>
-          <span className="text-2xs font-medium uppercase tracking-wider text-slate-400">DAE</span>
+          <span className="text-2xl font-semibold tracking-tight text-fg tabular-nums">{total.toLocaleString('fr-FR')}</span>
+          <span className="text-label font-medium uppercase tracking-wider text-fg-faint">DAE</span>
         </div>
       </div>
 
@@ -76,11 +76,11 @@ export default function StatusDonut({ conforme, vigilance, critique, inconnu, to
           const n = counts[s.key]
           const share = total > 0 ? Math.round((n / total) * 100) : 0
           return (
-            <li key={s.key} className="flex items-center gap-2 text-13">
+            <li key={s.key} className="flex items-center gap-2 text-body">
               <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: s.color }} aria-hidden />
-              <span className="flex-1 text-slate-600">{s.label}</span>
-              <span className="font-medium text-slate-900 tabular-nums">{n.toLocaleString('fr-FR')}</span>
-              <span className="w-9 text-right text-xs text-slate-400 tabular-nums">{share} %</span>
+              <span className="flex-1 text-fg-secondary">{s.label}</span>
+              <span className="font-medium text-fg tabular-nums">{n.toLocaleString('fr-FR')}</span>
+              <span className="w-9 text-right text-caption text-fg-faint tabular-nums">{share} %</span>
             </li>
           )
         })}

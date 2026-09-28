@@ -6,10 +6,10 @@ export default function DashboardLoading() {
     <PageSkeleton label="Chargement du tableau de bord">
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="rounded-lg border border-slate-200 bg-white p-4 shadow-card">
+          <div key={i} className="rounded-card border border-border bg-surface p-4 shadow-card">
             <div className="flex items-center justify-between">
               <Skeleton className="h-2.5 w-20" />
-              <Skeleton className="h-7 w-7 rounded-md" />
+              <Skeleton className="h-7 w-7 rounded-control" />
             </div>
             <Skeleton className="mt-3 h-7 w-16" />
             <Skeleton className="mt-2 h-2.5 w-24" />

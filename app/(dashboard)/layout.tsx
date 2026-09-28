@@ -3,7 +3,7 @@ import { Suspense } from 'react'
 import { createServiceClient, type UserRole } from '@/lib/supabase'
 import { createSessionClient } from '@/lib/supabase-server'
 import { getSessionUser } from '@/lib/auth/session'
-import Sidebar from '@/components/dashboard/Sidebar'
+import AppShell from '@/components/dashboard/AppShell'
 import ContratFilterBar from '@/components/dashboard/ContratFilterBar'
 import ClientFilterBar, { type ClientOption } from '@/components/dashboard/ClientFilterBar'
 import { LOCATION_TYPES, MAINTENANCE_TYPES, SANS_CONTRAT_SENTINEL, SANS_CONTRAT_STRINGS, type AutreType } from '@/lib/contract-groups'
@@ -128,34 +128,26 @@ export default async function DashboardLayout({ children }: { children: ReactNod
   const userRole = currentUser?.role ?? 'direction'
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden">
-      <Sidebar
-        critiqueCount={critiqueCount}
-        geodaeAnomalyCount={geodaeAnomalyCount}
-        lastSync={lastSync}
-        userRole={userRole}
-        userName={currentUser?.name ?? ''}
-        userEmail={currentUser?.email ?? ''}
-      />
-
-      {/* Colonne droite : filtres globaux + contenu scrollable */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Barre de filtres globaux — persistante sur toutes les pages dashboard */}
-        <div className="flex min-h-11 shrink-0 flex-wrap items-center gap-x-4 gap-y-1.5 border-b border-slate-200 bg-white/90 px-5 py-1.5 pt-[3.375rem] backdrop-blur lg:px-7 lg:pt-1.5">
-          <Suspense fallback={<div className="h-7 w-64 rounded-md bg-slate-100" />}>
+    <AppShell
+      critiqueCount={critiqueCount}
+      geodaeAnomalyCount={geodaeAnomalyCount}
+      lastSync={lastSync}
+      userRole={userRole}
+      userName={currentUser?.name ?? ''}
+      userEmail={currentUser?.email ?? ''}
+      toolbar={
+        <>
+          <Suspense fallback={<div className="h-8 w-64 rounded-control bg-surface-sunken" />}>
             <ContratFilterBar autreTypes={autreTypes} />
           </Suspense>
-          <div className="hidden h-5 w-px bg-slate-200 sm:block" />
-          <Suspense fallback={<div className="h-7 w-44 rounded-md bg-slate-100" />}>
+          <div className="hidden h-5 w-px bg-border sm:block" />
+          <Suspense fallback={<div className="h-8 w-44 rounded-control bg-surface-sunken" />}>
             <ClientFilterBar clients={clients} />
           </Suspense>
-        </div>
-
-        {/* Zone de contenu principale scrollable */}
-        <main className="flex-1 overflow-y-auto">
-          {children}
-        </main>
-      </div>
-    </div>
+        </>
+      }
+    >
+      {children}
+    </AppShell>
   )
 }
