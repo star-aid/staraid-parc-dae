@@ -31,6 +31,22 @@ type LookupState =
   | { status: 'done'; result: LookupResult }
   | { status: 'error'; message: string }
 
+/** Report d'un identifiant dans Synchroteam, par ligne */
+type WritebackState =
+  | { status: 'confirm'; gid: string }
+  | { status: 'writing'; gid: string }
+  | { status: 'done'; gid: string; verified: boolean }
+  | { status: 'error'; gid: string; message: string }
+
+/** Réponse de POST /api/geodae/writeback (succès, refus 409 ou erreur) */
+type WritebackResponse = {
+  ok?: boolean
+  verified?: boolean
+  already_set?: boolean
+  error?: string
+  journal?: { persisted: boolean; reason?: string; resolved: number }
+}
+
 const SOURCE_LABEL: Record<GidCandidate['source'], string> = {
   open_data:  'open data data.gouv.fr',
   geodae_api: 'API exploitants Géo’DAE',
@@ -51,6 +67,22 @@ function rowKey(r: LocationDae) {
 /** Identifiant retenu quand la recherche a donné une correspondance unique */
 function foundGid(state: LookupState | undefined): string | null {
   return state?.status === 'done' && state.result.candidates.length === 1 ? state.result.candidates[0].gid : null
+}
+
+/** Après un report réussi : la ligne porte l'identifiant et les compteurs suivent */
+function applyWrittenGid(result: ExtractionResult, row: LocationDae, gid: string): ExtractionResult {
+  const key = rowKey(row)
+  const shift = <T extends { with_geo_dae_id: number; without_geo_dae_id: number }>(o: T): T => ({
+    ...o,
+    with_geo_dae_id: o.with_geo_dae_id + 1,
+    without_geo_dae_id: Math.max(0, o.without_geo_dae_id - 1),
+  })
+  return {
+    ...result,
+    rows: result.rows.map((r) => (rowKey(r) === key ? { ...r, geo_dae_id: gid } : r)),
+    totals: shift(result.totals),
+    accounts: result.accounts.map((a) => (a.account === row.account ? shift(a) : a)),
+  }
 }
 
 /** Convertit une ligne et son résultat de recherche en élément de journal */
@@ -130,16 +162,69 @@ function GidLink({ gid, className }: { gid: string; className?: string }) {
   )
 }
 
+// ─── Report dans Synchroteam : bouton, confirmation, état ────────────────────
+
+function WriteControls({ gid, writeback, compact, onRequest, onConfirm, onCancel }: {
+  gid: string
+  writeback: WritebackState | undefined
+  compact?: boolean
+  onRequest: (gid: string) => void
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  const small = compact ? 'h-5 px-1.5 text-2xs' : undefined
+  if (writeback && writeback.gid === gid) {
+    if (writeback.status === 'writing') {
+      return <span className="inline-flex items-center gap-1 text-2xs text-slate-500"><SpinnerIcon className="h-3 w-3" />Report dans Synchroteam…</span>
+    }
+    if (writeback.status === 'confirm') {
+      return (
+        <span className="inline-flex flex-wrap items-center gap-1">
+          <span className="text-2xs font-medium text-slate-700">Écrire {gid} dans Synchroteam ?</span>
+          <Button variant="primary" size="sm" onClick={onConfirm} className={small}>Confirmer</Button>
+          <Button variant="ghost" size="sm" onClick={onCancel} className={small}>Annuler</Button>
+        </span>
+      )
+    }
+    if (writeback.status === 'error') {
+      return (
+        <span className="inline-flex max-w-[340px] items-center gap-1 text-2xs text-red-700">
+          <span className="truncate" title={writeback.message}>Échec : {writeback.message}</span>
+          <Button variant="ghost" size="sm" onClick={() => onRequest(gid)} className={small}>Réessayer</Button>
+        </span>
+      )
+    }
+  }
+  return (
+    <Button
+      variant={compact ? 'ghost' : 'secondary'}
+      size="sm"
+      onClick={() => onRequest(gid)}
+      title="Écrire cet identifiant dans le champ « Identifiant Géo'DAE » de l'équipement Synchroteam (après confirmation)"
+      className={small}
+    >
+      <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
+      </svg>
+      Reporter dans Synchroteam
+    </Button>
+  )
+}
+
 // ─── Cellule « identifiant manquant » : recherche et résultat ────────────────
 
 function MissingGidCell({
-  row, state, copied, onLookup, onCopy,
+  row, state, writeback, copied, onLookup, onCopy, onWriteRequest, onWriteConfirm, onWriteCancel,
 }: {
   row: LocationDae
   state: LookupState | undefined
+  writeback: WritebackState | undefined
   copied: boolean
   onLookup: () => void
   onCopy: (gid: string) => void
+  onWriteRequest: (gid: string) => void
+  onWriteConfirm: () => void
+  onWriteCancel: () => void
 }) {
   const missingPill = (
     <span className="inline-flex rounded-md bg-amber-50 px-1.5 py-0.5 text-2xs font-medium text-amber-800 ring-1 ring-inset ring-amber-500/30">
@@ -198,11 +283,12 @@ function MissingGidCell({
     const c = candidates[0]
     return (
       <div className="flex flex-col gap-0.5">
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <GidLink gid={c.gid} className="font-semibold text-emerald-700" />
           <Button variant="ghost" size="sm" onClick={() => onCopy(c.gid)} title="Copier l’identifiant" className={copied ? 'text-emerald-700' : undefined}>
             {copied ? 'Copié' : 'Copier'}
           </Button>
+          <WriteControls gid={c.gid} writeback={writeback} onRequest={onWriteRequest} onConfirm={onWriteConfirm} onCancel={onWriteCancel} />
         </div>
         <span className="max-w-[280px] truncate text-2xs text-slate-500" title={c.nom ?? undefined}>
           {c.nom ?? 'Sans nom'} · {SOURCE_LABEL[c.source]}
@@ -218,10 +304,11 @@ function MissingGidCell({
     <div className="flex flex-col gap-0.5">
       <span className="text-2xs font-medium text-amber-700">{candidates.length} correspondances, à trancher</span>
       {candidates.slice(0, 3).map((c) => (
-        <span key={c.gid} className="flex items-center gap-1.5 text-2xs text-slate-600">
+        <span key={c.gid} className="flex flex-wrap items-center gap-1.5 text-2xs text-slate-600">
           <GidLink gid={c.gid} className="text-slate-800" />
           <span className="max-w-[220px] truncate" title={c.nom ?? undefined}>{c.nom}</span>
           <Button variant="ghost" size="sm" onClick={() => onCopy(c.gid)} className="h-5 px-1.5 text-2xs">Copier</Button>
+          <WriteControls gid={c.gid} writeback={writeback} compact onRequest={onWriteRequest} onConfirm={onWriteConfirm} onCancel={onWriteCancel} />
         </span>
       ))}
     </div>
@@ -336,6 +423,49 @@ function JournalCard({ journal, loading, message, onRefresh }: {
               )}
             </div>
           )}
+
+          {/* ── Reports dans Synchroteam (migration 011) ── */}
+          {journal.writebacks_reason && (
+            <div className="border-t border-slate-100 px-4 py-2 text-xs text-amber-800">Reports Synchroteam non tracés. {journal.writebacks_reason}</div>
+          )}
+          {journal.writebacks.length > 0 && (
+            <details className="border-t border-slate-100">
+              <summary className="cursor-pointer select-none px-4 py-2 text-xs font-medium text-slate-600 hover:text-slate-900">
+                Reports dans Synchroteam
+                <span className="ml-1 font-normal text-slate-400 tabular-nums">({journal.writebacks_total} au total, {journal.writebacks.length} dernier{journal.writebacks.length > 1 ? 's' : ''} affiché{journal.writebacks.length > 1 ? 's' : ''})</span>
+              </summary>
+              <div className="overflow-x-auto border-t border-slate-100">
+                <table className={tableClass}>
+                  <thead className={theadClass}>
+                    <tr>
+                      <th className={thClass}>Date</th>
+                      <th className={thClass}>Compte</th>
+                      <th className={thClass}>N° série</th>
+                      <th className={thClass}>Identifiant écrit</th>
+                      <th className={thClass}>Par</th>
+                      <th className={thClass}>Résultat</th>
+                    </tr>
+                  </thead>
+                  <tbody className={tbodyClass}>
+                    {journal.writebacks.map((w) => (
+                      <tr key={w.id} className={trClass}>
+                        <td className={cx(tdClass, 'text-xs text-slate-500 tabular-nums')}>{fmtDateTime(w.written_at)}</td>
+                        <td className={cx(tdClass, 'text-xs text-slate-600')}>{w.account ?? '—'}</td>
+                        <td className={cx(tdClass, 'font-mono text-xs text-slate-800')}>{w.serial_number ?? '—'}</td>
+                        <td className={tdClass}><GidLink gid={w.geodae_gid} /></td>
+                        <td className={cx(tdClass, 'text-xs text-slate-600')}>{w.written_by ?? '—'}</td>
+                        <td className={cx(tdClass, 'text-xs')}>
+                          {w.status === 'ok'
+                            ? <span className="text-emerald-700">{w.verified ? 'Écrit et vérifié' : 'Écrit, relecture non confirmée'}</span>
+                            : <span className="text-red-700" title={w.error ?? undefined}>Échec{w.error ? ` : ${w.error}` : ''}</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          )}
         </>
       )}
     </Card>
@@ -407,6 +537,12 @@ export default function GeodaeClient() {
   const [bulk, setBulk] = useState<{ running: boolean; done: number; total: number } | null>(null)
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
 
+  // Reports dans Synchroteam (étape 2) : par ligne, et en lot pour les correspondances uniques
+  const [writebacks, setWritebacks] = useState<Record<string, WritebackState>>({})
+  const [bulkWrite, setBulkWrite] = useState<{ running: boolean; done: number; total: number } | null>(null)
+  const [bulkWriteConfirm, setBulkWriteConfirm] = useState(false)
+  const [writeMsg, setWriteMsg] = useState<string | null>(null)
+
   // Journal des contrôles (tables de la migration 009)
   const [journal, setJournal] = useState<JournalSummary | null>(null)
   const [journalLoading, setJournalLoading] = useState(false)
@@ -420,7 +556,7 @@ export default function GeodaeClient() {
       if (!res.ok || !body) throw new Error(body?.error ?? `HTTP ${res.status}`)
       setJournal(body)
     } catch (err) {
-      setJournal({ available: false, reason: err instanceof Error ? err.message : String(err), runs: [], open_by_type: {}, open_total: 0, open_anomalies: [] })
+      setJournal({ available: false, reason: err instanceof Error ? err.message : String(err), runs: [], open_by_type: {}, open_total: 0, open_anomalies: [], writebacks: [], writebacks_total: 0 })
     } finally {
       setJournalLoading(false)
     }
@@ -462,6 +598,10 @@ export default function GeodaeClient() {
       setResult((await res.json()) as ExtractionResult)
       setLookups({})
       setBulk(null)
+      setWritebacks({})
+      setBulkWrite(null)
+      setBulkWriteConfirm(false)
+      setWriteMsg(null)
       setPage(1)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -501,7 +641,8 @@ export default function GeodaeClient() {
     const q = search.trim().toLowerCase()
     return result.rows.filter((r) => {
       if (account !== 'all' && r.account !== account) return false
-      if (filter === 'sans_geo' && r.geo_dae_id) return false
+      // Une ligne reportée à l'instant reste visible dans la vue « sans identifiant »
+      if (filter === 'sans_geo' && r.geo_dae_id && writebacks[rowKey(r)]?.status !== 'done') return false
       if (filter === 'sans_serie' && r.serial_number) return false
       if (q) {
         const hay = [r.serial_number, r.geo_dae_id, r.customer_name, r.site_name, r.name, r.synchroteam_id].join(' ').toLowerCase()
@@ -509,12 +650,22 @@ export default function GeodaeClient() {
       }
       return true
     })
-  }, [result, account, filter, search])
+  }, [result, account, filter, search, writebacks])
 
   // Lignes candidates à la recherche : sans identifiant mais avec un n° de série
   const missingTargets = useMemo(
     () => filtered.filter((r) => !r.geo_dae_id && r.serial_number && lookups[rowKey(r)]?.status !== 'done'),
     [filtered, lookups]
+  )
+
+  // Lignes reportables en lot : correspondance unique trouvée, pas encore écrite
+  const uniqueTargets = useMemo(
+    () => filtered.filter((r) => {
+      if (r.geo_dae_id || !foundGid(lookups[rowKey(r)])) return false
+      const w = writebacks[rowKey(r)]
+      return !w || w.status === 'error' || w.status === 'confirm'
+    }),
+    [filtered, lookups, writebacks]
   )
 
   async function lookupMissing() {
@@ -542,6 +693,76 @@ export default function GeodaeClient() {
       `${targets.length} DAE`,
     ].filter(Boolean)
     await persistJournal(items, `Recherche groupée · ${scopeParts.join(' · ')}`, true)
+  }
+
+  // ── Report dans Synchroteam ───────────────────────────────────────────────
+
+  function requestWrite(row: LocationDae, gid: string) {
+    setWritebacks((prev) => ({ ...prev, [rowKey(row)]: { status: 'confirm', gid } }))
+  }
+
+  function cancelWrite(row: LocationDae) {
+    setWritebacks((prev) => {
+      const next = { ...prev }
+      delete next[rowKey(row)]
+      return next
+    })
+  }
+
+  /** Écrit l'identifiant dans le champ Synchroteam de la ligne ; vrai si l'écriture a été acceptée */
+  async function writeOne(row: LocationDae, gid: string): Promise<boolean> {
+    const key = rowKey(row)
+    setWritebacks((prev) => ({ ...prev, [key]: { status: 'writing', gid } }))
+    try {
+      const res = await fetch('/api/geodae/writeback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account: row.account, synchroteam_id: row.synchroteam_id, serial_number: row.serial_number, gid }),
+      })
+      const body = (await res.json().catch(() => null)) as WritebackResponse | null
+      if (!body) throw new Error(`HTTP ${res.status}`)
+      if (!body.ok) throw new Error(body.error ?? `HTTP ${res.status}`)
+      setWritebacks((prev) => ({ ...prev, [key]: { status: 'done', gid, verified: body.verified === true } }))
+      // La ligne rejoint les DAE « avec identifiant » et les compteurs suivent
+      setResult((prev) => (prev ? applyWrittenGid(prev, row, gid) : prev))
+      if (body.journal && !body.journal.persisted) setJournalMsg(body.journal.reason ?? 'Report non tracé dans le journal.')
+      return true
+    } catch (err) {
+      setWritebacks((prev) => ({ ...prev, [key]: { status: 'error', gid, message: err instanceof Error ? err.message : String(err) } }))
+      return false
+    }
+  }
+
+  /** Confirmation d'un report demandé sur une ligne */
+  async function confirmWrite(row: LocationDae) {
+    const pending = writebacks[rowKey(row)]
+    if (pending?.status !== 'confirm') return
+    setWriteMsg(null)
+    await writeOne(row, pending.gid)
+    await loadJournal()
+  }
+
+  /** Report en lot des correspondances uniques affichées, après confirmation explicite */
+  async function writeUniqueMatches() {
+    setBulkWriteConfirm(false)
+    if (bulkWrite?.running || uniqueTargets.length === 0) return
+    const targets = uniqueTargets.map((r) => ({ row: r, gid: foundGid(lookups[rowKey(r)]) as string }))
+    setBulkWrite({ running: true, done: 0, total: targets.length })
+    setWriteMsg(null)
+    let ok = 0
+    for (let i = 0; i < targets.length; i++) {
+      if (await writeOne(targets[i].row, targets[i].gid)) ok++
+      setBulkWrite({ running: true, done: i + 1, total: targets.length })
+      // Chaque report enchaîne trois appels Synchroteam : on espace les lignes
+      await new Promise((r) => setTimeout(r, 150))
+    }
+    setBulkWrite({ running: false, done: targets.length, total: targets.length })
+    const failed = targets.length - ok
+    setWriteMsg(
+      `Report terminé : ${ok} identifiant${ok > 1 ? 's' : ''} écrit${ok > 1 ? 's' : ''} dans Synchroteam` +
+      (failed > 0 ? `, ${failed} échec${failed > 1 ? 's' : ''} (détail sur chaque ligne).` : '.')
+    )
+    await loadJournal()
   }
 
   async function copyGid(gid: string, key: string) {
@@ -686,7 +907,31 @@ export default function GeodaeClient() {
                 ? <><SpinnerIcon />Recherche {bulk.done} / {bulk.total}</>
                 : <>Rechercher les manquants ({missingTargets.length})</>}
             </Button>
+            <Button
+              variant="primary"
+              onClick={() => setBulkWriteConfirm(true)}
+              disabled={bulkWrite?.running || bulkWriteConfirm || uniqueTargets.length === 0}
+              title="Écrit dans Synchroteam les identifiants trouvés avec une correspondance unique, après confirmation"
+            >
+              {bulkWrite?.running
+                ? <><SpinnerIcon />Report {bulkWrite.done} / {bulkWrite.total}</>
+                : <>Reporter les correspondances uniques ({uniqueTargets.length})</>}
+            </Button>
           </div>
+
+          {bulkWriteConfirm && (
+            <div role="alertdialog" aria-label="Confirmer le report dans Synchroteam" className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-brand/30 bg-red-50/50 px-4 py-2.5 text-13 text-slate-700">
+              <span className="min-w-0 flex-1">
+                Vous allez écrire <strong className="font-semibold">{uniqueTargets.length}</strong> identifiant{uniqueTargets.length > 1 ? 's' : ''} dans le champ « Identifiant Géo&apos;DAE » des équipements Synchroteam.
+                {' '}Chaque équipement est relu juste avant l&apos;écriture et un champ déjà renseigné n&apos;est jamais écrasé.
+              </span>
+              <Button variant="primary" onClick={writeUniqueMatches}>Confirmer le report</Button>
+              <Button variant="ghost" onClick={() => setBulkWriteConfirm(false)}>Annuler</Button>
+            </div>
+          )}
+          {writeMsg && (
+            <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs text-emerald-800">{writeMsg}</div>
+          )}
 
           {/* ── Types de contrat rencontrés ─────────────────────────────────── */}
           <details className="mb-4 rounded-lg border border-slate-200 bg-white shadow-card">
@@ -756,6 +1001,7 @@ export default function GeodaeClient() {
                   )}
                   {pageRows.map((r) => {
                     const key = rowKey(r)
+                    const wb = writebacks[key]
                     return (
                       <tr key={key} className={trClass}>
                         <td className={cx(tdClass, 'text-xs font-medium text-slate-600')}>{r.account}</td>
@@ -764,14 +1010,30 @@ export default function GeodaeClient() {
                         </td>
                         <td className={cx(tdClass, 'text-slate-700')}>
                           {r.geo_dae_id
-                            ? <GidLink gid={r.geo_dae_id} />
+                            ? (
+                              <span className="inline-flex flex-wrap items-center gap-1.5">
+                                <GidLink gid={r.geo_dae_id} />
+                                {wb?.status === 'done' && (
+                                  <span
+                                    className="inline-flex rounded-md bg-emerald-50 px-1.5 py-0.5 text-2xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20"
+                                    title={wb.verified ? 'Valeur relue dans Synchroteam après l’écriture' : 'Écriture acceptée par Synchroteam, relecture non confirmée'}
+                                  >
+                                    Reporté dans Synchroteam
+                                  </span>
+                                )}
+                              </span>
+                            )
                             : (
                               <MissingGidCell
                                 row={r}
                                 state={lookups[key]}
+                                writeback={wb}
                                 copied={copiedKey === key}
                                 onLookup={() => lookupSingle(r)}
                                 onCopy={(gid) => copyGid(gid, key)}
+                                onWriteRequest={(gid) => requestWrite(r, gid)}
+                                onWriteConfirm={() => confirmWrite(r)}
+                                onWriteCancel={() => cancelWrite(r)}
                               />
                             )}
                         </td>

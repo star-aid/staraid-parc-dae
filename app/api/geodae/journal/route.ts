@@ -1,29 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createSessionClient } from '@/lib/supabase-server'
+import { authorizeGeodae } from '@/lib/geodae/route-auth'
 import { getJournalSummary, recordLookupRun } from '@/lib/geodae/journal'
 import type { JournalItem } from '@/lib/geodae/types'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
 
-async function authorize(): Promise<{ ok: true; who: string } | { ok: false; res: NextResponse }> {
-  try {
-    const session = await createSessionClient()
-    const { data: { user } } = await session.auth.getUser()
-    if (!user) return { ok: false, res: NextResponse.json({ error: 'Non authentifié' }, { status: 401 }) }
-    const role = user.user_metadata?.role as string | undefined
-    if (role !== 'administrateur' && role !== 'maintenance') {
-      return { ok: false, res: NextResponse.json({ error: 'Accès refusé' }, { status: 403 }) }
-    }
-    return { ok: true, who: (user.email ?? user.id).replace('@parc-dae.local', '') }
-  } catch {
-    return { ok: false, res: NextResponse.json({ error: 'Erreur auth' }, { status: 401 }) }
-  }
-}
-
-/** GET /api/geodae/journal : dernières exécutions et anomalies ouvertes. */
+/** GET /api/geodae/journal : dernières exécutions, anomalies ouvertes et reports. */
 export async function GET() {
-  const auth = await authorize()
+  const auth = await authorizeGeodae()
   if (!auth.ok) return auth.res
   try {
     return NextResponse.json(await getJournalSummary(), { headers: { 'Cache-Control': 'no-store' } })
@@ -39,7 +24,7 @@ export async function GET() {
  * anomalies (introuvable, ambigu, erreur) et clôt celles des DAE retrouvés.
  */
 export async function POST(req: NextRequest) {
-  const auth = await authorize()
+  const auth = await authorizeGeodae()
   if (!auth.ok) return auth.res
 
   let body: { items?: JournalItem[]; scope?: string; createRun?: boolean }

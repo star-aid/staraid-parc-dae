@@ -45,6 +45,49 @@ export interface LookupResult {
   sources: { open_data: string; geodae_api: string }
 }
 
+// ─── Report dans Synchroteam (étape 2, migration 20260928000011) ─────────────
+
+/** Demande de report d'un identifiant Géo'DAE validé par l'utilisateur */
+export interface WritebackRequest {
+  account: TerritoryCode
+  synchroteam_id: string
+  /** N° de série affiché : l'équipement est relu et doit toujours le porter */
+  serial_number: string | null
+  gid: string
+}
+
+export type WritebackResult =
+  | {
+      ok: true
+      gid: string
+      /** Contenu du champ Synchroteam avant l'écriture */
+      previous_value: string | null
+      /** Vrai si la valeur a été relue dans Synchroteam après l'écriture */
+      verified: boolean
+      /** Le champ contenait déjà cet identifiant : rien n'a été écrit */
+      already_set?: boolean
+      /** Mode simulation : charge utile qui aurait été envoyée */
+      dry_run?: boolean
+      payload?: unknown
+    }
+  | { ok: false; error: string }
+
+/** Ligne de la table geodae_writebacks */
+export interface WritebackRow {
+  id: string
+  account: TerritoryCode | null
+  synchroteam_id: string
+  defibrillator_id: string | null
+  serial_number: string | null
+  geodae_gid: string
+  previous_value: string | null
+  status: 'ok' | 'erreur'
+  verified: boolean
+  error: string | null
+  written_by: string | null
+  written_at: string
+}
+
 // ─── Journal des contrôles (migration 20260922000009) ────────────────────────
 
 export type AnomalyType =
@@ -111,6 +154,10 @@ export interface JournalSummary {
   open_by_type: Record<string, number>
   open_total: number
   open_anomalies: AnomalyRow[]
+  /** Derniers reports dans Synchroteam (migration 011) ; vide avec `writebacks_reason` si la table manque */
+  writebacks: WritebackRow[]
+  writebacks_total: number
+  writebacks_reason?: string
 }
 
 export interface ContractTypeCount {

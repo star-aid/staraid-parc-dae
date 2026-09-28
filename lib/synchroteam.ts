@@ -10,6 +10,12 @@ export interface SynchroteamClient {
   fetchContracts(): Promise<Record<string, unknown>[]>
   fetchJobs(params?: Record<string, string | number>): Promise<Record<string, unknown>[]>
   fetchUsers(): Promise<Record<string, unknown>[]>
+  /**
+   * Seule écriture vers Synchroteam : mise à jour partielle d'un équipement
+   * (POST /equipment/send ne modifie que les champs fournis). Utilisée
+   * uniquement pour le report de l'identifiant Géo'DAE (lib/geodae/writeback.ts).
+   */
+  sendEquipment(payload: Record<string, unknown>): Promise<Record<string, unknown>>
 }
 
 export function createSynchroteamClient(domain: string, apiKey: string): SynchroteamClient {
@@ -36,6 +42,24 @@ export function createSynchroteamClient(domain: string, apiKey: string): Synchro
 
     if (!res.ok) {
       throw new Error(`Synchroteam API ${res.status} GET ${endpoint} (domain: ${domain})`)
+    }
+
+    return res.json() as Promise<T>
+  }
+
+  async function apiPost<T>(endpoint: string, body: unknown): Promise<T> {
+    const res = await fetch(`${BASE_URL}${endpoint}`, { method: 'POST', headers, body: JSON.stringify(body) })
+
+    if (res.status === 429) {
+      const resetTs = res.headers.get('X-RateLimit-Reset')
+      const waitMs = resetTs ? Number(resetTs) * 1000 - Date.now() : 60_000
+      await new Promise((r) => setTimeout(r, Math.max(waitMs, 1000)))
+      return apiPost(endpoint, body)
+    }
+
+    if (!res.ok) {
+      const detail = (await res.text().catch(() => '')).replace(/\s+/g, ' ').trim().slice(0, 200)
+      throw new Error(`Synchroteam API ${res.status} POST ${endpoint} (domain: ${domain})${detail ? ` : ${detail}` : ''}`)
     }
 
     return res.json() as Promise<T>
@@ -93,6 +117,7 @@ export function createSynchroteamClient(domain: string, apiKey: string): Synchro
     fetchContracts: () => fetchAllPages<Record<string, unknown>>('/Api/v3/contract/list'),
     fetchJobs: (params = {}) => fetchAllPages<Record<string, unknown>>('/Api/v3/job/list', params),
     fetchUsers: () => fetchAllPages<Record<string, unknown>>('/Api/v3/user/list'),
+    sendEquipment: (payload) => apiPost<Record<string, unknown>>('/Api/v3/equipment/send', payload),
   }
 }
 

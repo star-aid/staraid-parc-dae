@@ -7,7 +7,9 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase'
-import type { AnomalyRow, AnomalyType, JournalItem, JournalRun, JournalSummary } from '@/lib/geodae/types'
+import type {
+  AnomalyRow, AnomalyType, JournalItem, JournalRun, JournalSummary, WritebackRequest, WritebackResult, WritebackRow,
+} from '@/lib/geodae/types'
 import type { TerritoryCode } from '@/types'
 
 export const MIGRATION_HINT =
@@ -15,6 +17,9 @@ export const MIGRATION_HINT =
 
 export const GRANTS_HINT =
   'Droits manquants sur les tables du journal : appliquer la migration supabase/migrations/20260928000010_geodae_grants.sql dans Supabase.'
+
+export const WRITEBACK_HINT =
+  'Table des reports absente : appliquer la migration supabase/migrations/20260928000011_geodae_writebacks.sql dans Supabase.'
 
 // Préfixe des identifiants Synchroteam dans la table defibrillators, par compte
 // (cf. buildAccounts dans lib/sync-territory-route.ts)
@@ -35,11 +40,14 @@ function isPermissionDenied(error: PgError): boolean {
 }
 
 /** Raison d'indisponibilité du journal, ou null si l'erreur est d'une autre nature. */
-function unavailableReason(error: PgError): string | null {
-  if (isMissingTable(error)) return MIGRATION_HINT
-  if (isPermissionDenied(error)) return GRANTS_HINT
+function unavailableReason(error: PgError, hints = { missing: MIGRATION_HINT, denied: GRANTS_HINT }): string | null {
+  if (isMissingTable(error)) return hints.missing
+  if (isPermissionDenied(error)) return hints.denied
   return null
 }
+
+// La migration 11 crée la table et ses droits : un seul indice dans les deux cas
+const WRITEBACK_HINTS = { missing: WRITEBACK_HINT, denied: WRITEBACK_HINT }
 
 function outcomeType(item: JournalItem): AnomalyType | null {
   if (item.outcome === 'not_found') return 'absent_geodae'
@@ -49,7 +57,10 @@ function outcomeType(item: JournalItem): AnomalyType | null {
 }
 
 /** Résout les UUID locaux des DAE (table defibrillators) pour lier les anomalies aux fiches. */
-async function resolveDefibrillatorIds(supabase: SupabaseClient, items: JournalItem[]): Promise<Map<string, string>> {
+async function resolveDefibrillatorIds(
+  supabase: SupabaseClient,
+  items: Array<{ account: TerritoryCode; synchroteam_id: string }>
+): Promise<Map<string, string>> {
   const keys = Array.from(new Set(items.map((i) => `${ID_PREFIX[i.account] ?? ''}${i.synchroteam_id}`)))
   const map = new Map<string, string>()
   for (let i = 0; i < keys.length; i += 200) {
@@ -174,20 +185,97 @@ export async function recordLookupRun(params: {
   return { persisted: true, run_id: runId, anomalies_upserted: upserted, resolved }
 }
 
-/** Dernières exécutions et anomalies ouvertes, pour l'encart « Journal des contrôles ». */
+export interface WritebackRecord {
+  persisted: boolean
+  reason?: string
+  /** Anomalies ouvertes du DAE clôturées par le report */
+  resolved: number
+}
+
+/**
+ * Trace un report d'identifiant vers Synchroteam (réussi ou non), puis, en cas
+ * de succès, clôt les anomalies ouvertes du DAE et met à jour la copie locale
+ * (table defibrillators) sans attendre la synchronisation du matin.
+ */
+export async function recordWriteback(params: {
+  request: WritebackRequest
+  result: WritebackResult
+  writtenBy: string | null
+}): Promise<WritebackRecord> {
+  const { request, result, writtenBy } = params
+  const supabase = createServiceClient()
+  const now = new Date().toISOString()
+
+  const localKey = `${ID_PREFIX[request.account] ?? ''}${request.synchroteam_id}`
+  const localId = (await resolveDefibrillatorIds(supabase, [request])).get(localKey) ?? null
+
+  const { error } = await supabase.from('geodae_writebacks').insert({
+    account: request.account,
+    synchroteam_id: request.synchroteam_id,
+    defibrillator_id: localId,
+    serial_number: request.serial_number,
+    geodae_gid: request.gid,
+    previous_value: result.ok ? result.previous_value : null,
+    status: result.ok ? 'ok' : 'erreur',
+    verified: result.ok ? result.verified : false,
+    error: result.ok ? null : result.error,
+    written_by: writtenBy,
+    written_at: now,
+  })
+  if (error) {
+    const reason = unavailableReason(error, WRITEBACK_HINTS)
+    if (reason) return { persisted: false, reason, resolved: 0 }
+    throw new Error(`journal (report) : ${error.message}`)
+  }
+  if (!result.ok) return { persisted: true, resolved: 0 }
+
+  // L'identifiant est désormais dans Synchroteam : les anomalies du DAE n'ont plus lieu d'être
+  let resolved = 0
+  const { data, error: closeErr } = await supabase
+    .from('geodae_anomalies')
+    .update({ resolved_at: now, resolution: `identifiant ${request.gid} reporté dans Synchroteam` })
+    .eq('account', request.account)
+    .eq('synchroteam_id', request.synchroteam_id)
+    .is('resolved_at', null)
+    .select('id')
+  if (closeErr) {
+    if (!unavailableReason(closeErr)) throw new Error(`journal (clôture) : ${closeErr.message}`)
+  } else {
+    resolved = (data ?? []).length
+  }
+
+  // Copie locale, au mieux : la synchronisation quotidienne fera foi de toute façon
+  if (localId) await supabase.from('defibrillators').update({ geo_dae_id: request.gid }).eq('id', localId)
+
+  return { persisted: true, resolved }
+}
+
+/** Dernières exécutions, anomalies ouvertes et reports, pour l'encart « Journal des contrôles ». */
 export async function getJournalSummary(): Promise<JournalSummary> {
   const supabase = createServiceClient()
 
-  const [runsRes, openRes] = await Promise.all([
+  const [runsRes, openRes, wbRes] = await Promise.all([
     supabase.from('geodae_reconciliation_runs').select('*').order('started_at', { ascending: false }).limit(10),
     supabase.from('geodae_anomalies').select('*').is('resolved_at', null).order('last_seen_at', { ascending: false }).limit(200),
+    supabase.from('geodae_writebacks').select('*', { count: 'exact' }).order('written_at', { ascending: false }).limit(10),
   ])
 
   const err = runsRes.error ?? openRes.error
   if (err) {
     const reason = unavailableReason(err)
-    if (reason) return { available: false, reason, runs: [], open_by_type: {}, open_anomalies: [], open_total: 0 }
+    if (reason) return { available: false, reason, runs: [], open_by_type: {}, open_anomalies: [], open_total: 0, writebacks: [], writebacks_total: 0 }
     throw new Error(`journal (lecture) : ${err.message}`)
+  }
+
+  // Les reports (migration 11) sont optionnels : leur absence n'invalide pas le journal
+  let writebacks: WritebackRow[] = []
+  let writebacks_total = 0
+  let writebacks_reason: string | undefined
+  if (wbRes.error) {
+    writebacks_reason = unavailableReason(wbRes.error, WRITEBACK_HINTS) ?? `reports illisibles : ${wbRes.error.message}`
+  } else {
+    writebacks = (wbRes.data ?? []) as WritebackRow[]
+    writebacks_total = wbRes.count ?? writebacks.length
   }
 
   // Compte par type sur l'ensemble des anomalies ouvertes (pas seulement les 200 affichées)
@@ -205,5 +293,8 @@ export async function getJournalSummary(): Promise<JournalSummary> {
     open_by_type,
     open_total,
     open_anomalies: (openRes.data ?? []) as AnomalyRow[],
+    writebacks,
+    writebacks_total,
+    ...(writebacks_reason ? { writebacks_reason } : {}),
   }
 }

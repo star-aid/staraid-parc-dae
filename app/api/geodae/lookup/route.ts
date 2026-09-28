@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createSessionClient } from '@/lib/supabase-server'
+import { authorizeGeodae } from '@/lib/geodae/route-auth'
 import { lookupGidBySerial } from '@/lib/geodae/client'
 
 export const dynamic = 'force-dynamic'
@@ -12,17 +12,8 @@ export const maxDuration = 30
  * et maintenance, comme la page.
  */
 export async function GET(req: NextRequest) {
-  try {
-    const session = await createSessionClient()
-    const { data: { user } } = await session.auth.getUser()
-    if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 })
-    const role = user.user_metadata?.role as string | undefined
-    if (role !== 'administrateur' && role !== 'maintenance') {
-      return NextResponse.json({ error: 'Accès refusé' }, { status: 403 })
-    }
-  } catch {
-    return NextResponse.json({ error: 'Erreur auth' }, { status: 401 })
-  }
+  const auth = await authorizeGeodae()
+  if (!auth.ok) return auth.res
 
   const serial = (req.nextUrl.searchParams.get('serial') ?? '').trim()
   if (serial.length < 4 || serial.length > 64) {
