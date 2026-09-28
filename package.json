@@ -9,7 +9,8 @@
     "lint": "next lint",
     "db:status": "node scripts/db.mjs status",
     "db:push": "node scripts/db.mjs push",
-    "db:baseline": "node scripts/db.mjs baseline"
+    "db:baseline": "node scripts/db.mjs baseline",
+    "geodae:dryrun": "npx --yes tsx --tsconfig ./tsconfig.json scripts/geodae-writeback-dryrun.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39",

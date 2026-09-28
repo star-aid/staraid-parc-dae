@@ -185,6 +185,8 @@ export interface AccountExtraction {
   missing_fields: string[]
   error: string | null
   duration_ms: number
+  /** Date de la dernière synchronisation des DAE du compte (source Supabase uniquement) */
+  synced_at?: string | null
 }
 
 export interface ExtractionTotals {
@@ -196,7 +198,10 @@ export interface ExtractionTotals {
 }
 
 export interface ExtractionResult {
+  /** Date de la lecture directe, ou de la dernière synchronisation pour la copie Supabase */
   extracted_at: string
+  /** 'supabase' : copie synchronisée chaque matin (défaut) ; 'synchroteam' : lecture directe */
+  source?: 'supabase' | 'synchroteam'
   accounts: AccountExtraction[]
   totals: ExtractionTotals
   rows: LocationDae[]

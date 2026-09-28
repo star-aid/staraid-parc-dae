@@ -146,6 +146,16 @@ function SpinnerIcon({ className }: { className?: string }) {
   )
 }
 
+/** Icône « actualiser » fixe ; le SpinnerIcon la remplace pendant un chargement */
+function RefreshIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={cx('h-3.5 w-3.5', className)} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+      <path d="M23 4v6h-6" /><path d="M1 20v-6h6" />
+      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+    </svg>
+  )
+}
+
 /** Lien vers la fiche du DAE sur le portail Géo'DAE */
 function GidLink({ gid, className }: { gid: string; className?: string }) {
   return (
@@ -333,7 +343,7 @@ function JournalCard({ journal, loading, message, onRefresh }: {
       title={<>Journal des contrôles{journal?.available && journal.open_total > 0 && <span className="ml-1.5 font-normal text-slate-400 tabular-nums">({journal.open_total} anomalie{journal.open_total > 1 ? 's' : ''} ouverte{journal.open_total > 1 ? 's' : ''})</span>}</>}
       actions={
         <Button variant="ghost" size="sm" onClick={onRefresh} disabled={loading} title="Recharger le journal">
-          <SpinnerIcon className={cx(!loading && 'animate-none')} />
+          {loading ? <SpinnerIcon /> : <RefreshIcon />}
           Actualiser
         </Button>
       }
@@ -511,7 +521,9 @@ function AccountCard({ a }: { a: AccountExtraction }) {
         <Metric label="sans identifiant Géo'DAE" value={a.without_geo_dae_id} tone="warn" />
         <Metric label="sans n° de série" value={a.without_serial} tone="bad" />
       </dl>
-      <p className="mt-3 text-2xs text-slate-400">Mapping des champs : {a.mapping_source || '—'}</p>
+      <p className="mt-3 text-2xs text-slate-400">
+        {a.synced_at ? <>Synchronisé le {fmtDateTime(a.synced_at)}</> : <>Mapping des champs : {a.mapping_source || '—'}</>}
+      </p>
       {a.missing_fields.length > 0 && (
         <p className="mt-1 text-xs text-red-700">Champs non résolus : {a.missing_fields.join(', ')}</p>
       )}
@@ -543,6 +555,10 @@ export default function GeodaeClient() {
   const [bulkWriteConfirm, setBulkWriteConfirm] = useState(false)
   const [writeMsg, setWriteMsg] = useState<string | null>(null)
 
+  // Actualisation à la demande : synchronisation Synchroteam → Supabase puis rechargement
+  const [syncing, setSyncing] = useState(false)
+  const [syncMsg, setSyncMsg] = useState<string | null>(null)
+
   // Journal des contrôles (tables de la migration 009)
   const [journal, setJournal] = useState<JournalSummary | null>(null)
   const [journalLoading, setJournalLoading] = useState(false)
@@ -562,8 +578,8 @@ export default function GeodaeClient() {
     }
   }
 
-  // Le journal se charge à l'ouverture de la page : il a du sens même sans extraction
-  useEffect(() => { loadJournal() }, [])
+  // À l'ouverture : la copie Supabase (immédiate) et le journal
+  useEffect(() => { load(); loadJournal() }, [])
 
   async function persistJournal(items: JournalItem[], scope: string | null, createRun: boolean) {
     if (items.length === 0) return
@@ -586,7 +602,8 @@ export default function GeodaeClient() {
     }
   }
 
-  async function run() {
+  /** Charge la copie Supabase des DAE (synchronisée chaque matin) : réponse immédiate */
+  async function load() {
     setLoading(true)
     setError(null)
     try {
@@ -608,6 +625,35 @@ export default function GeodaeClient() {
     } finally {
       setLoading(false)
     }
+  }
+
+  /**
+   * Actualisation à la demande : relance la synchronisation Synchroteam → Supabase
+   * des comptes configurés (même mécanisme que « Synchroniser maintenant » dans la
+   * barre latérale), puis recharge la copie. Jusqu'à une minute par compte.
+   */
+  async function refreshFromSynchroteam() {
+    if (syncing) return
+    setSyncing(true)
+    setSyncMsg(null)
+    const configured = result?.accounts.filter((a) => a.configured).map((a) => a.account) ?? []
+    const keys = (configured.length > 0 ? configured : ['REU']).map((t) => t.toLowerCase())
+    const errors: string[] = []
+    await Promise.all(keys.map(async (key) => {
+      try {
+        const res = await fetch(`/api/sync/trigger?territory=${key}`, { method: 'POST' })
+        const body = (await res.json().catch(() => null)) as { errors?: string[]; error?: string } | null
+        if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`)
+        errors.push(...(body?.errors ?? []))
+      } catch (err) {
+        errors.push(`[${key.toUpperCase()}] ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }))
+    setSyncing(false)
+    if (errors.length > 0) {
+      setSyncMsg(`Synchronisation terminée avec ${errors.length} erreur${errors.length > 1 ? 's' : ''} : ${errors.slice(0, 3).join(' · ')}`)
+    }
+    await load()
   }
 
   /** Recherche pour une ligne ; renvoie l'état final pour que l'appelant puisse le journaliser */
@@ -816,7 +862,7 @@ export default function GeodaeClient() {
       <PageHeader
         eyebrow={<BackButton label="Tableau de bord" />}
         title="Contrôle Géo'DAE"
-        subtitle={<>Extraction Synchroteam des DAE <strong className="font-medium text-slate-700">actifs</strong> sous contrat de <strong className="font-medium text-slate-700">location</strong>, recherche des identifiants Géo&apos;DAE manquants à partir du n° de série, journal des anomalies.</>}
+        subtitle={<>DAE <strong className="font-medium text-slate-700">actifs</strong> sous contrat de <strong className="font-medium text-slate-700">location</strong> d&apos;après la copie Synchroteam synchronisée chaque matin, recherche des identifiants Géo&apos;DAE manquants à partir du n° de série, report dans Synchroteam, journal des anomalies.</>}
         actions={
           <>
             {result && (
@@ -827,12 +873,14 @@ export default function GeodaeClient() {
                 Exporter CSV ({filtered.length})
               </Button>
             )}
-            <Button variant="primary" onClick={run} disabled={loading}>
-              <svg viewBox="0 0 24 24" className={cx('h-3.5 w-3.5', loading && 'animate-spin')} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <path d="M23 4v6h-6" /><path d="M1 20v-6h6" />
-                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-              </svg>
-              {loading ? 'Interrogation de Synchroteam…' : result ? 'Relancer l’extraction' : 'Lancer l’extraction'}
+            <Button
+              variant="primary"
+              onClick={refreshFromSynchroteam}
+              disabled={syncing || loading}
+              title="Relance la synchronisation Synchroteam → Supabase des comptes configurés, puis recharge la page (jusqu’à une minute)"
+            >
+              {syncing ? <SpinnerIcon /> : <RefreshIcon />}
+              {syncing ? 'Synchronisation en cours…' : 'Actualiser depuis Synchroteam'}
             </Button>
           </>
         }
@@ -844,20 +892,21 @@ export default function GeodaeClient() {
       {/* ── États ─────────────────────────────────────────────────────────── */}
       {error && (
         <div role="alert" className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-2.5 text-13 text-red-700">
-          Échec de l&apos;extraction : {error}
+          Échec du chargement : {error}
         </div>
       )}
-      {loading && (
+      {syncMsg && (
+        <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">{syncMsg}</div>
+      )}
+      {syncing && (
         <div className="mb-4 animate-pulse rounded-lg border border-slate-200 bg-white p-6 text-13 text-slate-500 shadow-card">
-          Lecture des équipements et des contrats sur chaque compte Synchroteam. Cela peut prendre jusqu&apos;à une minute.
+          Synchronisation Synchroteam → Supabase en cours sur chaque compte configuré. Cela peut prendre jusqu&apos;à une minute.
         </div>
       )}
-      {!result && !loading && !error && (
-        <EmptyState className="rounded-lg border border-dashed border-slate-300 bg-white/60 py-12">
-          Aucune extraction lancée. Cliquez sur <strong className="font-medium text-slate-600">Lancer l&apos;extraction</strong> pour interroger Synchroteam.
-          <br />
-          <span className="text-xs">Les données viennent de l&apos;API en direct, pas de la copie synchronisée chaque matin.</span>
-        </EmptyState>
+      {loading && !syncing && (
+        <div className="mb-4 animate-pulse rounded-lg border border-slate-200 bg-white p-6 text-13 text-slate-500 shadow-card">
+          Chargement de la copie Supabase…
+        </div>
       )}
 
       {result && !loading && (
@@ -876,7 +925,9 @@ export default function GeodaeClient() {
             <span className="text-emerald-700"><strong className="font-semibold">{result.totals.with_geo_dae_id}</strong> avec identifiant</span>
             <span className="text-amber-700"><strong className="font-semibold">{result.totals.without_geo_dae_id}</strong> sans identifiant</span>
             <span className="text-red-700"><strong className="font-semibold">{result.totals.without_serial}</strong> sans n° de série</span>
-            <span className="text-2xs text-slate-400">Extraction du {fmtDateTime(result.extracted_at)}</span>
+            <span className="text-2xs text-slate-400">
+              {result.source === 'synchroteam' ? 'Lecture directe Synchroteam du' : 'Copie Synchroteam synchronisée le'} {fmtDateTime(result.extracted_at)}
+            </span>
           </div>
 
           {/* ── Recherche des identifiants manquants ────────────────────────── */}
