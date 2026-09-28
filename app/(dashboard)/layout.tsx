@@ -14,7 +14,7 @@ async function getSidebarData() {
     const { LOCATION_TYPES, MAINTENANCE_TYPES, SANS_CONTRAT_SENTINEL, SANS_CONTRAT_STRINGS } = await import('@/lib/contract-groups')
     // Types exclus des AUTRES (Location + Maintenance + valeurs "sans contrat" gérées séparément)
     const excludedFromAutre = [...LOCATION_TYPES, ...MAINTENANCE_TYPES, ...SANS_CONTRAT_STRINGS]
-    const [critiqueRes, syncRes, clientsRes, autreTypesRes, sansContratRes] = await Promise.all([
+    const [critiqueRes, syncRes, clientsRes, autreTypesRes, sansContratRes, geodaeRes] = await Promise.all([
       supabase
         .from('defibrillators')
         .select('id', { count: 'exact', head: true })
@@ -45,7 +45,12 @@ async function getSidebarData() {
       supabase
         .from('defibrillators')
         .select('id', { count: 'exact', head: true })
-        .or(`contract_type.is.null,contract_type.in.(${SANS_CONTRAT_STRINGS.join(',')})`)
+        .or(`contract_type.is.null,contract_type.in.(${SANS_CONTRAT_STRINGS.join(',')})`),
+      // Anomalies Géo'DAE ouvertes, pour le badge du menu (table absente avant la migration 9 : erreur ignorée)
+      supabase
+        .from('geodae_anomalies')
+        .select('id', { count: 'exact', head: true })
+        .is('resolved_at', null),
     ])
 
     // Comptage des types "Autres" réels côté JS
@@ -66,12 +71,13 @@ async function getSidebarData() {
 
     return {
       critiqueCount: critiqueRes.count ?? 0,
+      geodaeAnomalyCount: geodaeRes.error ? 0 : (geodaeRes.count ?? 0),
       lastSync: syncRes.data?.finished_at ?? null,
       clients: (clientsRes.data ?? []) as ClientOption[],
       autreTypes,
     }
   } catch {
-    return { critiqueCount: 0, lastSync: null, clients: [] as ClientOption[], autreTypes: [] }
+    return { critiqueCount: 0, geodaeAnomalyCount: 0, lastSync: null, clients: [] as ClientOption[], autreTypes: [] }
   }
 }
 
@@ -94,7 +100,7 @@ async function getCurrentUser() {
 }
 
 export default async function DashboardLayout({ children }: { children: ReactNode }) {
-  const [{ critiqueCount, lastSync, clients, autreTypes }, currentUser] = await Promise.all([
+  const [{ critiqueCount, geodaeAnomalyCount, lastSync, clients, autreTypes }, currentUser] = await Promise.all([
     getSidebarData(),
     getCurrentUser(),
   ])
@@ -105,6 +111,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
     <div className="flex h-screen bg-slate-50 overflow-hidden">
       <Sidebar
         critiqueCount={critiqueCount}
+        geodaeAnomalyCount={geodaeAnomalyCount}
         lastSync={lastSync}
         userRole={userRole}
         userName={currentUser?.name ?? ''}

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import BackButton from '@/components/BackButton'
 import {
-  Button, Card, EmptyState, PageContainer, PageHeader, cx, inputClass, selectClass,
+  Button, Card, EmptyState, PageContainer, PageHeader, buttonClass, cx, inputClass, selectClass,
   tableClass, tableWrapClass, tbodyClass, tdClass, thClass, theadClass, trClass,
 } from '@/components/ui/primitives'
 import {
@@ -19,6 +19,7 @@ import {
   type ExtractionResult,
   type GidCandidate,
   type JournalItem,
+  type JournalRun,
   type JournalSummary,
   type LocationDae,
   type LookupResult,
@@ -381,25 +382,58 @@ function MissingGidCell({
 
 // ─── Journal des contrôles ───────────────────────────────────────────────────
 
-function JournalCard({ journal, loading, message, onRefresh }: {
+/** Vrai si l'exécution est un rapprochement complet (point 3) et non un lot de recherches */
+function isReconcileRun(run: JournalRun): boolean {
+  return (run.sources as { kind?: string } | null | undefined)?.kind === 'reconcile'
+}
+
+function JournalCard({ journal, loading, message, onRefresh, onReconcile, reconciling, onResolve }: {
   journal: JournalSummary | null
   loading: boolean
   message: string | null
   onRefresh: () => void
+  /** Lance le rapprochement complet Synchroteam ↔ Géo'DAE */
+  onReconcile: () => void
+  reconciling: boolean
+  /** Clôture manuelle d'une anomalie, avec motif */
+  onResolve: (id: string, comment: string) => Promise<void>
 }) {
   const [showAll, setShowAll] = useState(false)
-  const lastRun = journal?.runs[0] ?? null
-  const anomalies = journal?.open_anomalies ?? []
+  const [typeFilter, setTypeFilter] = useState<AnomalyType | 'all'>('all')
+  const [resolving, setResolving] = useState<{ id: string; text: string } | null>(null)
+  const runs = journal?.runs ?? []
+  const lastRun = runs.find((r) => !isReconcileRun(r)) ?? null
+  const lastReconcile = runs.find(isReconcileRun) ?? null
+  const reconcileCounts = (lastReconcile?.sources ?? {}) as { divergence?: number; absent?: number; non_reference?: number }
+  const allAnomalies = journal?.open_anomalies ?? []
+  const anomalies = typeFilter === 'all' ? allAnomalies : allAnomalies.filter((a) => a.type === typeFilter)
   const shown = showAll ? anomalies : anomalies.slice(0, 15)
 
   return (
     <Card
       title={<>Journal des contrôles{journal?.available && journal.open_total > 0 && <span className="ml-1.5 font-normal text-slate-400 tabular-nums">({journal.open_total} anomalie{journal.open_total > 1 ? 's' : ''} ouverte{journal.open_total > 1 ? 's' : ''})</span>}</>}
       actions={
-        <Button variant="ghost" size="sm" onClick={onRefresh} disabled={loading} title="Recharger le journal">
-          {loading ? <SpinnerIcon /> : <RefreshIcon />}
-          Actualiser
-        </Button>
+        <>
+          {journal?.available && (
+            <a
+              href="/api/geodae/anomalies?format=csv"
+              className={buttonClass('ghost', 'sm')}
+              title="Exporter toutes les anomalies ouvertes (CSV)"
+            >
+              Exporter CSV
+            </a>
+          )}
+          {journal?.available && (
+            <Button variant="secondary" size="sm" onClick={onReconcile} disabled={reconciling || loading} title="Compare les DAE Synchroteam en location et les DAE Géo'DAE déclarés sous le SIREN STAR : divergences, absents, non référencés. Fait chaque matin par le cron.">
+              {reconciling ? <SpinnerIcon /> : null}
+              {reconciling ? 'Rapprochement…' : 'Rapprocher maintenant'}
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" onClick={onRefresh} disabled={loading} title="Recharger le journal">
+            {loading ? <SpinnerIcon /> : <RefreshIcon />}
+            Actualiser
+          </Button>
+        </>
       }
       className="mb-4"
       padded={false}
@@ -436,11 +470,36 @@ function JournalCard({ journal, loading, message, onRefresh }: {
             )}
             <span className="ml-auto flex flex-wrap gap-1.5">
               {Object.entries(journal.open_by_type).map(([type, n]) => (
-                <span key={type} className={cx('inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-2xs font-medium ring-1 ring-inset', ANOMALY_CLASS[type as AnomalyType])}>
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => { setTypeFilter(typeFilter === type ? 'all' : (type as AnomalyType)); setShowAll(false) }}
+                  title={typeFilter === type ? 'Afficher tous les types' : 'Ne montrer que ce type'}
+                  className={cx(
+                    'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-2xs font-medium ring-1 ring-inset transition-shadow',
+                    ANOMALY_CLASS[type as AnomalyType],
+                    typeFilter === type ? 'ring-2 ring-offset-1' : typeFilter !== 'all' ? 'opacity-50' : ''
+                  )}
+                >
                   {ANOMALY_LABELS[type as AnomalyType] ?? type} <span className="font-semibold">{n}</span>
-                </span>
+                </button>
               ))}
             </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-slate-100 px-4 py-2 text-xs text-slate-600 tabular-nums">
+            {lastReconcile ? (
+              <span>
+                Dernier rapprochement Synchroteam ↔ Géo&apos;DAE le <span className="font-medium text-slate-800">{fmtDateTime(lastReconcile.started_at)}</span>
+                {lastReconcile.triggered_by && <> par {lastReconcile.triggered_by}</>} :
+                {' '}{lastReconcile.examined} DAE en location, {lastReconcile.found} apparié{lastReconcile.found > 1 ? 's' : ''},
+                {' '}<span className="text-orange-700">{reconcileCounts.divergence ?? 0} divergent{(reconcileCounts.divergence ?? 0) > 1 ? 's' : ''}</span>,
+                {' '}<span className="text-red-700">{reconcileCounts.absent ?? 0} absent{(reconcileCounts.absent ?? 0) > 1 ? 's' : ''} de Géo&apos;DAE</span>,
+                {' '}<span className="text-blue-700">{reconcileCounts.non_reference ?? 0} non référencé{(reconcileCounts.non_reference ?? 0) > 1 ? 's' : ''} dans Synchroteam</span>
+              </span>
+            ) : (
+              <span className="text-slate-400">Aucun rapprochement complet enregistré : il a lieu chaque matin, ou via « Rapprocher maintenant ».</span>
+            )}
           </div>
 
           {anomalies.length > 0 && (
@@ -451,30 +510,63 @@ function JournalCard({ journal, loading, message, onRefresh }: {
                     <th className={thClass}>Anomalie</th>
                     <th className={thClass}>Compte</th>
                     <th className={thClass}>N° série</th>
-                    <th className={thClass}>Première détection</th>
-                    <th className={thClass}>Dernière détection</th>
+                    <th className={thClass}>Id Synchroteam</th>
+                    <th className={thClass}>Id Géo&apos;DAE</th>
+                    <th className={thClass}>Détail</th>
+                    <th className={thClass}>Première</th>
+                    <th className={thClass}>Dernière</th>
                     <th className={thClass}>Fiche</th>
+                    <th className={thClass}></th>
                   </tr>
                 </thead>
                 <tbody className={tbodyClass}>
-                  {shown.map((a) => (
-                    <tr key={a.id} className={trClass}>
-                      <td className={tdClass}>
-                        <span className={cx('inline-flex rounded-md px-1.5 py-0.5 text-2xs font-medium ring-1 ring-inset', ANOMALY_CLASS[a.type])}>
-                          {ANOMALY_LABELS[a.type] ?? a.type}
-                        </span>
-                      </td>
-                      <td className={cx(tdClass, 'text-xs text-slate-600')}>{a.account ?? '—'}</td>
-                      <td className={cx(tdClass, 'font-mono text-xs text-slate-800')}>{a.serial_number ?? '—'}</td>
-                      <td className={cx(tdClass, 'text-xs text-slate-500 tabular-nums')}>{fmtDate(a.first_seen_at)}</td>
-                      <td className={cx(tdClass, 'text-xs text-slate-500 tabular-nums')}>{fmtDate(a.last_seen_at)}</td>
-                      <td className={cx(tdClass, 'text-xs')}>
-                        {a.defibrillator_id
-                          ? <Link href={`/parc/${a.defibrillator_id}`} className="font-medium text-brand hover:underline">Voir</Link>
-                          : <span className="text-slate-300">—</span>}
-                      </td>
-                    </tr>
-                  ))}
+                  {shown.map((a) => {
+                    const d = (a.details ?? {}) as { reason?: string; presence?: string }
+                    const detail = [d.reason, d.presence].filter(Boolean).join(' · ')
+                    const editing = resolving?.id === a.id
+                    return (
+                      <tr key={a.id} className={trClass}>
+                        <td className={tdClass}>
+                          <span className={cx('inline-flex rounded-md px-1.5 py-0.5 text-2xs font-medium ring-1 ring-inset', ANOMALY_CLASS[a.type])}>
+                            {ANOMALY_LABELS[a.type] ?? a.type}
+                          </span>
+                        </td>
+                        <td className={cx(tdClass, 'text-xs text-slate-600')}>{a.account ?? '—'}</td>
+                        <td className={cx(tdClass, 'font-mono text-xs text-slate-800')}>{a.serial_number ?? '—'}</td>
+                        <td className={tdClass}>{a.synchroteam_geo_dae_id ? <GidLink gid={a.synchroteam_geo_dae_id} /> : <span className="text-slate-300">—</span>}</td>
+                        <td className={tdClass}>{a.geodae_gid ? <GidLink gid={a.geodae_gid} /> : <span className="text-slate-300">—</span>}</td>
+                        <td className={cx(tdClass, 'max-w-[280px] truncate text-xs text-slate-500')} title={detail || undefined}>{detail || '—'}</td>
+                        <td className={cx(tdClass, 'text-xs text-slate-500 tabular-nums')}>{fmtDate(a.first_seen_at)}</td>
+                        <td className={cx(tdClass, 'text-xs text-slate-500 tabular-nums')}>{fmtDate(a.last_seen_at)}</td>
+                        <td className={cx(tdClass, 'text-xs')}>
+                          {a.defibrillator_id
+                            ? <Link href={`/parc/${a.defibrillator_id}`} className="font-medium text-brand hover:underline">Voir</Link>
+                            : <span className="text-slate-300">—</span>}
+                        </td>
+                        <td className={cx(tdClass, 'text-xs')}>
+                          {editing ? (
+                            <span className="flex items-center gap-1">
+                              <input
+                                autoFocus
+                                value={resolving.text}
+                                onChange={(e) => setResolving({ id: a.id, text: e.target.value })}
+                                onKeyDown={(e) => { if (e.key === 'Escape') setResolving(null) }}
+                                placeholder="Motif de clôture"
+                                aria-label="Motif de clôture"
+                                className={cx(inputClass, 'h-6 w-44 text-2xs')}
+                              />
+                              <Button variant="primary" size="sm" className="h-6 px-1.5 text-2xs" disabled={!resolving.text.trim()} onClick={() => onResolve(a.id, resolving.text.trim()).then(() => setResolving(null))}>Clore</Button>
+                              <Button variant="ghost" size="sm" className="h-6 px-1.5 text-2xs" onClick={() => setResolving(null)}>Annuler</Button>
+                            </span>
+                          ) : (
+                            <Button variant="ghost" size="sm" className="h-6 px-1.5 text-2xs" onClick={() => setResolving({ id: a.id, text: '' })} title="Clôturer manuellement une anomalie traitée hors outil (déclaration faite sur le portail, DAE désactivé…)">
+                              Clore
+                            </Button>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
               {anomalies.length > 15 && (
@@ -482,7 +574,7 @@ function JournalCard({ journal, loading, message, onRefresh }: {
                   <button type="button" onClick={() => setShowAll((v) => !v)} className="font-medium text-slate-600 hover:text-slate-900 hover:underline">
                     {showAll ? 'Réduire' : `Afficher les ${anomalies.length} anomalies`}
                   </button>
-                  {journal.open_total > anomalies.length && <span className="ml-2 text-slate-400">({journal.open_total} au total, les 200 plus récentes sont listées)</span>}
+                  {journal.open_total > allAnomalies.length && <span className="ml-2 text-slate-400">({journal.open_total} au total, les 200 plus récentes sont listées ; l&apos;export CSV les contient toutes)</span>}
                 </div>
               )}
             </div>
@@ -617,6 +709,9 @@ export default function GeodaeClient() {
   const [autoRunning, setAutoRunning] = useState(false)
   const [autoMsg, setAutoMsg] = useState<string | null>(null)
 
+  // Rapprochement complet (point 3) lancé à la main
+  const [reconciling, setReconciling] = useState(false)
+
   // Journal des contrôles (tables de la migration 009)
   const [journal, setJournal] = useState<JournalSummary | null>(null)
   const [journalLoading, setJournalLoading] = useState(false)
@@ -722,6 +817,48 @@ export default function GeodaeClient() {
       setSyncMsg(`Synchronisation terminée avec ${errors.length} erreur${errors.length > 1 ? 's' : ''} : ${errors.slice(0, 3).join(' · ')}`)
     }
     await load()
+  }
+
+  /** Rapprochement complet Synchroteam ↔ Géo'DAE (point 3), même moteur que le cron */
+  async function runReconcile() {
+    if (reconciling) return
+    setReconciling(true)
+    setJournalMsg(null)
+    try {
+      const res = await fetch('/api/geodae/cron?action=reconcile', { method: 'POST' })
+      const body = (await res.json().catch(() => null)) as {
+        synchroteam_total?: number; geodae_total?: number; matched?: number; divergence?: number; absent?: number
+        non_reference?: number; resolved?: number; persisted?: boolean; reason?: string; error?: string
+      } | null
+      if (!res.ok || !body) throw new Error(body?.error ?? `HTTP ${res.status}`)
+      setJournalMsg(
+        `Rapprochement : ${body.synchroteam_total ?? 0} DAE Synchroteam en location, ${body.geodae_total ?? 0} DAE Géo'DAE, ${body.matched ?? 0} appariés · ` +
+        `${body.divergence ?? 0} divergent${(body.divergence ?? 0) > 1 ? 's' : ''}, ${body.absent ?? 0} absent${(body.absent ?? 0) > 1 ? 's' : ''} de Géo'DAE, ` +
+        `${body.non_reference ?? 0} non référencé${(body.non_reference ?? 0) > 1 ? 's' : ''} dans Synchroteam, ${body.resolved ?? 0} anomalie${(body.resolved ?? 0) > 1 ? 's' : ''} clôturée${(body.resolved ?? 0) > 1 ? 's' : ''}.` +
+        (body.persisted ? '' : ` ${body.reason ?? 'Résultat non enregistré.'}`)
+      )
+      await loadJournal()
+    } catch (err) {
+      setJournalMsg(`Rapprochement impossible : ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setReconciling(false)
+    }
+  }
+
+  /** Clôture manuelle d'une anomalie (traitée hors outil), avec motif */
+  async function resolveAnomaly(id: string, comment: string) {
+    try {
+      const res = await fetch('/api/geodae/anomalies', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, resolution: comment }),
+      })
+      const body = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null
+      if (!res.ok || !body?.ok) throw new Error(body?.error ?? `HTTP ${res.status}`)
+      await loadJournal()
+    } catch (err) {
+      setJournalMsg(`Clôture impossible : ${err instanceof Error ? err.message : String(err)}`)
+    }
   }
 
   /**
@@ -988,7 +1125,15 @@ export default function GeodaeClient() {
       />
 
       {/* ── Journal des contrôles ──────────────────────────────────────────── */}
-      <JournalCard journal={journal} loading={journalLoading} message={journalMsg} onRefresh={loadJournal} />
+      <JournalCard
+        journal={journal}
+        loading={journalLoading}
+        message={journalMsg}
+        onRefresh={loadJournal}
+        onReconcile={runReconcile}
+        reconciling={reconciling}
+        onResolve={resolveAnomaly}
+      />
 
       {/* ── États ─────────────────────────────────────────────────────────── */}
       {error && (

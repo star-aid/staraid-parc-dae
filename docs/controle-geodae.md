@@ -10,7 +10,7 @@ pour activer un nouveau compte Synchroteam (Mayotte, Guadeloupe).
 |---|---|---|
 | 1 | Extraire les DAE actifs sous contrat de location avec identifiant Synchroteam, n° de série et identifiant Géo'DAE | Fait (menu **Contrôle Géo'DAE**) |
 | 2 | Pour chaque DAE sans identifiant : interroger Géo'DAE par n° de série ; trouvé → mettre à jour Synchroteam ; introuvable → journaliser | Fait : recherche automatique quotidienne (cron), report validé par un utilisateur |
-| 3 | Rapport d'anomalies (identifiant divergent, DAE Géo'DAE absent de Synchroteam…) | Non commencé, tables prêtes |
+| 3 | Réconciliation sur le n° de série et rapport d'anomalies : identifiant divergent, DAE Synchroteam absent de Géo'DAE, DAE Géo'DAE non référencé ou inactif dans Synchroteam | Fait : rapprochement quotidien par le cron (et à la demande), rapport filtrable, export CSV, clôture manuelle, badge dans le menu |
 
 Décisions prises :
 
@@ -32,6 +32,8 @@ Décisions prises :
 | Journal : exécutions, anomalies, reports | `lib/geodae/journal.ts` |
 | Résultats de recherche conservés par DAE | `lib/geodae/lookups.ts` |
 | Contrôle automatique (moteur du cron) | `lib/geodae/cron.ts`, route `app/api/geodae/cron`, planification `vercel.json` |
+| Réconciliation et rapport d'anomalies (point 3) | `lib/geodae/reconcile.ts`, inventaire Géo'DAE dans `lib/geodae/client.ts`, route `app/api/geodae/anomalies` (liste, CSV, clôture manuelle) |
+| Badge « anomalies ouvertes » du menu | `app/(dashboard)/layout.tsx` (comptage), `components/dashboard/Sidebar.tsx` |
 | Types partagés, URL du portail, CSV | `lib/geodae/types.ts` |
 | Autorisation des routes (administrateur, maintenance) | `lib/geodae/route-auth.ts` |
 | Mapping des champs personnalisés (table `custom_field_mapping`) | `lib/geodae/mappings.ts` |
@@ -64,7 +66,8 @@ au rôle service : les privilèges par défaut du projet n'en donnent aucun.
 3. **Recherche** (bouton par ligne ou « Rechercher les manquants ») : n° de série →
    open data data.gouv.fr (nom du DAE contenant le n° de série, restreint au SIREN de
    `GEODAE_SIREN`) et API exploitants Atlasanté (champ `num_serie`, compte `GEODAE_USERNAME` /
-   `GEODAE_PASSWORD`). Résultat : une, plusieurs ou aucune correspondance.
+   `GEODAE_PASSWORD` ; la connexion renvoie `access_token`). Résultat : une, plusieurs ou
+   aucune correspondance ; aucune source qui répond = erreur, pas « introuvable ».
 4. **Journal** : introuvable, ambigu ou erreur ouvrent une anomalie ; un identifiant retrouvé
    clôt celles du DAE. Le résultat de chaque DAE est aussi conservé dans `geodae_lookups`
    et rechargé à l'ouverture de la page (mention « Contrôlé le … par … » sous le résultat) :
@@ -75,7 +78,15 @@ au rôle service : les privilèges par défaut du projet n'en donnent aucun.
    elle-même tant qu'il reste des DAE (10 fois au plus). Résultats dans le journal et dans
    `geodae_lookups` avec « cron » comme auteur. Le bouton « Contrôle automatique (un lot) »
    de la page lance le même moteur à la main. Le report reste manuel.
-6. **Report** (« Reporter dans Synchroteam », confirmation obligatoire) : relecture de
+6. **Réconciliation** (première phase du cron, ou « Rapprocher maintenant ») : inventaire Géo'DAE
+   du SIREN STAR par l'open data (1 136 DAE, numéro de série lu dans le nom déclaré) complété
+   par l'API exploitants, comparé à tous les DAE de la copie Supabase. Produit et clôt
+   automatiquement les anomalies « identifiant divergent », « absent de Géo'DAE » et « non
+   référencé dans Synchroteam » (avec la situation réelle : absent, inactif, autre contrat).
+   Le rapport est dans l'encart journal : filtre par type, colonnes identifiants des deux
+   côtés et détail, clôture manuelle avec motif, export CSV complet, compteur dans le menu.
+   Rien n'est écrit dans Synchroteam ni dans Géo'DAE.
+7. **Report** (« Reporter dans Synchroteam », confirmation obligatoire) : relecture de
    l'équipement, n° de série identique exigé, jamais d'écrasement d'un champ déjà
    renseigné, écriture partielle (`POST /Api/v3/equipment/send`, seuls les champs fournis
    changent), relecture de contrôle, trace dans `geodae_writebacks`, clôture des anomalies,
@@ -141,6 +152,9 @@ au rôle service : les privilèges par défaut du projet n'en donnent aucun.
 
 - **Report automatique** des correspondances uniques par le cron, quand la confiance sera
   acquise (aujourd'hui volontairement manuel).
-- **Point 3 du cahier des charges** : rapport d'anomalies, types `divergence_id` et
-  `non_reference_synchroteam` déjà prévus dans `geodae_anomalies`.
+- **Alerte par e-mail** sur les anomalies ouvertes, si le compteur du menu ne suffit pas.
+- **Compte API Géo'DAE** : le compte configuré (STAR MAINTENANCE, SIREN 908037971) ne voit que
+  les DAE qu'il a lui-même déclarés (30 le 28/09/2026), pas le parc du SIREN principal
+  (500168190). Un compte exploitant rattaché au SIREN principal donnerait le numéro de série
+  explicite pour tout le parc, au lieu de le lire dans le nom.
 - Champ Synchroteam « Date dernière Maintenance » (id 238257) non mappé, décision à prendre.

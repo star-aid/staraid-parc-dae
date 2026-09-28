@@ -7,6 +7,8 @@ import { cx } from '@/components/ui/primitives'
 
 interface SidebarProps {
   critiqueCount: number
+  /** Anomalies Géo'DAE ouvertes (badge de l'entrée Contrôle Géo'DAE) */
+  geodaeAnomalyCount?: number
   lastSync: string | null
   userRole: UserRole
   userName: string
@@ -39,7 +41,7 @@ const NAV_ITEMS = [
   {
     href: '/alertes',
     label: 'Alertes',
-    badge: true,
+    badge: 'critique' as const,
     roles: ['administrateur', 'maintenance'] as UserRole[],
     icon: (
       <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -51,6 +53,7 @@ const NAV_ITEMS = [
   {
     href: '/geodae',
     label: "Contrôle Géo'DAE",
+    badge: 'geodae' as const,
     roles: ['administrateur', 'maintenance'] as UserRole[],
     icon: (
       <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -125,7 +128,9 @@ function SecondaryLink({ href, active, onClick, icon, children }: {
   )
 }
 
-export default function Sidebar({ critiqueCount, lastSync, userRole, userName }: SidebarProps) {
+export default function Sidebar({ critiqueCount, geodaeAnomalyCount = 0, lastSync, userRole, userName }: SidebarProps) {
+  // Compteur affiché par entrée de menu : DAE critiques, ou anomalies Géo'DAE ouvertes
+  const badgeCount = (badge?: 'critique' | 'geodae') => (badge === 'critique' ? critiqueCount : badge === 'geodae' ? geodaeAnomalyCount : 0)
   const pathname = usePathname()
   const router   = useRouter()
   const [open, setOpen]       = useState(false)
@@ -278,6 +283,7 @@ export default function Sidebar({ critiqueCount, lastSync, userRole, userName }:
             {visibleNav.map(({ href, label, icon, badge }) => {
               const active  = isActive(href)
               const pending = pendingHref === href
+              const count   = badgeCount(badge)
               return (
                 <li key={href}>
                   <Link
@@ -294,9 +300,9 @@ export default function Sidebar({ critiqueCount, lastSync, userRole, userName }:
                       {pending ? <NavSpinner /> : icon}
                     </span>
                     <span className="flex-1 truncate">{label}</span>
-                    {badge && critiqueCount > 0 && (
-                      <span className="min-w-[18px] rounded-full bg-red-500 px-1.5 text-center text-2xs font-semibold leading-[18px] text-white tabular-nums">
-                        {critiqueCount > 999 ? '999+' : critiqueCount}
+                    {count > 0 && (
+                      <span className={cx('min-w-[18px] rounded-full px-1.5 text-center text-2xs font-semibold leading-[18px] text-white tabular-nums', badge === 'geodae' ? 'bg-amber-500' : 'bg-red-500')}>
+                        {count > 999 ? '999+' : count}
                       </span>
                     )}
                   </Link>

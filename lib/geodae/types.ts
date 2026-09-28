@@ -64,6 +64,22 @@ export function sourcesFailureMessage(result: LookupResult): string {
   return `aucune source n'a répondu (open data : ${result.sources.open_data} ; API exploitants : ${result.sources.geodae_api})`
 }
 
+/** Un DAE de l'inventaire Géo'DAE (open data par SIREN, ou API exploitants) */
+export interface GeodaeInventoryItem {
+  gid: string
+  nom: string | null
+  /** Renseigné par l'API exploitants ; sinon déduit du nom (STAR l'y encode) */
+  num_serie: string | null
+  etat: string | null
+  etat_fonct: string | null
+  expt_siren: string | null
+  expt_rais: string | null
+  dermnt: string | null
+  maj_don: string | null
+  com_nom: string | null
+  source: 'open_data' | 'geodae_api'
+}
+
 /** Dernier résultat de recherche conservé pour un DAE (table geodae_lookups) */
 export interface PersistedLookup {
   status: 'trouve' | 'ambigu' | 'introuvable' | 'erreur'
@@ -169,6 +185,8 @@ export interface JournalRun {
   ambiguous: number
   not_found: number
   errors: number
+  /** État des sources ; pour un rapprochement (point 3) : kind = 'reconcile' + compteurs par type */
+  sources?: Record<string, unknown> | null
 }
 
 export interface AnomalyRow {

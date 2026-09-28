@@ -11,7 +11,7 @@
 //
 // Lecture seule : rien n'est écrit ni dans Géo'DAE, ni dans Synchroteam.
 
-import { GEODAE_DATASET_UUID, type GidCandidate, type LookupResult } from '@/lib/geodae/types'
+import { GEODAE_DATASET_UUID, type GeodaeInventoryItem, type GidCandidate, type LookupResult } from '@/lib/geodae/types'
 
 const OPEN_DATA_RESOURCE = 'edb6a9e1-2f16-4bbf-99e7-c3eb6b90794c'
 const OPEN_DATA_URL = `https://tabular-api.data.gouv.fr/api/resources/${OPEN_DATA_RESOURCE}/data/`
@@ -47,6 +47,42 @@ type OpenDataRow = {
   c_expt_siren: string | null
   c_expt_rais: string | null
   c_dermnt: string | null
+  c_maj_don?: string | null
+  c_com_nom?: string | null
+}
+
+/**
+ * Inventaire complet des DAE déclarés sous un SIREN exploitant dans l'open data
+ * (point 3 du cahier des charges). Suit les liens de pagination ; 200 lignes par page.
+ */
+export async function listOpenDataBySiren(siren: string): Promise<GeodaeInventoryItem[]> {
+  const items: GeodaeInventoryItem[] = []
+  const first = new URL(OPEN_DATA_URL)
+  first.searchParams.set('c_expt_siren__exact', siren)
+  first.searchParams.set('page_size', '200')
+  let url: string | null = first.toString()
+  for (let guard = 0; url && guard < 200; guard++) {
+    const { status, body } = await fetchJson(url)
+    if (status !== 200) throw new Error(`data.gouv HTTP ${status}`)
+    const b = body as { data?: OpenDataRow[]; links?: { next?: string | null } } | null
+    for (const r of b?.data ?? []) {
+      items.push({
+        gid: String(r.c_gid),
+        nom: str(r.c_nom),
+        num_serie: null,
+        etat: str(r.c_etat),
+        etat_fonct: str(r.c_etat_fonct),
+        expt_siren: str(r.c_expt_siren),
+        expt_rais: str(r.c_expt_rais),
+        dermnt: str(r.c_dermnt),
+        maj_don: str(r.c_maj_don),
+        com_nom: str(r.c_com_nom),
+        source: 'open_data',
+      })
+    }
+    url = b?.links?.next ?? null
+  }
+  return items
 }
 
 export async function searchOpenDataBySerial(serial: string, siren: string | null): Promise<GidCandidate[]> {
@@ -102,7 +138,9 @@ async function geodaeToken(force = false): Promise<string> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(creds),
   })
-  const token = (body as { token?: string } | null)?.token
+  // Le catalogue répond { access_token, token_type } (forme OAuth) ; l'ancienne forme { token } est tolérée
+  const b = body as { access_token?: string; token?: string } | null
+  const token = b?.access_token ?? b?.token
   if (status !== 200 || !token) throw new Error(`authentification Géo'DAE refusée (HTTP ${status})`)
 
   cachedToken = { token, expiresAt: Date.now() + 30 * 60_000 }
@@ -122,34 +160,58 @@ type GeodaeFeature = {
   }
 }
 
+/** Appel authentifié à la couche DAE du catalogue ; se reconnecte une fois si le jeton a expiré. */
+async function geodaeApiFeatures(params: Record<string, string>): Promise<GeodaeFeature[]> {
+  async function query(token: string) {
+    const url = new URL(`${CATALOGUE_URL}/api/data/${GEODAE_DATASET_UUID}`)
+    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v)
+    return fetchJson(url.toString(), { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } })
+  }
+  let res = await query(await geodaeToken())
+  if (res.status === 401) res = await query(await geodaeToken(true))
+  if (res.status !== 200) throw new Error(`API Géo'DAE HTTP ${res.status}`)
+  return (res.body as { features?: GeodaeFeature[] })?.features ?? []
+}
+
+function fromFeature(f: GeodaeFeature): GeodaeInventoryItem {
+  const p = f.properties as GeodaeFeature['properties'] & { maj_don?: string | null; com_nom?: string | null }
+  return {
+    gid: String(p.gid),
+    nom: str(p.nom),
+    num_serie: str(p.num_serie),
+    etat: str(p.etat),
+    etat_fonct: str(p.etat_fonct),
+    expt_siren: str(p.expt_siren),
+    expt_rais: str(p.expt_rais),
+    dermnt: str(p.dermnt),
+    maj_don: str(p.maj_don),
+    com_nom: str(p.com_nom),
+    source: 'geodae_api',
+  }
+}
+
 export async function searchGeodaeApiBySerial(serial: string): Promise<GidCandidate[]> {
   // Le filtre _where n'échappe pas les séparateurs : on refuse les valeurs ambiguës
   if (/[,()]/.test(serial)) throw new Error('numéro de série incompatible avec le filtre _where')
+  const features = await geodaeApiFeatures({ _where: `eq(num_serie,${serial})`, limit: '10' })
+  return features.map((f): GidCandidate => ({ ...fromFeature(f), matched_on: 'num_serie' }))
+}
 
-  async function query(token: string) {
-    const url = new URL(`${CATALOGUE_URL}/api/data/${GEODAE_DATASET_UUID}`)
-    url.searchParams.set('_where', `eq(num_serie,${serial})`)
-    url.searchParams.set('limit', '10')
-    return fetchJson(url.toString(), { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } })
+/**
+ * Tous les DAE visibles par le compte exploitant (30 par appel au plus, pagination
+ * par offset). Constaté le 28/09/2026 : le compte ne voit que les DAE qu'il a
+ * lui-même déclarés, pas ceux du SIREN principal, d'où le rôle de complément
+ * (numéro de série explicite) et non de source principale.
+ */
+export async function listGeodaeApiAll(): Promise<GeodaeInventoryItem[]> {
+  const PAGE = 30
+  const items: GeodaeInventoryItem[] = []
+  for (let offset = 0; offset < 20_000; offset += PAGE) {
+    const features = await geodaeApiFeatures({ limit: String(PAGE), offset: String(offset) })
+    items.push(...features.map(fromFeature))
+    if (features.length < PAGE) break
   }
-
-  let res = await query(await geodaeToken())
-  if (res.status === 401) res = await query(await geodaeToken(true)) // jeton expiré : on se reconnecte une fois
-  if (res.status !== 200) throw new Error(`API Géo'DAE HTTP ${res.status}`)
-
-  const features = ((res.body as { features?: GeodaeFeature[] })?.features ?? [])
-  return features.map((f): GidCandidate => ({
-    gid: String(f.properties.gid),
-    nom: str(f.properties.nom),
-    num_serie: str(f.properties.num_serie),
-    etat: str(f.properties.etat),
-    etat_fonct: str(f.properties.etat_fonct),
-    expt_siren: str(f.properties.expt_siren),
-    expt_rais: str(f.properties.expt_rais),
-    dermnt: str(f.properties.dermnt),
-    source: 'geodae_api',
-    matched_on: 'num_serie',
-  }))
+  return items
 }
 
 // ─── Recherche combinée ──────────────────────────────────────────────────────
