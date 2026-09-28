@@ -117,3 +117,14 @@ construits sur `Tag`.
 | Arrondir ou carrer | `borderRadius` dans `tailwind.config.ts` |
 | Changer la police | `app/layout.tsx` (next/font) + `fontFamily` |
 | Ajouter un mode sombre | Redéfinir `surface*`, `fg*`, `border*` en variables CSS sous `prefers-color-scheme`, aucun composant à toucher si la règle 1 est respectée |
+
+## 6. État d'interface dans l'URL
+
+Onglet ouvert, filtres et page courante d'une page client sont recopiés dans l'adresse avec
+`useUrlState()` de `lib/url-state.ts` (`get(clé)`, `set({ clé: valeur | null })`). L'adresse est
+réécrite par `history.replaceState`, sans requête serveur ni entrée d'historique : le bouton Retour
+du navigateur ramène à l'état quitté (par exemple l'onglet Anomalies du contrôle Géo'DAE après une
+fiche DAE), un rafraîchissement le conserve, un lien copié le transporte. Les valeurs par défaut
+sont omises. Paramètres en place : Géo'DAE `onglet`, `compte`, `filtre`, `q`, `page`, `type` ;
+Alertes `territoire`, `statut`, `raison`, `actif`, `q`, `page` ; Parc DAE (côté serveur) `q`,
+`territoire`, `statut`, `actif`, `sort`, `dir`, `page`, `vue`.

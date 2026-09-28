@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import BackButton from '@/components/BackButton'
+import { pageParam, pickParam, useUrlState } from '@/lib/url-state'
 import { Download, ExternalLink, Loader2, RefreshCw, Search, ShieldCheck, Upload } from 'lucide-react'
 import {
   Button, Card, EmptyState, Notice, PageContainer, PageHeader, Select, Tabs, Tag, buttonClass, cx, inputClass,
@@ -29,6 +30,13 @@ import type { TerritoryCode } from '@/types'
 
 type RowFilter = 'all' | 'sans_geo' | 'sans_serie'
 const PAGE_SIZE = 50
+
+// Valeurs admises dans l'URL (onglet, compte, filtre, type d'anomalie)
+const TABS = ['dae', 'anomalies', 'journal'] as const
+type Tab = typeof TABS[number]
+const ROW_FILTERS: readonly RowFilter[] = ['all', 'sans_geo', 'sans_serie']
+const ACCOUNT_PARAMS = ['all', 'REU', 'MYT', 'GLP'] as const
+const ANOMALY_TYPE_PARAMS: ReadonlyArray<AnomalyType | 'all'> = ['all', 'absent_geodae', 'ambigu', 'erreur_recherche', 'divergence_id', 'non_reference_synchroteam']
 
 /** Résultat de recherche d'une ligne ; checked_* renseignés quand il vient de la base */
 type LookupState =
@@ -402,7 +410,10 @@ function AnomaliesPanel({ journal, loading, onRefresh, onReconcile, reconciling,
   onResolve: (id: string, comment: string) => Promise<void>
 }) {
   const [showAll, setShowAll] = useState(false)
-  const [typeFilter, setTypeFilter] = useState<AnomalyType | 'all'>('all')
+  // Type filtré dans l'URL (?type=…) : conservé au retour depuis une fiche DAE
+  const url = useUrlState()
+  const typeFilter = pickParam(url.get('type'), ANOMALY_TYPE_PARAMS, 'all')
+  const setTypeFilter = (v: AnomalyType | 'all') => url.set({ type: v === 'all' ? null : v })
   const [resolving, setResolving] = useState<{ id: string; text: string } | null>(null)
   const lastReconcile = journal?.runs.find(isReconcileRun) ?? null
   const reconcileCounts = (lastReconcile?.sources ?? {}) as { divergence?: number; absent?: number; non_reference?: number }
@@ -742,10 +753,25 @@ export default function GeodaeClient() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const [account, setAccount] = useState<'all' | TerritoryCode>('all')
-  const [filter, setFilter] = useState<RowFilter>('all')
-  const [search, setSearch] = useState('')
-  const [page, setPage] = useState(1)
+  // Onglet, filtres et page vivent dans l'URL (lib/url-state.ts) : le bouton
+  // Retour du navigateur et un lien copié ramènent exactement au même état.
+  const url = useUrlState()
+  const tab = pickParam(url.get('onglet'), TABS, 'dae')
+  const setTab = (v: Tab) => url.set({ onglet: v === 'dae' ? null : v })
+  const account = pickParam(url.get('compte'), ACCOUNT_PARAMS, 'all')
+  const setAccount = (v: 'all' | TerritoryCode) => url.set({ compte: v === 'all' ? null : v, page: null })
+  const filter = pickParam(url.get('filtre'), ROW_FILTERS, 'all')
+  const setFilter = (v: RowFilter) => url.set({ filtre: v === 'all' ? null : v, page: null })
+  const page = pageParam(url.get('page'))
+  const setPage = (n: number) => url.set({ page: n > 1 ? n : null })
+  // Recherche : saisie locale immédiate, recopiée dans l'URL après une courte pause
+  const [search, setSearchLocal] = useState(url.get('q') ?? '')
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const setSearch = (v: string) => {
+    setSearchLocal(v)
+    if (searchTimer.current) clearTimeout(searchTimer.current)
+    searchTimer.current = setTimeout(() => url.set({ q: v.trim() || null, page: null }), 300)
+  }
 
   // Recherches d'identifiant (étape 2), par ligne
   const [lookups, setLookups] = useState<Record<string, LookupState>>({})
@@ -768,9 +794,6 @@ export default function GeodaeClient() {
 
   // Rapprochement complet (point 3) lancé à la main
   const [reconciling, setReconciling] = useState(false)
-
-  // Onglet affiché : liste de travail des DAE, rapport d'anomalies, ou historique
-  const [tab, setTab] = useState<'dae' | 'anomalies' | 'journal'>('dae')
 
   // Journal des contrôles (tables de la migration 009)
   const [journal, setJournal] = useState<JournalSummary | null>(null)
@@ -842,7 +865,6 @@ export default function GeodaeClient() {
       setBulkWrite(null)
       setBulkWriteConfirm(false)
       setWriteMsg(null)
-      setPage(1)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {

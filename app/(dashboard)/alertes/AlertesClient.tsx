@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
+import { pageParam, pickParam, useUrlState } from '@/lib/url-state'
 import { BellOff, ChevronRight, Download, Search, X } from 'lucide-react'
 import { DAEStatusBadge } from '@/components/table/StatusBadge'
 import BackButton from '@/components/BackButton'
@@ -104,15 +105,45 @@ function exportCSV(rows: AlertRow[]) {
 
 const HEADERS = ['N° série', 'Marque / Modèle', 'Client', 'Site', 'Territoire', 'Statut', 'Raison', 'Prochaine échéance']
 
-export default function AlertesClient({ rows, initInconnu = false }: { rows: AlertRow[]; initInconnu?: boolean }) {
-  const [territory, setTerritory] = useState<string>('all')
-  const [showCritique, setShowCritique] = useState(!initInconnu)
-  const [showVigilance, setShowVigilance] = useState(!initInconnu)
-  const [showInconnu, setShowInconnu] = useState(initInconnu)
-  const [raison, setRaison] = useState<RaisonFilter>('all')
-  const [actif, setActif] = useState<'actif' | 'inactif' | 'tous'>('actif')
-  const [search, setSearch] = useState('')
-  const [page, setPage] = useState(1)
+const RAISONS: readonly RaisonFilter[] = ['all', 'batterie', 'electrodes', 'maintenance', 'vigilance30']
+const ACTIFS = ['actif', 'inactif', 'tous'] as const
+const DEFAULT_SHOWN = ['critique', 'vigilance']
+
+type BoolUpdate = boolean | ((prev: boolean) => boolean)
+
+export default function AlertesClient({ rows }: { rows: AlertRow[] }) {
+  // Filtres et page vivent dans l'URL (lib/url-state.ts) : le bouton Retour du
+  // navigateur et un lien copié ramènent au même état. `?statut=inconnu` (lien du
+  // tableau de bord) n'affiche que les DAE au statut inconnu.
+  const url = useUrlState()
+  const territory = url.get('territoire') ?? 'all'
+  const setTerritory = (v: string) => url.set({ territoire: v === 'all' ? null : v, page: null })
+  const statutParam = url.get('statut')
+  const shown = statutParam === null ? DEFAULT_SHOWN : statutParam === 'aucun' ? [] : statutParam.split(',').filter(Boolean)
+  const showCritique  = shown.includes('critique')
+  const showVigilance = shown.includes('vigilance')
+  const showInconnu   = shown.includes('inconnu')
+  function setShown(status: string, on: boolean) {
+    const next = on ? (shown.includes(status) ? shown : [...shown, status]) : shown.filter((s) => s !== status)
+    const isDefault = next.length === DEFAULT_SHOWN.length && DEFAULT_SHOWN.every((s) => next.includes(s))
+    url.set({ statut: isDefault ? null : next.length === 0 ? 'aucun' : next.join(','), page: null })
+  }
+  const setShowCritique  = (v: BoolUpdate) => setShown('critique',  typeof v === 'function' ? v(showCritique)  : v)
+  const setShowVigilance = (v: BoolUpdate) => setShown('vigilance', typeof v === 'function' ? v(showVigilance) : v)
+  const setShowInconnu   = (v: BoolUpdate) => setShown('inconnu',   typeof v === 'function' ? v(showInconnu)   : v)
+  const raison = pickParam(url.get('raison'), RAISONS, 'all')
+  const setRaison = (v: RaisonFilter) => url.set({ raison: v === 'all' ? null : v, page: null })
+  const actif = pickParam(url.get('actif'), ACTIFS, 'actif')
+  const setActif = (v: typeof actif) => url.set({ actif: v === 'actif' ? null : v, page: null })
+  const page = pageParam(url.get('page'))
+  // Recherche : saisie locale immédiate, recopiée dans l'URL après une courte pause
+  const [search, setSearchLocal] = useState(url.get('q') ?? '')
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const setSearch = (v: string) => {
+    setSearchLocal(v)
+    if (searchTimer.current) clearTimeout(searchTimer.current)
+    searchTimer.current = setTimeout(() => url.set({ q: v.trim() || null, page: null }), 300)
+  }
 
   const nCritique  = useMemo(() => rows.filter((r) => r.status === 'critique').length,  [rows])
   const nVigilance = useMemo(() => rows.filter((r) => r.status === 'vigilance').length, [rows])
@@ -151,7 +182,11 @@ export default function AlertesClient({ rows, initInconnu = false }: { rows: Ale
   const safePage   = Math.min(page, totalPages)
   const pageRows   = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
 
-  function resetPage() { setPage(1) }
+  const setPage = (v: number | ((prev: number) => number)) => {
+    const n = typeof v === 'function' ? v(safePage) : v
+    url.set({ page: n > 1 ? n : null })
+  }
+  function resetPage() { url.set({ page: null }) }
 
   // Numéros de page à afficher (fenêtre glissante de 5)
   function pageNumbers(): number[] {
@@ -165,14 +200,9 @@ export default function AlertesClient({ rows, initInconnu = false }: { rows: Ale
   const hasFilters = territory !== 'all' || raison !== 'all' || actif !== 'actif' || !showCritique || !showVigilance || showInconnu || search !== ''
 
   function resetAll() {
-    setTerritory('all')
-    setRaison('all')
-    setActif('actif')
-    setShowCritique(true)
-    setShowVigilance(true)
-    setShowInconnu(false)
-    setSearch('')
-    setPage(1)
+    setSearchLocal('')
+    if (searchTimer.current) clearTimeout(searchTimer.current)
+    url.set({ territoire: null, statut: null, raison: null, actif: null, q: null, page: null })
   }
 
   return (

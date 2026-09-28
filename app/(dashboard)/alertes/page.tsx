@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 export const dynamic = 'force-dynamic'
 
 import { createServiceClient } from '@/lib/supabase'
@@ -105,7 +106,6 @@ export default async function AlertesPage({
     parseAutreTypesParam(searchParams?.autreTypes),
   )
   const clientId = searchParams?.client ?? null
-  const initInconnu = searchParams?.statut === 'inconnu'
   const rows = await getAlerts(contratFilter, clientId)
-  return <AlertesClient rows={rows} initInconnu={initInconnu} />
+  return <Suspense><AlertesClient rows={rows} /></Suspense>
 }
