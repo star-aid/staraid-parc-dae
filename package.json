@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "db:status": "node scripts/db.mjs status",
+    "db:push": "node scripts/db.mjs push",
+    "db:baseline": "node scripts/db.mjs baseline"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39",

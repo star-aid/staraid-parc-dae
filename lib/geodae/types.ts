@@ -18,6 +18,99 @@ export interface LocationDae {
   geo_dae_id: string | null
   /** Type de contrat retenu : contrat Synchroteam si présent, sinon champ personnalisé */
   contract_type: string
+  /** Identifiant retrouvé par la recherche Géo'DAE (étape 2), non encore reporté dans Synchroteam */
+  found_geo_dae_id?: string | null
+}
+
+/** Un DAE Géo'DAE candidat pour un numéro de série recherché. */
+export interface GidCandidate {
+  gid: string
+  nom: string | null
+  /** Renseigné seulement via l'API exploitants */
+  num_serie: string | null
+  etat: string | null
+  etat_fonct: string | null
+  expt_siren: string | null
+  expt_rais: string | null
+  dermnt: string | null
+  source: 'geodae_api' | 'open_data'
+  /** Champ sur lequel la correspondance a été faite */
+  matched_on: 'num_serie' | 'nom'
+}
+
+export interface LookupResult {
+  serial: string
+  candidates: GidCandidate[]
+  /** État de chaque source : 'ok', 'non configuré' ou 'erreur : …' */
+  sources: { open_data: string; geodae_api: string }
+}
+
+// ─── Journal des contrôles (migration 20260922000009) ────────────────────────
+
+export type AnomalyType =
+  | 'absent_geodae'             // DAE Synchroteam introuvable dans Géo'DAE
+  | 'ambigu'                    // plusieurs DAE Géo'DAE pour un n° de série
+  | 'erreur_recherche'          // source injoignable lors du contrôle
+  | 'divergence_id'             // identifiant Synchroteam ≠ gid Géo'DAE (étape 3)
+  | 'non_reference_synchroteam' // DAE Géo'DAE absent de Synchroteam (étape 3)
+
+export const ANOMALY_LABELS: Record<AnomalyType, string> = {
+  absent_geodae:             "Absent de Géo'DAE",
+  ambigu:                    'Plusieurs correspondances',
+  erreur_recherche:          'Erreur de recherche',
+  divergence_id:             'Identifiant divergent',
+  non_reference_synchroteam: 'Non référencé dans Synchroteam',
+}
+
+/** Résultat d'une recherche pour une ligne, tel qu'envoyé au journal */
+export interface JournalItem {
+  account: TerritoryCode
+  synchroteam_id: string
+  serial_number: string | null
+  synchroteam_geo_dae_id: string | null
+  outcome: 'found' | 'ambiguous' | 'not_found' | 'error'
+  candidates: GidCandidate[]
+  error?: string | null
+  sources?: LookupResult['sources'] | null
+}
+
+export interface JournalRun {
+  id: string
+  started_at: string
+  finished_at: string | null
+  triggered_by: string | null
+  scope: string | null
+  examined: number
+  found: number
+  ambiguous: number
+  not_found: number
+  errors: number
+}
+
+export interface AnomalyRow {
+  id: string
+  type: AnomalyType
+  account: TerritoryCode | null
+  synchroteam_id: string | null
+  defibrillator_id: string | null
+  serial_number: string | null
+  synchroteam_geo_dae_id: string | null
+  geodae_gid: string | null
+  details: Record<string, unknown> | null
+  first_seen_at: string
+  last_seen_at: string
+  resolved_at: string | null
+  resolution: string | null
+}
+
+export interface JournalSummary {
+  /** Faux tant que la migration 009 n'est pas appliquée */
+  available: boolean
+  reason?: string
+  runs: JournalRun[]
+  open_by_type: Record<string, number>
+  open_total: number
+  open_anomalies: AnomalyRow[]
 }
 
 export interface ContractTypeCount {
@@ -64,6 +157,23 @@ export interface ExtractionResult {
   warning: string | null
 }
 
+/**
+ * Identifiant de la base des DAE dans le catalogue Atlasanté (cf. documentation
+ * de l'API exploitants). C'est le paramètre `uuid` de la route
+ * `information-sheet/:uuid/:gid` du portail Géo'DAE.
+ */
+export const GEODAE_DATASET_UUID = '8777a504-6c3e-4abe-8100-60bb58767faa'
+
+/** Fiche d'un DAE sur le portail Géo'DAE (nécessite d'être connecté au portail). */
+export function geodaeSheetUrl(gid: string): string {
+  return `https://geodae.atlasante.fr/information-sheet/${GEODAE_DATASET_UUID}/${encodeURIComponent(gid.trim())}`
+}
+
+/** Formulaire de modification d'un DAE sur le portail (compte exploitant). */
+export function geodaeEditUrl(gid: string): string {
+  return `https://geodae.atlasante.fr/form/${GEODAE_DATASET_UUID}/${encodeURIComponent(gid.trim())}`
+}
+
 export const TERRITORY_LABELS: Record<TerritoryCode, string> = {
   REU: 'La Réunion',
   MYT: 'Mayotte',
@@ -79,7 +189,7 @@ function csvEscape(v: string | null | undefined): string {
 
 /** CSV (séparateur « ; », compatible Excel FR) des DAE extraits. */
 export function toCsv(rows: LocationDae[]): string {
-  const cols = ['Compte', 'ID Synchroteam', 'N° série', "Identifiant Géo'DAE", 'Client', 'Site', 'Nom équipement', 'Type de contrat']
+  const cols = ['Compte', 'ID Synchroteam', 'N° série', "Identifiant Géo'DAE", "Identifiant Géo'DAE trouvé", 'Client', 'Site', 'Nom équipement', 'Type de contrat']
   const lines = [cols.join(';')]
   for (const r of rows) {
     lines.push([
@@ -87,6 +197,7 @@ export function toCsv(rows: LocationDae[]): string {
       r.synchroteam_id,
       r.serial_number,
       r.geo_dae_id,
+      r.found_geo_dae_id ?? null,
       r.customer_name,
       r.site_name,
       r.name,
