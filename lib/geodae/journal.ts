@@ -273,7 +273,7 @@ export async function getJournalSummary(): Promise<JournalSummary> {
 
   const [runsRes, openRes, wbRes] = await Promise.all([
     supabase.from('geodae_reconciliation_runs').select('*').order('started_at', { ascending: false }).limit(10),
-    supabase.from('geodae_anomalies').select('*').is('resolved_at', null).order('last_seen_at', { ascending: false }).limit(200),
+    supabase.from('geodae_anomalies').select('*', { count: 'exact' }).is('resolved_at', null).order('last_seen_at', { ascending: false }).limit(200),
     supabase.from('geodae_writebacks').select('*', { count: 'exact' }).order('written_at', { ascending: false }).limit(10),
   ])
 
@@ -295,21 +295,28 @@ export async function getJournalSummary(): Promise<JournalSummary> {
     writebacks_total = wbRes.count ?? writebacks.length
   }
 
-  // Compte par type sur l'ensemble des anomalies ouvertes (pas seulement les 200 affichées)
-  const types: AnomalyType[] = ['absent_geodae', 'ambigu', 'erreur_recherche', 'divergence_id', 'non_reference_synchroteam']
-  const countRes = await Promise.all(
-    types.map((t) => supabase.from('geodae_anomalies').select('id', { count: 'exact', head: true }).eq('type', t).is('resolved_at', null))
-  )
+  // Compte par type sur l'ensemble des anomalies ouvertes. Tant qu'elles tiennent
+  // dans les 200 lignes lues, les comptes en découlent sans autre aller-retour ;
+  // au-delà seulement, un comptage par type est demandé à la base.
+  const openRows = (openRes.data ?? []) as AnomalyRow[]
+  const open_total = openRes.count ?? openRows.length
   const open_by_type: Record<string, number> = {}
-  let open_total = 0
-  types.forEach((t, i) => { const n = countRes[i].count ?? 0; if (n > 0) open_by_type[t] = n; open_total += n })
+  if (open_total <= openRows.length) {
+    for (const a of openRows) open_by_type[a.type] = (open_by_type[a.type] ?? 0) + 1
+  } else {
+    const types: AnomalyType[] = ['absent_geodae', 'ambigu', 'erreur_recherche', 'divergence_id', 'non_reference_synchroteam']
+    const countRes = await Promise.all(
+      types.map((t) => supabase.from('geodae_anomalies').select('id', { count: 'exact', head: true }).eq('type', t).is('resolved_at', null))
+    )
+    types.forEach((t, i) => { const n = countRes[i].count ?? 0; if (n > 0) open_by_type[t] = n })
+  }
 
   return {
     available: true,
     runs: (runsRes.data ?? []) as JournalRun[],
     open_by_type,
     open_total,
-    open_anomalies: (openRes.data ?? []) as AnomalyRow[],
+    open_anomalies: openRows,
     writebacks,
     writebacks_total,
     ...(writebacks_reason ? { writebacks_reason } : {}),

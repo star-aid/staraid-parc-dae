@@ -90,4 +90,7 @@ WHERE id = '<user-uuid>';
 SELECT get_park_summary();                          -- KPIs dashboard + contexte IA
 SELECT * FROM get_map_markers('REU', 'critique');   -- Marqueurs carte filtrés
 SELECT * FROM get_interventions_monthly(12);        -- Interventions 12 mois glissants
+SELECT * FROM get_dashboard_status_counts(true, NULL, NULL, NULL, false); -- DAE par territoire × statut, filtres du tableau de bord (migration 13)
+SELECT * FROM get_dashboard_interventions_monthly(12, NULL);             -- Interventions réalisées par mois, filtre client (migration 13)
+SELECT * FROM get_contract_type_counts();                                -- Répartition par type de contrat, barre latérale (migration 13)
 ```

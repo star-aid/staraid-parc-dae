@@ -268,11 +268,18 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
   }
 
   // ── Vue tableau : requête paginée ────────────────────────────────────────
-  let territoryIds: string[] = []
-  if (terr.length > 0) {
-    const { data: terrs } = await supabase.from('territories').select('id').in('code', terr)
-    territoryIds = terrs?.map((t: { id: string }) => t.id) ?? []
-  }
+  // Requêtes préparatoires (territoires filtrés, clients correspondant à la
+  // recherche) lancées en parallèle : un seul aller-retour au lieu de deux.
+  const [terrsRes, matchedClientsRes] = await Promise.all([
+    terr.length > 0
+      ? supabase.from('territories').select('id').in('code', terr)
+      : Promise.resolve({ data: null as Array<{ id: string }> | null }),
+    q
+      // Limites volontairement basses pour rester dans les limites d'URL PostgREST
+      ? supabase.from('clients').select('id').ilike('name', `%${q}%`).order('name').limit(20)
+      : Promise.resolve({ data: null as Array<{ id: string }> | null }),
+  ])
+  const territoryIds: string[] = (terrsRes.data ?? []).map((t: { id: string }) => t.id)
 
   let query = supabase
     .from('defibrillators')
@@ -289,14 +296,7 @@ export default async function ParcPage({ searchParams }: { searchParams: SearchP
 
   // Recherche texte : N° série, modèle, marque + noms de clients correspondants
   if (q) {
-    // Limites volontairement basses pour rester dans les limites d'URL PostgREST
-    const { data: matchedClients } = await supabase
-      .from('clients')
-      .select('id')
-      .ilike('name', `%${q}%`)
-      .order('name')
-      .limit(20)
-    const matchedClientIds = (matchedClients ?? []).map((c: { id: string }) => c.id)
+    const matchedClientIds = (matchedClientsRes.data ?? []).map((c: { id: string }) => c.id)
 
     // Sites des clients trouvés (fallback quand client_id est NULL sur le DAE)
     let matchedSiteIds: string[] = []

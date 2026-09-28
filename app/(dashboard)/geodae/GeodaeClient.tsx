@@ -845,12 +845,12 @@ export default function GeodaeClient() {
     }
   }
 
-  /** Charge la copie Supabase des DAE (synchronisée chaque matin) : réponse immédiate */
-  async function load() {
+  /** Charge la copie Supabase des DAE (synchronisée chaque matin) ; `fresh` ignore le cache serveur d'une minute */
+  async function load(fresh = false) {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch('/api/geodae/extract', { cache: 'no-store' })
+      const res = await fetch(fresh ? '/api/geodae/extract?fresh=1' : '/api/geodae/extract', { cache: 'no-store' })
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null
         throw new Error(body?.error ?? `HTTP ${res.status}`)
@@ -897,7 +897,7 @@ export default function GeodaeClient() {
     if (errors.length > 0) {
       setSyncMsg(`Synchronisation terminée avec ${errors.length} erreur${errors.length > 1 ? 's' : ''} : ${errors.slice(0, 3).join(' · ')}`)
     }
-    await load()
+    await load(true)
   }
 
   /** Rapprochement complet Synchroteam ↔ Géo'DAE (point 3), même moteur que le cron */

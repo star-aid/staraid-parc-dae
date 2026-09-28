@@ -7,16 +7,24 @@
 //   - le compte d'origine est déduit du préfixe de l'identifiant Synchroteam
 //     ('' Réunion, 'GLP_' Guadeloupe, 'MYT_' Mayotte, cf. buildAccounts) ;
 //   - le mapping des champs a déjà été appliqué par la synchronisation.
+//
+// Performance : chaque aller-retour vers Supabase coûte 250 à 400 ms depuis les
+// territoires. Les pages d'une même requête sont donc chargées en parallèle,
+// les deux requêtes (DAE en location avec jointures, DAE actifs sans jointure
+// pour les compteurs) aussi, et le résultat est gardé une minute en mémoire.
 // Fichier serveur uniquement.
 
 import { createServiceClient } from '@/lib/supabase'
 import { buildAccounts } from '@/lib/sync-territory-route'
+import { LOCATION_TYPES } from '@/lib/contract-groups'
 import { isLocationContract } from '@/lib/geodae/extract-synchroteam'
 import type { AccountExtraction, ContractTypeCount, ExtractionResult, LocationDae } from '@/lib/geodae/types'
 import type { TerritoryCode } from '@/types'
 
 const ACCOUNTS: TerritoryCode[] = ['REU', 'MYT', 'GLP']
+/** Taille maximale d'une réponse PostgREST (max_rows du projet) */
 const PAGE = 1000
+const CACHE_TTL_MS = 60_000
 
 /** Ligne lue dans defibrillators, avec les noms du client et du site */
 interface DbRow {
@@ -31,6 +39,15 @@ interface DbRow {
   site: { name: string | null } | null
 }
 
+/** Ligne légère pour les compteurs par compte (tous les DAE actifs) */
+interface LightRow {
+  synchroteam_id: string
+  contract_type: string | null
+  synced_at: string | null
+}
+
+type PageResult = PromiseLike<{ data: unknown[] | null; error: { message: string } | null; count: number | null }>
+
 /** Compte Synchroteam et identifiant brut, d'après le préfixe posé par la synchronisation */
 export function splitSynchroteamId(id: string): { account: TerritoryCode; rawId: string } {
   if (id.startsWith('GLP_')) return { account: 'GLP', rawId: id.slice(4) }
@@ -44,88 +61,113 @@ function str(val: unknown): string | null {
   return s === '' ? null : s
 }
 
-async function fetchActiveRows(): Promise<DbRow[]> {
-  const supabase = createServiceClient()
-  const rows: DbRow[] = []
-  for (let page = 0; ; page++) {
-    const { data, error } = await supabase
-      .from('defibrillators')
-      .select('synchroteam_id, serial_number, geo_dae_id, contract_type, brand, model, synced_at, client:clients(name), site:sites(name)')
-      .eq('active', true)
-      .order('synchroteam_id')
-      .range(page * PAGE, (page + 1) * PAGE - 1)
-    if (error) throw new Error(`lecture de la copie Supabase (defibrillators) : ${error.message}`)
-    const batch = (data ?? []) as unknown as DbRow[]
-    rows.push(...batch)
-    if (batch.length < PAGE) break
+/**
+ * Lit toutes les lignes d'une requête : la première page demande le total, les
+ * suivantes partent en parallèle (2 allers-retours au lieu de N).
+ */
+async function fetchAllRows<T>(label: string, build: (from: number, to: number, withCount: boolean) => PageResult): Promise<T[]> {
+  const first = await build(0, PAGE - 1, true)
+  if (first.error) throw new Error(`${label} : ${first.error.message}`)
+  const rows = (first.data ?? []) as T[]
+  const total = first.count ?? rows.length
+  if (total <= rows.length) return rows
+  const pages = Math.ceil(total / PAGE)
+  const rest = await Promise.all(Array.from({ length: pages - 1 }, (_, i) => build((i + 1) * PAGE, (i + 2) * PAGE - 1, false)))
+  for (const r of rest) {
+    if (r.error) throw new Error(`${label} : ${r.error.message}`)
+    rows.push(...((r.data ?? []) as T[]))
   }
   return rows
 }
 
-/** DAE actifs sous contrat de location, d'après la copie Supabase. */
-export async function extractLocationDaeFromDb(): Promise<ExtractionResult> {
+async function computeExtraction(): Promise<ExtractionResult> {
   const started = Date.now()
-  const all = await fetchActiveRows()
+  const supabase = createServiceClient()
 
-  const byAccount = new Map<TerritoryCode, DbRow[]>(ACCOUNTS.map((a) => [a, []]))
-  for (const row of all) byAccount.get(splitSynchroteamId(row.synchroteam_id).account)!.push(row)
+  const [located, actives] = await Promise.all([
+    // DAE actifs en location, avec client et site : la liste de travail
+    fetchAllRows<DbRow>('lecture de la copie Supabase (defibrillators)', (from, to, withCount) =>
+      supabase
+        .from('defibrillators')
+        .select('synchroteam_id, serial_number, geo_dae_id, contract_type, brand, model, synced_at, client:clients(name), site:sites(name)', withCount ? { count: 'exact' } : undefined)
+        .eq('active', true)
+        .in('contract_type', LOCATION_TYPES)
+        .order('synchroteam_id')
+        .range(from, to)
+    ),
+    // Tous les DAE actifs, sans jointure : compteurs et types de contrat par compte
+    fetchAllRows<LightRow>('lecture des DAE actifs', (from, to, withCount) =>
+      supabase
+        .from('defibrillators')
+        .select('synchroteam_id, contract_type, synced_at', withCount ? { count: 'exact' } : undefined)
+        .eq('active', true)
+        .order('synchroteam_id')
+        .range(from, to)
+    ),
+  ])
 
-  const accounts: AccountExtraction[] = []
-  const rows: LocationDae[] = []
+  const summaries = new Map<TerritoryCode, AccountExtraction>(ACCOUNTS.map((account) => [account, {
+    account,
+    configured: buildAccounts(account) !== null,
+    active_total: 0,
+    location_total: 0,
+    with_geo_dae_id: 0,
+    without_geo_dae_id: 0,
+    without_serial: 0,
+    contract_types_seen: [],
+    mapping_source: 'copie Supabase (synchronisation quotidienne)',
+    missing_fields: [],
+    error: null,
+    duration_ms: 0,
+    synced_at: null,
+  }]))
+  const typeCounts = new Map<TerritoryCode, Map<string, number>>(ACCOUNTS.map((a) => [a, new Map()]))
   let newest: string | null = null
 
-  for (const account of ACCOUNTS) {
-    const list = byAccount.get(account)!
-    const typeCounts = new Map<string, number>()
-    let syncedAt: string | null = null
-    const summary: AccountExtraction = {
+  for (const r of actives) {
+    const { account } = splitSynchroteamId(r.synchroteam_id)
+    const s = summaries.get(account)!
+    s.active_total++
+    // Un compte est « configuré » s'il a ses variables ou si la synchronisation l'a déjà alimenté
+    s.configured = true
+    const contractType = str(r.contract_type) ?? '(aucun)'
+    const tc = typeCounts.get(account)!
+    tc.set(contractType, (tc.get(contractType) ?? 0) + 1)
+    if (r.synced_at && (!s.synced_at || r.synced_at > s.synced_at)) s.synced_at = r.synced_at
+    if (r.synced_at && (!newest || r.synced_at > newest)) newest = r.synced_at
+  }
+
+  const rows: LocationDae[] = []
+  for (const r of located) {
+    const { account, rawId } = splitSynchroteamId(r.synchroteam_id)
+    const contractType = str(r.contract_type) ?? '(aucun)'
+    if (!isLocationContract(contractType)) continue
+    const row: LocationDae = {
       account,
-      // Un compte est « configuré » s'il a ses variables ou si la synchronisation l'a déjà alimenté
-      configured: buildAccounts(account) !== null || list.length > 0,
-      active_total: list.length,
-      location_total: 0,
-      with_geo_dae_id: 0,
-      without_geo_dae_id: 0,
-      without_serial: 0,
-      contract_types_seen: [],
-      mapping_source: 'copie Supabase (synchronisation quotidienne)',
-      missing_fields: [],
-      error: null,
-      duration_ms: 0,
-      synced_at: null,
+      synchroteam_id: rawId,
+      name: str([r.brand, r.model].filter(Boolean).join(' ')),
+      customer_name: str(r.client?.name),
+      site_name: str(r.site?.name),
+      serial_number: str(r.serial_number),
+      geo_dae_id: str(r.geo_dae_id),
+      contract_type: contractType,
     }
+    rows.push(row)
+    const s = summaries.get(account)!
+    s.location_total++
+    if (row.geo_dae_id) s.with_geo_dae_id++
+    else s.without_geo_dae_id++
+    if (!row.serial_number) s.without_serial++
+  }
 
-    for (const r of list) {
-      const contractType = str(r.contract_type) ?? '(aucun)'
-      typeCounts.set(contractType, (typeCounts.get(contractType) ?? 0) + 1)
-      if (r.synced_at && (!syncedAt || r.synced_at > syncedAt)) syncedAt = r.synced_at
-      if (!isLocationContract(contractType)) continue
-
-      const row: LocationDae = {
-        account,
-        synchroteam_id: splitSynchroteamId(r.synchroteam_id).rawId,
-        name: str([r.brand, r.model].filter(Boolean).join(' ')),
-        customer_name: str(r.client?.name),
-        site_name: str(r.site?.name),
-        serial_number: str(r.serial_number),
-        geo_dae_id: str(r.geo_dae_id),
-        contract_type: contractType,
-      }
-      rows.push(row)
-      summary.location_total++
-      if (row.geo_dae_id) summary.with_geo_dae_id++
-      else summary.without_geo_dae_id++
-      if (!row.serial_number) summary.without_serial++
-    }
-
-    summary.contract_types_seen = Array.from(typeCounts, ([type, count]): ContractTypeCount => ({
+  const accounts = ACCOUNTS.map((account) => {
+    const s = summaries.get(account)!
+    s.contract_types_seen = Array.from(typeCounts.get(account)!, ([type, count]): ContractTypeCount => ({
       type, count, is_location: isLocationContract(type),
     })).sort((a, b) => b.count - a.count)
-    summary.synced_at = syncedAt
-    summary.duration_ms = Date.now() - started
-    if (syncedAt && (!newest || syncedAt > newest)) newest = syncedAt
-    accounts.push(summary)
-  }
+    s.duration_ms = Date.now() - started
+    return s
+  })
 
   rows.sort((a, b) => a.account.localeCompare(b.account) || (a.serial_number ?? '').localeCompare(b.serial_number ?? ''))
 
@@ -146,6 +188,31 @@ export async function extractLocationDaeFromDb(): Promise<ExtractionResult> {
     accounts,
     totals,
     rows,
-    warning: all.length === 0 ? 'Aucun DAE actif dans la copie Supabase : lancer une synchronisation (bouton « Actualiser depuis Synchroteam »).' : null,
+    warning: actives.length === 0 ? 'Aucun DAE actif dans la copie Supabase : lancer une synchronisation (bouton « Actualiser depuis Synchroteam »).' : null,
   }
+}
+
+// ── Cache mémoire (par instance serveur) ─────────────────────────────────────
+let cache: { at: number; promise: Promise<ExtractionResult> } | null = null
+
+/** À appeler quand la copie change hors synchronisation (report d'identifiant, par exemple). */
+export function invalidateExtractCache(): void {
+  cache = null
+}
+
+/**
+ * DAE actifs sous contrat de location, d'après la copie Supabase.
+ * Résultat gardé une minute en mémoire ; `fresh` force la relecture.
+ * Le résultat renvoyé est une copie : les appelants peuvent l'enrichir sans toucher au cache.
+ */
+export async function extractLocationDaeFromDb(opts: { fresh?: boolean } = {}): Promise<ExtractionResult> {
+  if (opts.fresh || !cache || Date.now() - cache.at > CACHE_TTL_MS) {
+    const promise = computeExtraction().catch((err: unknown) => {
+      cache = null
+      throw err
+    })
+    cache = { at: Date.now(), promise }
+  }
+  const result = await cache.promise
+  return { ...result, accounts: result.accounts.map((a) => ({ ...a })), rows: result.rows.map((r) => ({ ...r })) }
 }

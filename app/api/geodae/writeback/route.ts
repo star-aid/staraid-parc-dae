@@ -3,6 +3,7 @@ import { authorizeGeodae } from '@/lib/geodae/route-auth'
 import { loadDbMappings } from '@/lib/geodae/mappings'
 import { writeGeoDaeId } from '@/lib/geodae/writeback'
 import { recordWriteback } from '@/lib/geodae/journal'
+import { invalidateExtractCache } from '@/lib/geodae/extract-supabase'
 import type { WritebackRequest } from '@/lib/geodae/types'
 
 export const dynamic = 'force-dynamic'
@@ -50,6 +51,8 @@ export async function POST(req: NextRequest) {
 
     // Trace + clôture des anomalies, même en cas d'échec (on garde l'erreur)
     const journal = await recordWriteback({ request, result, writtenBy: auth.who })
+    // La copie locale vient de changer : la prochaine lecture repart de la base
+    if (result.ok) invalidateExtractCache()
     return NextResponse.json({ ...result, journal }, { status: result.ok ? 200 : 409 })
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 })

@@ -5,10 +5,11 @@ import { createServiceClient } from '@/lib/supabase'
 import type { ParkSummary, TerritoryCode } from '@/types'
 import NextExpirations from '@/components/dashboard/NextExpirations'
 import Link from 'next/link'
-import { parseContratParam, parseAutreTypesParam, buildContratOrFilter } from '@/lib/contract-groups'
+import { parseContratParam, parseAutreTypesParam, buildContratOrFilter, buildContratSqlParams, type ContratSqlParams } from '@/lib/contract-groups'
 import TerritoryFilterBar from '@/components/dashboard/TerritoryFilterBar'
 import { Card, EmptyState, LinkButton, PageContainer, PageHeader } from '@/components/ui/primitives'
 import { createSessionClient } from '@/lib/supabase-server'
+import { getSessionUser } from '@/lib/auth/session'
 
 const StatusDonut = dynamicImport(() => import('@/components/dashboard/StatusDonut'), { ssr: false })
 const TerritoryBars = dynamicImport(() => import('@/components/dashboard/TerritoryBars'), { ssr: false })
@@ -23,87 +24,88 @@ interface MonthlyRow {
   depannage: number
 }
 
-// Requête count HEAD — ne retourne que le comptage, pas de lignes → pas de limite max_rows
-function countQ(
-  supabase: ReturnType<typeof createServiceClient>,
-  status?: string,
-  territoryId?: string,
-  contratFilter?: string | null,
-  clientOrFilter?: string | null,
-  actif?: string
-) {
-  let q = supabase
-    .from('defibrillators')
-    .select('*', { count: 'exact', head: true })
-  if (!actif || actif === 'actif') q = q.eq('active', true)
-  else if (actif === 'inactif')    q = q.eq('active', false)
-  // 'tous' → pas de filtre active
-  if (status)          q = q.eq('status', status)
-  if (territoryId)     q = q.eq('territory_id', territoryId)
-  if (contratFilter)   q = q.or(contratFilter)
-  if (clientOrFilter)  q = q.or(clientOrFilter)
-  return q
+// ─── Collecte des données ────────────────────────────────────────────────────
+// Une seule vague de requêtes parallèles (deux quand un client est filtré, le
+// temps de connaître ses sites). Les comptages par statut et par territoire
+// viennent d'une fonction SQL agrégée (get_dashboard_status_counts) au lieu
+// d'une vingtaine de requêtes de comptage, et les interventions mensuelles sont
+// agrégées en SQL (get_dashboard_interventions_monthly) au lieu d'être
+// paginées puis regroupées ici. Chaque aller-retour vers Supabase coûtant
+// 250 à 400 ms depuis les territoires, c'est le nombre d'étapes qui compte.
+// Migration requise : supabase/migrations/20260928000013_dashboard_aggregates.sql
+
+type StatusKey = 'conforme' | 'vigilance' | 'critique' | 'inconnu'
+const STATUSES: readonly StatusKey[] = ['conforme', 'vigilance', 'critique', 'inconnu']
+const CODES = ['REU', 'MYT', 'GLP'] as const
+
+type StatusCountRow = { territory_code: string | null; dae_status: string | null; dae_count: number }
+type MonthlyRpcRow  = { month: string; total: number; maintenance: number; depannage: number }
+type ExpRow = {
+  id: string
+  serial_number: string | null
+  model: string | null
+  status_reason: string | null
+  battery_expiry: string | null
+  electrodes_adult_expiry: string | null
+  electrodes_pediatric_expiry: string | null
+  next_maintenance_date: string | null
+  clients: { name: string } | null
+  territories: { code: string } | null
 }
 
-async function getDashboardData(contratFilter: string | null, clientId: string | null, territoryCode: string | null, actif: string): Promise<{
-  summary: ParkSummary | null
-  monthly: MonthlyRow[]
-}> {
+function emptyCounts() {
+  return { total: 0, conforme: 0, vigilance: 0, critique: 0, inconnu: 0 }
+}
+
+// Filtre « actif » de l'URL → paramètre booléen de la fonction SQL (null = tous)
+function activeParam(actif: string): boolean | null {
+  if (!actif || actif === 'actif') return true
+  if (actif === 'inactif') return false
+  return null
+}
+
+async function getDashboardData(
+  contratSql: ContratSqlParams | null,
+  contratFilter: string | null,
+  clientId: string | null,
+  territoryCode: string | null,
+  actif: string
+): Promise<{ summary: ParkSummary | null; monthly: MonthlyRow[]; clientName: string | null; error: string | null }> {
   try {
     const supabase = createServiceClient()
+    const active = activeParam(actif)
 
-    const twelveMonthsAgo = new Date()
-    twelveMonthsAgo.setFullYear(twelveMonthsAgo.getFullYear() - 1)
-    const dateFrom = twelveMonthsAgo.toISOString().split('T')[0]
-
-    // Résolution du territoire sélectionné en UUID
-    let selectedTerritoryId: string | undefined
-    if (territoryCode) {
-      const { data: tRow } = await supabase.from('territories').select('id').eq('code', territoryCode).maybeSingle()
-      selectedTerritoryId = tRow?.id
+    // Prochaines échéances (5 lignes). Le filtre territoire passe par la jointure
+    // (territories!inner) : plus besoin de résoudre l'UUID du territoire avant.
+    const buildExpQ = (siteIds: string[]) => {
+      let q = supabase
+        .from('defibrillators')
+        .select(`id, serial_number, model, status_reason, battery_expiry, electrodes_adult_expiry, electrodes_pediatric_expiry, next_maintenance_date, clients(name), territories${territoryCode ? '!inner' : ''}(code)`)
+        .in('status', ['critique', 'vigilance'])
+        .order('status', { ascending: false })
+        .order('battery_expiry', { ascending: true, nullsFirst: false })
+        .limit(5)
+      if (active !== null) q = q.eq('active', active)
+      if (territoryCode)   q = q.eq('territories.code', territoryCode)
+      if (contratFilter)   q = q.or(contratFilter)
+      if (clientId) {
+        const parts = [`client_id.eq.${clientId}`]
+        if (siteIds.length > 0) parts.push(`site_id.in.(${siteIds.join(',')})`)
+        q = q.or(parts.join(','))
+      }
+      return q
     }
 
-    // Filtre client : OR sur client_id direct OU site_id (héritage via le site)
-    let clientOrFilter: string | null = null
-    if (clientId) {
-      const { data: cs } = await supabase.from('sites').select('id').eq('client_id', clientId).limit(100)
-      const siteIds = (cs ?? []).map((s: { id: string }) => s.id)
-      const parts = [`client_id.eq.${clientId}`]
-      if (siteIds.length > 0) parts.push(`site_id.in.(${siteIds.join(',')})`)
-      clientOrFilter = parts.join(',')
-    }
-
-    // ── Passe 1 : données indépendantes des IDs de territoire ────────────────
-    // Les interventions sont paginées séparément pour contourner max_rows=1000
-    let expQ = supabase
-      .from('defibrillators')
-      .select('id, serial_number, model, status_reason, battery_expiry, electrodes_adult_expiry, electrodes_pediatric_expiry, next_maintenance_date, clients(name), territories(code)')
-      .in('status', ['critique', 'vigilance'])
-      .order('status', { ascending: false })
-      .order('battery_expiry', { ascending: true, nullsFirst: false })
-      .limit(5)
-    if (!actif || actif === 'actif') expQ = expQ.eq('active', true)
-    else if (actif === 'inactif')   expQ = expQ.eq('active', false)
-    if (selectedTerritoryId) expQ = expQ.eq('territory_id', selectedTerritoryId)
-    if (contratFilter)  expQ = expQ.or(contratFilter)
-    if (clientOrFilter) expQ = expQ.or(clientOrFilter)
-
-    const [
-      { count: total },
-      { count: conforme },
-      { count: vigilance },
-      { count: critique },
-      { count: inconnu },
-      territoriesRes,
-      lastSyncRes,
-      expirationsRes,
-    ] = await Promise.all([
-      countQ(supabase, undefined,   selectedTerritoryId, contratFilter, clientOrFilter, actif),
-      countQ(supabase, 'conforme',  selectedTerritoryId, contratFilter, clientOrFilter, actif),
-      countQ(supabase, 'vigilance', selectedTerritoryId, contratFilter, clientOrFilter, actif),
-      countQ(supabase, 'critique',  selectedTerritoryId, contratFilter, clientOrFilter, actif),
-      countQ(supabase, 'inconnu',   selectedTerritoryId, contratFilter, clientOrFilter, actif),
-      supabase.from('territories').select('id, code'),
+    // ── Vague 1 : tout ce qui ne dépend pas des sites du client ─────────────
+    const [countsRes, monthlyRes, lastSyncRes, clientRes, sitesRes, expDirectRes] = await Promise.all([
+      supabase.rpc('get_dashboard_status_counts', {
+        p_active:          active,
+        p_client_id:       clientId,
+        p_contract_in:     contratSql?.contract_in ?? null,
+        p_contract_not_in: contratSql?.contract_not_in ?? null,
+        p_contract_null:   contratSql?.contract_null ?? false,
+      }),
+      supabase.rpc('get_dashboard_interventions_monthly', { p_months: 12, p_client_id: clientId }),
       supabase
         .from('sync_logs')
         .select('finished_at')
@@ -112,75 +114,42 @@ async function getDashboardData(contratFilter: string | null, clientId: string |
         .order('finished_at', { ascending: false })
         .limit(1)
         .maybeSingle(),
-      expQ,
+      clientId ? supabase.from('clients').select('name').eq('id', clientId).maybeSingle() : null,
+      clientId ? supabase.from('sites').select('id').eq('client_id', clientId).limit(100) : null,
+      clientId ? null : buildExpQ([]),
     ])
+    if (countsRes.error)  throw new Error(`get_dashboard_status_counts : ${countsRes.error.message}`)
+    if (monthlyRes.error) throw new Error(`get_dashboard_interventions_monthly : ${monthlyRes.error.message}`)
 
-    // Pagination des interventions pour contourner max_rows=1000
-    type IntRow = { type: string | null; completed_date: string }
-    const allInterventions: IntRow[] = []
-    {
-      const PAGE = 1000
-      let page = 0
-      while (true) {
-        let intQ = supabase
-          .from('interventions')
-          .select('type, completed_date')
-          .not('completed_date', 'is', null)
-          .gte('completed_date', dateFrom)
-          .order('completed_date', { ascending: true })
-          .range(page * PAGE, (page + 1) * PAGE - 1)
-        // interventions.client_id suit la même logique que defibrillators
-        if (clientOrFilter) intQ = intQ.or(clientOrFilter)
-        const { data, error: err } = await intQ
-        if (err || !data?.length) break
-        allInterventions.push(...(data as IntRow[]))
-        if (data.length < PAGE) break
-        page++
+    // ── Vague 2 (client filtré seulement) : échéances restreintes à ses sites ─
+    const expirationsRes = expDirectRes ?? await buildExpQ(
+      ((sitesRes?.data ?? []) as Array<{ id: string }>).map((s) => s.id)
+    )
+
+    // ── Comptages : KPI globaux + répartition par territoire ─────────────────
+    const by_territory = Object.fromEntries(
+      CODES.map((c) => [c, emptyCounts()])
+    ) as ParkSummary['by_territory']
+    const global = emptyCounts()
+
+    for (const r of (countsRes.data ?? []) as StatusCountRow[]) {
+      const n = Number(r.dae_count)
+      const code = r.territory_code as TerritoryCode | null
+      const st = r.dae_status
+      const isStatus = st !== null && (STATUSES as readonly string[]).includes(st)
+      // KPI globaux : territoire sélectionné uniquement s'il est filtré
+      if (!territoryCode || code === territoryCode) {
+        global.total += n
+        if (isStatus) global[st as StatusKey] += n
+      }
+      // Répartition : toujours les trois territoires
+      if (code && code in by_territory) {
+        by_territory[code].total += n
+        if (isStatus) by_territory[code][st as StatusKey] += n
       }
     }
 
-    const territories = (territoriesRes.data ?? []) as Array<{ id: string; code: string }>
-
-    // ── Passe 2 : counts par territoire (IDs maintenant connus) ──────────────
-    const STATUSES = ['conforme', 'vigilance', 'critique', 'inconnu'] as const
-    const CODES    = ['REU', 'MYT', 'GLP'] as const
-
-    const terrCountResults = await Promise.all(
-      territories.flatMap((t) => [
-        countQ(supabase, undefined, t.id, contratFilter, clientOrFilter),
-        ...STATUSES.map((s) => countQ(supabase, s, t.id, contratFilter, clientOrFilter)),
-      ])
-    )
-
-    // Reconstruction by_territory depuis les résultats
-    const by_territory = Object.fromEntries(
-      CODES.map((c) => [c, { total: 0, conforme: 0, vigilance: 0, critique: 0, inconnu: 0 }])
-    ) as ParkSummary['by_territory']
-
-    territories.forEach((t, ti) => {
-      const code = t.code as TerritoryCode
-      if (!(code in by_territory)) return
-      const base = ti * (STATUSES.length + 1)
-      by_territory[code].total     = terrCountResults[base].count     ?? 0
-      by_territory[code].conforme  = terrCountResults[base + 1].count ?? 0
-      by_territory[code].vigilance = terrCountResults[base + 2].count ?? 0
-      by_territory[code].critique  = terrCountResults[base + 3].count ?? 0
-      by_territory[code].inconnu   = terrCountResults[base + 4].count ?? 0
-    })
-
-    // ── Prochaines échéances ──────────────────────────────────────────────────
-    type ExpRow = {
-      id: string
-      serial_number: string | null
-      model: string | null
-      status_reason: string | null
-      battery_expiry: string | null
-      electrodes_adult_expiry: string | null
-      electrodes_pediatric_expiry: string | null
-      next_maintenance_date: string | null
-      clients: { name: string } | null
-      territories: { code: string } | null
-    }
+    // ── Prochaines échéances ─────────────────────────────────────────────────
     const next_expirations = ((expirationsRes.data ?? []) as unknown as ExpRow[]).map((d) => {
       const dates = [d.battery_expiry, d.electrodes_adult_expiry, d.electrodes_pediatric_expiry, d.next_maintenance_date]
         .filter((x): x is string => !!x)
@@ -196,34 +165,36 @@ async function getDashboardData(contratFilter: string | null, clientId: string |
       }
     })
 
-    // ── Interventions mensuelles groupées en JS ───────────────────────────────
-    const monthlyMap = new Map<string, MonthlyRow>()
-    for (const iv of allInterventions) {
-      if (!iv.completed_date) continue
-      const month = iv.completed_date.slice(0, 7)
-      if (!monthlyMap.has(month)) monthlyMap.set(month, { month, total: 0, maintenance: 0, depannage: 0 })
-      const row = monthlyMap.get(month)!
-      row.total++
-      if (iv.type === 'maintenance') row.maintenance++
-      if (iv.type === 'depannage') row.depannage++
-    }
-    const monthly = Array.from(monthlyMap.values()).sort((a, b) => a.month.localeCompare(b.month))
+    // ── Interventions mensuelles (agrégées en SQL) ───────────────────────────
+    const monthly: MonthlyRow[] = ((monthlyRes.data ?? []) as MonthlyRpcRow[]).map((r) => ({
+      month:       r.month,
+      total:       Number(r.total),
+      maintenance: Number(r.maintenance),
+      depannage:   Number(r.depannage),
+    }))
 
     const summary: ParkSummary = {
-      total:     total     ?? 0,
-      conforme:  conforme  ?? 0,
-      vigilance: vigilance ?? 0,
-      critique:  critique  ?? 0,
-      inconnu:   inconnu   ?? 0,
+      ...global,
       by_territory,
       next_expirations,
       last_sync: lastSyncRes.data?.finished_at ?? null,
     }
 
-    return { summary, monthly }
+    const clientName = (clientRes?.data as { name: string } | null)?.name ?? null
+    return { summary, monthly, clientName, error: null }
   } catch (err) {
     console.error('getDashboardData:', err)
-    return { summary: null, monthly: [] }
+    return { summary: null, monthly: [], clientName: null, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+// Rôle de l'utilisateur connecté, lu dans le jeton vérifié localement (aucun appel réseau)
+async function getUserRole(): Promise<string> {
+  try {
+    const user = await getSessionUser(await createSessionClient())
+    return user?.role ?? 'direction'
+  } catch {
+    return 'direction' // non authentifié → rôle par défaut
   }
 }
 
@@ -291,29 +262,19 @@ export default async function DashboardPage({
 }: {
   searchParams?: { contrat?: string; autreTypes?: string; client?: string; territoire?: string; actif?: string; [key: string]: string | undefined }
 }) {
-  const contratFilter = buildContratOrFilter(
-    parseContratParam(searchParams?.contrat),
-    parseAutreTypesParam(searchParams?.autreTypes),
-  )
-  const clientId = searchParams?.client ?? null
-  const territoryCode = searchParams?.territoire ?? null
-  const actif = searchParams?.actif ?? 'actif'
-  const { summary, monthly } = await getDashboardData(contratFilter, clientId, territoryCode, actif)
+  const contratGroups  = parseContratParam(searchParams?.contrat)
+  const autreTypesSel  = parseAutreTypesParam(searchParams?.autreTypes)
+  const contratFilter  = buildContratOrFilter(contratGroups, autreTypesSel)
+  const contratSql     = buildContratSqlParams(contratGroups, autreTypesSel)
+  const clientId       = searchParams?.client ?? null
+  const territoryCode  = searchParams?.territoire ?? null
+  const actif          = searchParams?.actif ?? 'actif'
 
-  let selectedClientName: string | null = null
-  if (clientId) {
-    const supabase = createServiceClient()
-    const { data: cl } = await supabase.from('clients').select('name').eq('id', clientId).maybeSingle()
-    selectedClientName = cl?.name ?? null
-  }
-
-  // Rôle utilisateur — pour afficher le bandeau inconnu aux admins/maintenance uniquement
-  let userRole: string = 'direction'
-  try {
-    const sessionClient = await createSessionClient()
-    const { data: { user } } = await sessionClient.auth.getUser()
-    userRole = (user?.user_metadata?.role as string | undefined) ?? 'direction'
-  } catch { /* non authentifié → rôle par défaut */ }
+  // Données et rôle utilisateur en parallèle : plus d'appels en série au niveau de la page
+  const [{ summary, monthly, clientName: selectedClientName, error: dataError }, userRole] = await Promise.all([
+    getDashboardData(contratSql, contratFilter, clientId, territoryCode, actif),
+    getUserRole(),
+  ])
 
   const total     = summary?.total     ?? 0
   const conforme  = summary?.conforme  ?? 0
@@ -341,6 +302,13 @@ export default async function DashboardPage({
           </Suspense>
         }
       />
+
+      {dataError && (
+        <div role="alert" className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-2.5 text-13 text-red-700">
+          Données indisponibles : {dataError}. Si le message évoque une fonction introuvable, appliquer la migration
+          {' '}<code className="font-mono text-xs">20260928000013_dashboard_aggregates.sql</code> (npm run db:push).
+        </div>
+      )}
 
       {/* Indicateurs */}
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">

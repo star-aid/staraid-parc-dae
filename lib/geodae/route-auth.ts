@@ -4,6 +4,7 @@
 
 import { NextResponse } from 'next/server'
 import { createSessionClient } from '@/lib/supabase-server'
+import { getSessionUser } from '@/lib/auth/session'
 
 export type GeodaeAuth =
   | { ok: true; who: string }
@@ -11,10 +12,10 @@ export type GeodaeAuth =
 
 export async function authorizeGeodae(): Promise<GeodaeAuth> {
   try {
-    const session = await createSessionClient()
-    const { data: { user } } = await session.auth.getUser()
+    // Jeton vérifié localement : chaque appel API n'attend plus Supabase Auth
+    const user = await getSessionUser(await createSessionClient())
     if (!user) return { ok: false, res: NextResponse.json({ error: 'Non authentifié' }, { status: 401 }) }
-    const role = user.user_metadata?.role as string | undefined
+    const role: string = user.role
     if (role !== 'administrateur' && role !== 'maintenance') {
       return { ok: false, res: NextResponse.json({ error: 'Accès refusé' }, { status: 403 }) }
     }

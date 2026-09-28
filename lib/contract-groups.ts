@@ -94,3 +94,43 @@ export function buildContratOrFilter(
   if (parts.length === 0) return null
   return parts.join(',')
 }
+
+// Version structurée du filtre contrat, pour la fonction SQL agrégée du tableau
+// de bord (get_dashboard_status_counts, migration 20260922000008). Même sémantique
+// que buildContratOrFilter : union (OU) des groupes sélectionnés.
+export type ContratSqlParams = {
+  contract_in: string[] | null      // types à inclure
+  contract_not_in: string[] | null  // types à exclure (« Autres » sans sélection)
+  contract_null: boolean            // inclure les DAE sans type de contrat
+}
+
+export function buildContratSqlParams(
+  groups: ContratGroup[],
+  autreTypesSelected?: string[] | null
+): ContratSqlParams | null {
+  if (isAllSelected(groups, autreTypesSelected)) return null
+
+  const inVals: string[] = []
+  let notIn: string[] | null = null
+  let includeNull = false
+
+  if (groups.includes('location'))    inVals.push(...LOCATION_TYPES)
+  if (groups.includes('maintenance')) inVals.push(...MAINTENANCE_TYPES)
+
+  if (groups.includes('autre')) {
+    if (autreTypesSelected && autreTypesSelected.length > 0) {
+      inVals.push(...autreTypesSelected.filter((v) => v !== SANS_CONTRAT_SENTINEL))
+      if (autreTypesSelected.includes(SANS_CONTRAT_SENTINEL)) {
+        includeNull = true
+        inVals.push(...SANS_CONTRAT_STRINGS)
+      }
+    } else {
+      // Tous les AUTRES : tout sauf Location et Maintenance, NULL compris
+      notIn = [...LOCATION_TYPES, ...MAINTENANCE_TYPES]
+      includeNull = true
+    }
+  }
+
+  if (inVals.length === 0 && !notIn && !includeNull) return null
+  return { contract_in: inVals.length > 0 ? inVals : null, contract_not_in: notIn, contract_null: includeNull }
+}

@@ -15,7 +15,7 @@ export const maxDuration = 60
 const ACCOUNTS: TerritoryCode[] = ['REU', 'MYT', 'GLP']
 
 /**
- * GET /api/geodae/extract[?source=supabase|synchroteam][&format=csv]
+ * GET /api/geodae/extract[?source=supabase|synchroteam][&fresh=1][&format=csv]
  * DAE actifs sous contrat de location, avec identifiant Synchroteam, n° de série
  * et identifiant Géo'DAE (étape 1 du contrôle).
  *  - source=supabase (défaut) : copie synchronisée chaque matin, réponse immédiate ;
@@ -28,6 +28,8 @@ export async function GET(req: NextRequest) {
   if (!auth.ok) return auth.res
 
   const source = req.nextUrl.searchParams.get('source') === 'synchroteam' ? 'synchroteam' : 'supabase'
+  // fresh=1 : ignore le cache mémoire d'une minute (après une synchronisation, par exemple)
+  const fresh = req.nextUrl.searchParams.get('fresh') === '1'
 
   let result: ExtractionResult
   try {
@@ -39,7 +41,7 @@ export async function GET(req: NextRequest) {
       })
       result = { ...(await extractLocationDae(inputs, mappings, warning)), source: 'synchroteam' }
     } else {
-      result = await extractLocationDaeFromDb()
+      result = await extractLocationDaeFromDb({ fresh })
     }
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 })
