@@ -87,6 +87,16 @@ au rôle service : les privilèges par défaut du projet n'en donnent aucun.
    des deux côtés et détail, clôture manuelle avec motif, export CSV complet, compteur dans le menu.
    L'onglet « Historique » liste les exécutions (recherches, rapprochements) et les reports.
    Rien n'est écrit dans Synchroteam ni dans Géo'DAE.
+   Le motif d'un « identifiant divergent » nomme la situation : identifiant copié sur deux DAE (l'autre
+   DAE porte le numéro déclaré), numéros croisés entre deux appareils, même numéro à un caractère
+   ambigu près (l, I, 1 ; O, 0), ou appareil remplacé. Le tableau affiche le numéro de série et le nom
+   déclarés côté Géo'DAE. Les champs n° de série Synchroteam qui ne ressemblent pas à un numéro (nom de
+   site, « Test », espaces) sont ignorés pour lire les noms Géo'DAE.
+   Un « non référencé dans Synchroteam » précise la situation : présent sous un autre contrat ou inactif
+   (rattaché par le numéro de série, sinon par l'identifiant Géo'DAE renseigné sur la fiche Synchroteam),
+   absent de Synchroteam, ou numéro de série non identifiable dans le nom déclaré, auquel cas une piste
+   est proposée quand un site Synchroteam porte le même nom (à vérifier à la main, ou compléter le nom de
+   la déclaration Géo'DAE avec le numéro de série).
 7. **Report** (« Reporter dans Synchroteam », confirmation obligatoire) : relecture de
    l'équipement, n° de série identique exigé, jamais d'écrasement d'un champ déjà
    renseigné, écriture partielle (`POST /Api/v3/equipment/send`, seuls les champs fournis

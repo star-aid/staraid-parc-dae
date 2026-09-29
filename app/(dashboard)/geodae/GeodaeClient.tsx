@@ -417,9 +417,18 @@ function AnomaliesPanel({ journal, loading, onRefresh, onReconcile, reconciling,
   const [resolving, setResolving] = useState<{ id: string; text: string } | null>(null)
   const lastReconcile = journal?.runs.find(isReconcileRun) ?? null
   const reconcileCounts = (lastReconcile?.sources ?? {}) as { divergence?: number; absent?: number; non_reference?: number }
+  // Compte Synchroteam filtré (?compte=…), même paramètre que l'onglet DAE en location
+  const account = pickParam(url.get('compte'), ACCOUNT_PARAMS, 'all')
+  const setAccount = (v: 'all' | TerritoryCode) => { url.set({ compte: v === 'all' ? null : v }); setShowAll(false) }
   const allAnomalies = journal?.open_anomalies ?? []
-  const anomalies = typeFilter === 'all' ? allAnomalies : allAnomalies.filter((a) => a.type === typeFilter)
+  const scoped = account === 'all' ? allAnomalies : allAnomalies.filter((a) => a.account === account)
+  const anomalies = typeFilter === 'all' ? scoped : scoped.filter((a) => a.type === typeFilter)
   const shown = showAll ? anomalies : anomalies.slice(0, ANOMALIES_PAGE)
+  // Compteurs par type : ceux du serveur pour tous les comptes, recalculés sur les lignes chargées pour un compte
+  const countsByType: Record<string, number> = account === 'all'
+    ? (journal?.open_by_type ?? {})
+    : scoped.reduce<Record<string, number>>((acc, a) => ({ ...acc, [a.type]: (acc[a.type] ?? 0) + 1 }), {})
+  const openTotal = account === 'all' ? (journal?.open_total ?? 0) : scoped.length
 
   return (
     <Card padded={false}>
@@ -429,6 +438,12 @@ function AnomaliesPanel({ journal, loading, onRefresh, onReconcile, reconciling,
         <>
           {/* Barre d'outils : filtre par type à gauche, actions à droite */}
           <div className="flex flex-wrap items-center gap-2 border-b border-border-subtle px-4 py-2.5">
+            <Select value={account} onChange={(e) => setAccount(e.target.value as 'all' | TerritoryCode)} aria-label="Compte Synchroteam" wrapperClassName="w-44">
+              <option value="all">Tous les comptes</option>
+              {(['REU', 'MYT', 'GLP'] as TerritoryCode[]).map((code) => (
+                <option key={code} value={code}>{TERRITORY_LABELS[code]}</option>
+              ))}
+            </Select>
             <div className="flex flex-wrap items-center gap-1.5">
               <button
                 type="button"
@@ -438,9 +453,9 @@ function AnomaliesPanel({ journal, loading, onRefresh, onReconcile, reconciling,
                   typeFilter === 'all' ? 'bg-fg text-white' : 'bg-surface-sunken text-fg-secondary hover:text-fg'
                 )}
               >
-                Toutes <span className="font-bold tabular-nums">{journal.open_total}</span>
+                Toutes <span className="font-bold tabular-nums">{openTotal}</span>
               </button>
-              {Object.entries(journal.open_by_type).map(([type, n]) => (
+              {Object.entries(countsByType).map(([type, n]) => (
                 <button
                   key={type}
                   type="button"
@@ -457,7 +472,7 @@ function AnomaliesPanel({ journal, loading, onRefresh, onReconcile, reconciling,
               ))}
             </div>
             <div className="ml-auto flex flex-wrap items-center gap-1.5">
-              <a href="/api/geodae/anomalies?format=csv" className={buttonClass('ghost', 'sm')} title="Exporter toutes les anomalies ouvertes (CSV)">
+              <a href={`/api/geodae/anomalies?format=csv${account === 'all' ? '' : `&account=${account}`}${typeFilter === 'all' ? '' : `&type=${typeFilter}`}`} className={buttonClass('ghost', 'sm')} title="Exporter les anomalies ouvertes affichées (CSV)">
                 Exporter CSV
               </a>
               <Button
@@ -513,27 +528,43 @@ function AnomaliesPanel({ journal, loading, onRefresh, onReconcile, reconciling,
                 </thead>
                 <tbody className={tbodyClass}>
                   {shown.map((a) => {
-                    const d = (a.details ?? {}) as { reason?: string; presence?: string }
+                    const d = (a.details ?? {}) as { reason?: string; presence?: string; hint?: string; geodae_serial?: string; geodae?: { nom?: string | null } }
                     const detail = [d.reason, d.presence].filter(Boolean).join(' · ')
+                    // Pour un identifiant divergent, le n° de série et le nom déclarés côté Géo'DAE
+                    // sont l'essentiel : sans eux, deux identifiants identiques ressemblent à un faux positif
+                    const geodaeSerial = d.geodae_serial && d.geodae_serial !== (a.serial_number ?? '').toUpperCase() ? d.geodae_serial : null
+                    const geodaeName = d.geodae?.nom ?? null
                     const editing = resolving?.id === a.id
                     return (
                       <tr key={a.id} className={trClass}>
-                        <td className={tdClass}>
+                        <td className={cx(tdClass, 'w-px whitespace-nowrap')}>
                           <Tag tone={ANOMALY_TONE[a.type] ?? 'neutral'}>{ANOMALY_LABELS[a.type] ?? a.type}</Tag>
                         </td>
-                        <td className={cx(tdClass, 'text-caption text-fg-secondary')}>{a.account ?? '—'}</td>
-                        <td className={cx(tdClass, 'font-mono text-caption text-fg')}>{a.serial_number ?? '—'}</td>
-                        <td className={tdClass}>{a.synchroteam_geo_dae_id ? <GidLink gid={a.synchroteam_geo_dae_id} /> : <span className="text-border-strong">—</span>}</td>
-                        <td className={tdClass}>{a.geodae_gid ? <GidLink gid={a.geodae_gid} /> : <span className="text-border-strong">—</span>}</td>
-                        <td className={cx(tdClass, 'max-w-[280px] truncate text-caption text-fg-muted')} title={detail || undefined}>{detail || '—'}</td>
-                        <td className={cx(tdClass, 'text-caption text-fg-muted tabular-nums')}>{fmtDate(a.first_seen_at)}</td>
-                        <td className={cx(tdClass, 'text-caption text-fg-muted tabular-nums')}>{fmtDate(a.last_seen_at)}</td>
-                        <td className={cx(tdClass, 'text-caption')}>
+                        <td className={cx(tdClass, 'w-px whitespace-nowrap text-caption text-fg-secondary')}>{a.account ?? '—'}</td>
+                        <td className={cx(tdClass, 'w-px whitespace-nowrap font-mono text-caption text-fg')}>
+                          <span className="block max-w-[110px] truncate" title={a.serial_number ?? undefined}>{a.serial_number ?? '—'}</span>
+                        </td>
+                        <td className={cx(tdClass, 'w-px whitespace-nowrap')}>{a.synchroteam_geo_dae_id ? <GidLink gid={a.synchroteam_geo_dae_id} /> : <span className="text-border-strong">—</span>}</td>
+                        <td className={cx(tdClass, 'w-px whitespace-nowrap')}>{a.geodae_gid ? <GidLink gid={a.geodae_gid} /> : <span className="text-border-strong">—</span>}</td>
+                        <td className={cx(tdClass, 'min-w-[240px] whitespace-normal text-caption leading-snug text-fg-muted')}>
+                          {detail || '—'}
+                          {(geodaeSerial || geodaeName) && (
+                            <div className="mt-0.5 text-label text-fg-faint">
+                              {geodaeSerial && <span className="font-mono font-semibold text-warning" title="Numéro de série lu dans la déclaration Géo'DAE">N° déclaré : {geodaeSerial}</span>}
+                              {geodaeSerial && geodaeName && ' · '}
+                              {geodaeName && <span title={geodaeName}>Fiche : {geodaeName}</span>}
+                            </div>
+                          )}
+                          {d.hint && <div className="mt-0.5 text-label text-info">{d.hint}</div>}
+                        </td>
+                        <td className={cx(tdClass, 'w-px whitespace-nowrap text-caption text-fg-muted tabular-nums')}>{fmtDate(a.first_seen_at)}</td>
+                        <td className={cx(tdClass, 'w-px whitespace-nowrap text-caption text-fg-muted tabular-nums')}>{fmtDate(a.last_seen_at)}</td>
+                        <td className={cx(tdClass, 'w-px whitespace-nowrap text-caption')}>
                           {a.defibrillator_id
                             ? <Link prefetch={false} href={`/parc/${a.defibrillator_id}`} className="font-medium text-brand hover:underline">Voir</Link>
                             : <span className="text-border-strong">—</span>}
                         </td>
-                        <td className={cx(tdClass, 'text-caption')}>
+                        <td className={cx(tdClass, 'w-px whitespace-nowrap text-caption')}>
                           {editing ? (
                             <span className="flex items-center gap-1">
                               <input
