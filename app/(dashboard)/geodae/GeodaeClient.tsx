@@ -417,9 +417,18 @@ function AnomaliesPanel({ journal, loading, onRefresh, onReconcile, reconciling,
   const [resolving, setResolving] = useState<{ id: string; text: string } | null>(null)
   const lastReconcile = journal?.runs.find(isReconcileRun) ?? null
   const reconcileCounts = (lastReconcile?.sources ?? {}) as { divergence?: number; absent?: number; non_reference?: number }
+  // Compte Synchroteam filtré (?compte=…), même paramètre que l'onglet DAE en location
+  const account = pickParam(url.get('compte'), ACCOUNT_PARAMS, 'all')
+  const setAccount = (v: 'all' | TerritoryCode) => { url.set({ compte: v === 'all' ? null : v }); setShowAll(false) }
   const allAnomalies = journal?.open_anomalies ?? []
-  const anomalies = typeFilter === 'all' ? allAnomalies : allAnomalies.filter((a) => a.type === typeFilter)
+  const scoped = account === 'all' ? allAnomalies : allAnomalies.filter((a) => a.account === account)
+  const anomalies = typeFilter === 'all' ? scoped : scoped.filter((a) => a.type === typeFilter)
   const shown = showAll ? anomalies : anomalies.slice(0, ANOMALIES_PAGE)
+  // Compteurs par type : ceux du serveur pour tous les comptes, recalculés sur les lignes chargées pour un compte
+  const countsByType: Record<string, number> = account === 'all'
+    ? (journal?.open_by_type ?? {})
+    : scoped.reduce<Record<string, number>>((acc, a) => ({ ...acc, [a.type]: (acc[a.type] ?? 0) + 1 }), {})
+  const openTotal = account === 'all' ? (journal?.open_total ?? 0) : scoped.length
 
   return (
     <Card padded={false}>
@@ -429,6 +438,12 @@ function AnomaliesPanel({ journal, loading, onRefresh, onReconcile, reconciling,
         <>
           {/* Barre d'outils : filtre par type à gauche, actions à droite */}
           <div className="flex flex-wrap items-center gap-2 border-b border-border-subtle px-4 py-2.5">
+            <Select value={account} onChange={(e) => setAccount(e.target.value as 'all' | TerritoryCode)} aria-label="Compte Synchroteam" wrapperClassName="w-44">
+              <option value="all">Tous les comptes</option>
+              {(['REU', 'MYT', 'GLP'] as TerritoryCode[]).map((code) => (
+                <option key={code} value={code}>{TERRITORY_LABELS[code]}</option>
+              ))}
+            </Select>
             <div className="flex flex-wrap items-center gap-1.5">
               <button
                 type="button"
@@ -438,9 +453,9 @@ function AnomaliesPanel({ journal, loading, onRefresh, onReconcile, reconciling,
                   typeFilter === 'all' ? 'bg-fg text-white' : 'bg-surface-sunken text-fg-secondary hover:text-fg'
                 )}
               >
-                Toutes <span className="font-bold tabular-nums">{journal.open_total}</span>
+                Toutes <span className="font-bold tabular-nums">{openTotal}</span>
               </button>
-              {Object.entries(journal.open_by_type).map(([type, n]) => (
+              {Object.entries(countsByType).map(([type, n]) => (
                 <button
                   key={type}
                   type="button"
@@ -457,7 +472,7 @@ function AnomaliesPanel({ journal, loading, onRefresh, onReconcile, reconciling,
               ))}
             </div>
             <div className="ml-auto flex flex-wrap items-center gap-1.5">
-              <a href="/api/geodae/anomalies?format=csv" className={buttonClass('ghost', 'sm')} title="Exporter toutes les anomalies ouvertes (CSV)">
+              <a href={`/api/geodae/anomalies?format=csv${account === 'all' ? '' : `&account=${account}`}${typeFilter === 'all' ? '' : `&type=${typeFilter}`}`} className={buttonClass('ghost', 'sm')} title="Exporter les anomalies ouvertes affichées (CSV)">
                 Exporter CSV
               </a>
               <Button
