@@ -12,6 +12,7 @@ import type {
   AnomalyRow, AnomalyType, JournalItem, JournalRun, JournalSummary, MaintenanceWriteRequest, MaintenanceWriteResult, WritebackRequest, WritebackResult, WritebackRow,
 } from '@/lib/geodae/types'
 import type { TerritoryCode } from '@/types'
+import type { GeodaeDateWriteResult } from '@/lib/geodae/geodae-write'
 
 export const MIGRATION_HINT =
   'Tables du journal absentes : appliquer la migration supabase/migrations/20260922000009_geodae_reconciliation.sql dans Supabase.'
@@ -354,6 +355,43 @@ export async function recordMaintenanceWriteback(params: {
     written_at: new Date().toISOString(),
   })
   // Colonnes absentes ou geodae_gid encore obligatoire : la migration 014 n'est pas appliquée
+  if (error) return { persisted: false, reason: unavailableReason(error, WRITEBACK_HINTS) ?? `${MAINTENANCE_WRITEBACK_HINT} (${error.message})` }
+  return { persisted: true }
+}
+
+// ─── Trace d'une écriture dans Géo'DAE (date de maintenance, migration 014) ──
+
+export async function recordGeodaeWriteback(params: {
+  gid: string
+  date: string
+  account: TerritoryCode | null
+  synchroteam_id: string | null
+  serial_number: string | null
+  result: GeodaeDateWriteResult
+  writtenBy: string | null
+}): Promise<{ persisted: boolean; reason?: string }> {
+  const { gid, date, account, synchroteam_id, serial_number, result, writtenBy } = params
+  const supabase = createServiceClient()
+  const localId = account && synchroteam_id
+    ? ((await resolveDefibrillatorIds(supabase, [{ account, synchroteam_id }])).get(`${ID_PREFIX[account] ?? ''}${synchroteam_id}`) ?? null)
+    : null
+  // Les champs touchés en plus de la date sont conservés dans la colonne error, visible dans l'historique
+  const note = result.ok && result.collateral.length > 0 ? `Champs modifiés en plus de la date : ${result.collateral.join(' ; ')}`.slice(0, 1000) : null
+  const { error } = await supabase.from('geodae_writebacks').insert({
+    account,
+    synchroteam_id: synchroteam_id ?? `geodae:${gid}`,
+    defibrillator_id: localId,
+    serial_number,
+    geodae_gid: gid,
+    field: 'geodae_dermnt',
+    value: date,
+    previous_value: result.ok ? result.previous_value : null,
+    status: result.ok ? 'ok' : 'erreur',
+    verified: result.ok ? result.verified : false,
+    error: result.ok ? note : result.error,
+    written_by: writtenBy,
+    written_at: new Date().toISOString(),
+  })
   if (error) return { persisted: false, reason: unavailableReason(error, WRITEBACK_HINTS) ?? `${MAINTENANCE_WRITEBACK_HINT} (${error.message})` }
   return { persisted: true }
 }

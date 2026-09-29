@@ -712,7 +712,9 @@ function HistoryPanel({ journal, loading, onRefresh }: {
                     <td className={cx(tdClass, 'font-mono text-caption text-fg')}>{w.serial_number ?? '—'}</td>
                     <td className={cx(tdClass, 'whitespace-nowrap')}>
                       {w.field === 'last_maintenance_field'
-                        ? <span className="text-caption">Date dernière maintenance : <span className="font-semibold text-fg tabular-nums">{w.value ? fmtDate(w.value) : '—'}</span></span>
+                        ? <span className="text-caption">Date dernière maintenance (Synchroteam) : <span className="font-semibold text-fg tabular-nums">{w.value ? fmtDate(w.value) : '—'}</span></span>
+                        : w.field === 'geodae_dermnt'
+                          ? <span className="text-caption">Date de maintenance (Géo&apos;DAE {w.geodae_gid ? <GidLink gid={w.geodae_gid} /> : ''}) : <span className="font-semibold text-fg tabular-nums">{w.value ? fmtDate(w.value) : '—'}</span></span>
                         : w.geodae_gid
                           ? <><span className="text-label text-fg-faint">Identifiant </span><GidLink gid={w.geodae_gid} /></>
                           : <span className="text-border-strong">—</span>}

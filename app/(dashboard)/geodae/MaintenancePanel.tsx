@@ -47,11 +47,15 @@ const SITUATION_TONE: Record<MaintenanceSituation, TagTone> = {
   aucune_date:        'neutral',
 }
 
+/** Cible d'une écriture : le champ de la fiche Synchroteam, ou la fiche Géo'DAE */
+type WriteTarget = 'synchroteam' | 'geodae'
 type WriteState =
-  | { status: 'confirm' }
-  | { status: 'writing' }
-  | { status: 'done'; verified: boolean; alreadySet: boolean; journal?: string }
-  | { status: 'error'; message: string }
+  | { status: 'confirm'; target: WriteTarget }
+  | { status: 'writing'; target: WriteTarget }
+  | { status: 'done'; target: WriteTarget; verified: boolean; alreadySet: boolean; journal?: string; collateral?: string[]; etatValid?: string | null }
+  | { status: 'error'; target: WriteTarget; message: string }
+
+const TARGET_LABEL: Record<WriteTarget, string> = { synchroteam: 'Synchroteam', geodae: "Géo'DAE" }
 
 function fmtDate(iso: string | null): string {
   if (!iso) return '—'
@@ -118,24 +122,31 @@ export default function MaintenancePanel({ onActionable }: { onActionable?: (cou
   const safePage = Math.min(page, totalPages)
   const pageRows = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
 
-  // ── Report de la date Géo'DAE dans Synchroteam ───────────────────────────
-  async function confirmWrite(r: MaintenanceRow) {
-    if (!r.geodae_date) return
+  // ── Écritures : la date Géo'DAE dans Synchroteam, ou la date Synchroteam dans Géo'DAE ──
+  async function confirmWrite(r: MaintenanceRow, target: WriteTarget) {
+    const date = target === 'synchroteam' ? r.geodae_date : r.synchroteam_date
+    if (!date) return
     const key = rowKey(r)
-    setWrites((prev) => ({ ...prev, [key]: { status: 'writing' } }))
+    setWrites((prev) => ({ ...prev, [key]: { status: 'writing', target } }))
     try {
-      const res = await fetch('/api/geodae/maintenance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ account: r.account, synchroteam_id: r.synchroteam_id, serial_number: r.serial_number, date: r.geodae_date }),
-      })
-      const body = (await res.json().catch(() => null)) as { ok?: boolean; verified?: boolean; already_set?: boolean; error?: string; journal?: { persisted: boolean; reason?: string } } | null
+      const payload = target === 'synchroteam'
+        ? { account: r.account, synchroteam_id: r.synchroteam_id, serial_number: r.serial_number, date }
+        : { target: 'geodae', gid: r.geo_dae_id, date, account: r.account, synchroteam_id: r.synchroteam_id, serial_number: r.serial_number }
+      const res = await fetch('/api/geodae/maintenance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      const body = (await res.json().catch(() => null)) as {
+        ok?: boolean; verified?: boolean; already_set?: boolean; error?: string; collateral?: string[]; etat_valid_after?: string | null
+        journal?: { persisted: boolean; reason?: string }
+      } | null
       if (!res.ok || !body?.ok) throw new Error(body?.error ?? `HTTP ${res.status}`)
-      setWrites((prev) => ({ ...prev, [key]: { status: 'done', verified: body.verified === true, alreadySet: body.already_set === true, journal: body.journal && !body.journal.persisted ? body.journal.reason : undefined } }))
-      // La fiche Synchroteam porte désormais la date : la ligne reflète la nouvelle valeur du champ
-      setResult((prev) => prev ? { ...prev, rows: prev.rows.map((x) => (rowKey(x) === key ? { ...x, synchroteam_field_date: r.geodae_date } : x)) } : prev)
+      setWrites((prev) => ({ ...prev, [key]: {
+        status: 'done', target, verified: body.verified === true, alreadySet: body.already_set === true,
+        journal: body.journal && !body.journal.persisted ? body.journal.reason : undefined,
+        collateral: body.collateral, etatValid: body.etat_valid_after,
+      } }))
+      // La ligne reflète la nouvelle valeur du côté qui vient d'être écrit
+      setResult((prev) => prev ? { ...prev, rows: prev.rows.map((x) => (rowKey(x) !== key ? x : target === 'synchroteam' ? { ...x, synchroteam_field_date: date } : { ...x, geodae_date: date, gap_days: 0 })) } : prev)
     } catch (err) {
-      setWrites((prev) => ({ ...prev, [key]: { status: 'error', message: err instanceof Error ? err.message : String(err) } }))
+      setWrites((prev) => ({ ...prev, [key]: { status: 'error', target, message: err instanceof Error ? err.message : String(err) } }))
     }
   }
 
@@ -263,35 +274,53 @@ export default function MaintenancePanel({ onActionable }: { onActionable?: (cou
                       </td>
                       <td className={cx(tdClass, 'w-px whitespace-nowrap')}><Tag tone={SITUATION_TONE[s]} dot>{MAINTENANCE_LABELS[s]}</Tag></td>
                       <td className={cx(tdClass, 'whitespace-nowrap text-caption')}>
-                        {w?.status === 'writing' && <span className="inline-flex items-center gap-1 text-fg-muted"><Loader2 className="h-3 w-3 animate-spin" />Report…</span>}
+                        {w?.status === 'writing' && <span className="inline-flex items-center gap-1 text-fg-muted"><Loader2 className="h-3 w-3 animate-spin" />Écriture dans {TARGET_LABEL[w.target]}…</span>}
                         {w?.status === 'done' && (
-                          <span className="inline-flex flex-wrap items-center gap-1.5">
-                            <Tag tone="success" title={w.verified ? 'Valeur relue dans Synchroteam après l’écriture' : 'Écriture acceptée, relecture non confirmée'}>{w.alreadySet ? 'Déjà à jour dans Synchroteam' : 'Reporté dans Synchroteam'}</Tag>
+                          <span className="inline-flex max-w-[360px] flex-wrap items-center gap-1.5 whitespace-normal">
+                            <Tag tone="success" title={w.verified ? `Valeur relue dans ${TARGET_LABEL[w.target]} après l’écriture` : 'Écriture acceptée, relecture non confirmée'}>
+                              {w.alreadySet ? `Déjà à jour dans ${TARGET_LABEL[w.target]}` : `Écrit dans ${TARGET_LABEL[w.target]}`}
+                            </Tag>
+                            {w.target === 'geodae' && !w.alreadySet && (
+                              <a href={geodaeSheetUrl(r.geo_dae_id)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 text-label text-fg-muted hover:text-brand hover:underline">
+                                vérifier sur le portail<ExternalLink className="h-3 w-3" />
+                              </a>
+                            )}
+                            {w.target === 'geodae' && w.etatValid && w.etatValid !== 'validées' && <span className="text-label text-warning">état de la fiche : {w.etatValid}</span>}
+                            {w.collateral && w.collateral.length > 0 && (
+                              <span className="text-label text-danger" title={w.collateral.join('\n')}>{w.collateral.length} autre{w.collateral.length > 1 ? 's' : ''} champ{w.collateral.length > 1 ? 's' : ''} modifié{w.collateral.length > 1 ? 's' : ''} : vérifier la fiche</span>
+                            )}
                             {w.journal && <span className="text-label text-warning" title={w.journal}>trace non enregistrée</span>}
                           </span>
                         )}
                         {w?.status === 'error' && (
                           <span className="inline-flex items-center gap-1 text-danger">
                             <span className="max-w-[260px] truncate" title={w.message}>Échec : {w.message}</span>
-                            <Button variant="ghost" size="xs" onClick={() => setWrites((p) => ({ ...p, [key]: { status: 'confirm' } }))}>Réessayer</Button>
+                            <Button variant="ghost" size="xs" onClick={() => setWrites((p) => ({ ...p, [key]: { status: 'confirm', target: w.target } }))}>Réessayer</Button>
                           </span>
                         )}
                         {w?.status === 'confirm' && (
                           <span className="inline-flex flex-wrap items-center gap-1">
-                            <span className="text-label font-semibold text-fg-secondary">Écrire {fmtDate(r.geodae_date)} dans Synchroteam ?</span>
-                            <Button variant="primary" size="xs" onClick={() => confirmWrite(r)}>Confirmer</Button>
+                            <span className="text-label font-semibold text-fg-secondary">
+                              Écrire {fmtDate(w.target === 'synchroteam' ? r.geodae_date : r.synchroteam_date)} dans {w.target === 'synchroteam' ? 'Synchroteam' : `la fiche Géo'DAE ${r.geo_dae_id}`} ?
+                            </span>
+                            <Button variant="primary" size="xs" onClick={() => confirmWrite(r, w.target)}>Confirmer</Button>
                             <Button variant="ghost" size="xs" onClick={() => setWrites((p) => { const n = { ...p }; delete n[key]; return n })}>Annuler</Button>
                           </span>
                         )}
                         {!w && canWrite && (
-                          <Button variant="soft" size="xs" icon={Upload} onClick={() => setWrites((p) => ({ ...p, [key]: { status: 'confirm' } }))} title="Écrire la date Géo'DAE dans le champ « Date dernière maintenance » de l'équipement Synchroteam, après confirmation">
+                          <Button variant="soft" size="xs" icon={Upload} onClick={() => setWrites((p) => ({ ...p, [key]: { status: 'confirm', target: 'synchroteam' } }))} title="Écrire la date Géo'DAE dans le champ « Date dernière maintenance » de l'équipement Synchroteam, après confirmation">
                             Reporter dans Synchroteam
                           </Button>
                         )}
                         {!w && s === 'synchroteam_recent' && (
-                          <a href={geodaeSheetUrl(r.geo_dae_id)} target="_blank" rel="noopener noreferrer" className={buttonClass('ghost', 'xs')} title="Mettre la déclaration Géo'DAE à jour sur le portail avec la date Synchroteam">
-                            <ExternalLink className="h-3.5 w-3.5" />À saisir sur le portail : {fmtDate(r.synchroteam_date)}
-                          </a>
+                          <span className="inline-flex items-center gap-1">
+                            <Button variant="soft" size="xs" icon={Upload} onClick={() => setWrites((p) => ({ ...p, [key]: { status: 'confirm', target: 'geodae' } }))} title="Écrire la date de dernière intervention Synchroteam dans la fiche Géo'DAE (champ « date de dernière maintenance »), après confirmation">
+                              Mettre à jour Géo&apos;DAE
+                            </Button>
+                            <a href={geodaeSheetUrl(r.geo_dae_id)} target="_blank" rel="noopener noreferrer" className={buttonClass('ghost', 'xs')} title="Ouvrir la fiche sur le portail Géo'DAE">
+                              <ExternalLink className="h-3.5 w-3.5" />Fiche
+                            </a>
+                          </span>
                         )}
                         {!w && !canWrite && s !== 'synchroteam_recent' && <span className="text-border-strong">—</span>}
                       </td>

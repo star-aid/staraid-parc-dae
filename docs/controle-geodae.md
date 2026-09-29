@@ -110,9 +110,14 @@ au rôle service : les privilèges par défaut du projet n'en donnent aucun.
    Synchroteam sans date. Quand Géo'DAE est plus récent ou que Synchroteam n'a pas de date, un bouton écrit
    la date Géo'DAE dans le champ personnalisé « Date dernière Maintenance » de l'équipement Synchroteam
    (`writeMaintenanceDate`, mêmes garde-fous que l'identifiant, jamais de recul de date, format dd/mm/yyyy),
-   trace dans `geodae_writebacks` (migration 014). Quand Synchroteam est plus récent, la mise à jour de
-   Géo'DAE reste manuelle sur le portail (lien fourni) : l'API annonce PATCH mais son contrat n'est pas
-   documenté, à valider sur un DAE avec accord. Le champ interne `last_maintenance_field` (à mapper dans
+   trace dans `geodae_writebacks` (migration 014). Quand Synchroteam est plus récent, le bouton « Mettre à jour
+   Géo'DAE » écrit la date de dernière intervention dans le champ `dermnt` de la fiche Géo'DAE par l'API PRODIGE
+   du catalogue Atlasanté (PATCH /api/data/{uuid}/gid, corps GeoJSON, documentation sur
+   https://catalogue.atlasante.fr/api/doc) : `lib/geodae/geodae-write.ts`, fiche relue avant et après,
+   SIREN vérifié, jamais de recul de date, tout autre champ modifié est signalé, trace `field = geodae_dermnt`.
+   C'est la première écriture de l'application vers Géo'DAE ; le premier essai est fait par l'équipe STAR aid
+   depuis l'interface, sur une fiche, avec vérification sur le portail (droits du compte et état de validation
+   de la fiche à confirmer à cette occasion). Le champ interne `last_maintenance_field` (à mapper dans
    /admin/field-mapping puis synchroniser) permet d'afficher la valeur actuelle du champ Synchroteam.
    Module `lib/geodae/maintenance.ts`, route `app/api/geodae/maintenance`, composant `MaintenancePanel.tsx`.
 
@@ -178,7 +183,7 @@ au rôle service : les privilèges par défaut du projet n'en donnent aucun.
 
 - **Report automatique** des correspondances uniques par le cron, quand la confiance sera
   acquise (aujourd'hui volontairement manuel).
-- **Mise à jour de Géo'DAE par l'API** (date de maintenance) : tester PATCH sur un DAE avec accord.
+- **Premier essai d'écriture dans Géo'DAE** (bouton « Mettre à jour Géo'DAE ») par l'équipe, sur une fiche.
 - **Alerte par e-mail** sur les anomalies ouvertes, si le compteur du menu ne suffit pas.
 - **Compte API Géo'DAE** : le compte configuré (STAR MAINTENANCE, SIREN 908037971) ne voit que
   les DAE qu'il a lui-même déclarés (30 le 28/09/2026), pas le parc du SIREN principal

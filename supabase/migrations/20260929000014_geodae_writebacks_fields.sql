@@ -18,6 +18,6 @@ ALTER TABLE geodae_writebacks ALTER COLUMN geodae_gid DROP NOT NULL;
 
 ALTER TABLE geodae_writebacks
   DROP CONSTRAINT IF EXISTS geodae_writebacks_field_check,
-  ADD CONSTRAINT geodae_writebacks_field_check CHECK (field IN ('geo_dae_id', 'last_maintenance_field'));
+  ADD CONSTRAINT geodae_writebacks_field_check CHECK (field IN ('geo_dae_id', 'last_maintenance_field', 'geodae_dermnt'));
 
 CREATE INDEX IF NOT EXISTS idx_geodae_writebacks_field ON geodae_writebacks(field, written_at DESC);

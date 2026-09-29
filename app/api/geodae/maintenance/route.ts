@@ -3,7 +3,8 @@ import { authorizeGeodae } from '@/lib/geodae/route-auth'
 import { loadDbMappings } from '@/lib/geodae/mappings'
 import { compareMaintenance, invalidateMaintenanceCache } from '@/lib/geodae/maintenance'
 import { writeMaintenanceDate } from '@/lib/geodae/writeback'
-import { recordMaintenanceWriteback } from '@/lib/geodae/journal'
+import { writeGeodaeMaintenanceDate } from '@/lib/geodae/geodae-write'
+import { recordGeodaeWriteback, recordMaintenanceWriteback } from '@/lib/geodae/journal'
 import { maintenanceToCsv, type MaintenanceWriteRequest } from '@/lib/geodae/types'
 
 export const dynamic = 'force-dynamic'
@@ -42,21 +43,52 @@ export async function GET(req: NextRequest) {
 /**
  * POST /api/geodae/maintenance
  * Corps : { account, synchroteam_id, serial_number, date, dryRun? }
- * Écrit la date de dernière maintenance (yyyy-mm-dd) dans le champ personnalisé
- * « Date dernière maintenance » de l'équipement Synchroteam, après validation
- * par l'utilisateur, puis trace le report (migration 014).
+ *   → écrit la date (yyyy-mm-dd) dans le champ personnalisé « Date dernière
+ *     maintenance » de l'équipement Synchroteam, après validation par l'utilisateur.
+ * Corps : { target: 'geodae', gid, date, account?, synchroteam_id?, serial_number? }
+ *   → écrit la date dans le champ dermnt de la fiche Géo'DAE (API PRODIGE, PATCH).
+ * Chaque écriture est tracée (migration 014).
  */
 export async function POST(req: NextRequest) {
   const auth = await authorizeGeodae()
   if (!auth.ok) return auth.res
 
-  let body: Partial<MaintenanceWriteRequest> & { dryRun?: boolean }
+  let body: Partial<MaintenanceWriteRequest> & { dryRun?: boolean; target?: string; gid?: string }
   try {
     body = (await req.json()) as typeof body
   } catch {
     return NextResponse.json({ error: 'Corps JSON invalide' }, { status: 400 })
   }
 
+  // ── Écriture dans Géo'DAE ─────────────────────────────────────────────────
+  if (body.target === 'geodae') {
+    const gid = typeof body.gid === 'string' ? body.gid.trim() : ''
+    const validGeodae =
+      /^\d{1,12}$/.test(gid) &&
+      typeof body.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.date) &&
+      (body.account == null || ACCOUNTS.includes(body.account)) &&
+      (body.synchroteam_id == null || (typeof body.synchroteam_id === 'string' && body.synchroteam_id.length <= 64)) &&
+      (body.serial_number == null || (typeof body.serial_number === 'string' && body.serial_number.length <= 128))
+    if (!validGeodae) return NextResponse.json({ error: 'Paramètres invalides' }, { status: 400 })
+    try {
+      const result = await writeGeodaeMaintenanceDate(gid, body.date as string)
+      const journal = await recordGeodaeWriteback({
+        gid,
+        date: body.date as string,
+        account: (body.account as MaintenanceWriteRequest['account'] | undefined) ?? null,
+        synchroteam_id: (body.synchroteam_id as string | undefined) ?? null,
+        serial_number: (body.serial_number as string | null | undefined) ?? null,
+        result,
+        writtenBy: auth.who,
+      })
+      if (result.ok) invalidateMaintenanceCache()
+      return NextResponse.json({ ...result, journal }, { status: result.ok ? 200 : 409 })
+    } catch (err) {
+      return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 })
+    }
+  }
+
+  // ── Écriture dans Synchroteam ─────────────────────────────────────────────
   const valid =
     typeof body.account === 'string' && ACCOUNTS.includes(body.account) &&
     typeof body.synchroteam_id === 'string' && body.synchroteam_id.length > 0 && body.synchroteam_id.length <= 64 &&
