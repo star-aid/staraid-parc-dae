@@ -49,6 +49,7 @@ Décisions prises :
 | `20260928000010_geodae_grants.sql` | Droits du rôle service sur ces tables |
 | `20260928000011_geodae_writebacks.sql` | `geodae_writebacks` : trace de chaque report (qui, quand, valeur précédente, résultat) |
 | `20260928000012_geodae_lookups.sql` | `geodae_lookups` : dernier résultat de recherche par DAE (statut, candidats, date et auteur du contrôle, date de report) |
+| `20260929000014_geodae_writebacks_fields.sql` | `geodae_writebacks` : colonnes `field` et `value`, `geodae_gid` facultatif : la même table trace les reports de date de maintenance |
 
 Colonne utilisée dans la table existante `defibrillators` : `geo_dae_id` (migration 005).
 Un report réussi la met à jour aussitôt, sans attendre la synchronisation.
@@ -102,6 +103,18 @@ au rôle service : les privilèges par défaut du projet n'en donnent aucun.
    renseigné, écriture partielle (`POST /Api/v3/equipment/send`, seuls les champs fournis
    changent), relecture de contrôle, trace dans `geodae_writebacks`, clôture des anomalies,
    mise à jour de la copie locale.
+8. **Maintenance** (onglet, 29/09/2026) : pour chaque DAE en location apparié, la dernière intervention
+   terminée de Synchroteam (copie Supabase) est comparée à la date de maintenance déclarée dans Géo'DAE
+   (open data, colonne c_dermnt, publiée pour toutes les fiches). Écart en jours, tolérance au choix (7,
+   30 ou 90 jours), situations : identique, écart toléré, Synchroteam plus récent, Géo'DAE plus récent,
+   Synchroteam sans date. Quand Géo'DAE est plus récent ou que Synchroteam n'a pas de date, un bouton écrit
+   la date Géo'DAE dans le champ personnalisé « Date dernière Maintenance » de l'équipement Synchroteam
+   (`writeMaintenanceDate`, mêmes garde-fous que l'identifiant, jamais de recul de date, format dd/mm/yyyy),
+   trace dans `geodae_writebacks` (migration 014). Quand Synchroteam est plus récent, la mise à jour de
+   Géo'DAE reste manuelle sur le portail (lien fourni) : l'API annonce PATCH mais son contrat n'est pas
+   documenté, à valider sur un DAE avec accord. Le champ interne `last_maintenance_field` (à mapper dans
+   /admin/field-mapping puis synchroniser) permet d'afficher la valeur actuelle du champ Synchroteam.
+   Module `lib/geodae/maintenance.ts`, route `app/api/geodae/maintenance`, composant `MaintenancePanel.tsx`.
 
 ## 5. Conventions à connaître
 
@@ -163,6 +176,7 @@ au rôle service : les privilèges par défaut du projet n'en donnent aucun.
 
 - **Report automatique** des correspondances uniques par le cron, quand la confiance sera
   acquise (aujourd'hui volontairement manuel).
+- **Mise à jour de Géo'DAE par l'API** (date de maintenance) : tester PATCH sur un DAE avec accord.
 - **Alerte par e-mail** sur les anomalies ouvertes, si le compteur du menu ne suffit pas.
 - **Compte API Géo'DAE** : le compte configuré (STAR MAINTENANCE, SIREN 908037971) ne voit que
   les DAE qu'il a lui-même déclarés (30 le 28/09/2026), pas le parc du SIREN principal

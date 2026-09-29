@@ -9,7 +9,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase'
 import { markLookupReported, saveLookups } from '@/lib/geodae/lookups'
 import type {
-  AnomalyRow, AnomalyType, JournalItem, JournalRun, JournalSummary, WritebackRequest, WritebackResult, WritebackRow,
+  AnomalyRow, AnomalyType, JournalItem, JournalRun, JournalSummary, MaintenanceWriteRequest, MaintenanceWriteResult, WritebackRequest, WritebackResult, WritebackRow,
 } from '@/lib/geodae/types'
 import type { TerritoryCode } from '@/types'
 
@@ -321,4 +321,39 @@ export async function getJournalSummary(): Promise<JournalSummary> {
     writebacks_total,
     ...(writebacks_reason ? { writebacks_reason } : {}),
   }
+}
+
+// ─── Trace d'un report de date de maintenance (migration 014) ────────────────
+
+const MAINTENANCE_WRITEBACK_HINT =
+  'Trace du report non enregistrée : appliquer la migration supabase/migrations/20260929000014_geodae_writebacks_fields.sql (npm run db:push).'
+
+export async function recordMaintenanceWriteback(params: {
+  request: MaintenanceWriteRequest
+  result: MaintenanceWriteResult
+  writtenBy: string | null
+}): Promise<{ persisted: boolean; reason?: string }> {
+  const { request, result, writtenBy } = params
+  const supabase = createServiceClient()
+  const localKey = `${ID_PREFIX[request.account] ?? ''}${request.synchroteam_id}`
+  const localId = (await resolveDefibrillatorIds(supabase, [request])).get(localKey) ?? null
+
+  const { error } = await supabase.from('geodae_writebacks').insert({
+    account: request.account,
+    synchroteam_id: request.synchroteam_id,
+    defibrillator_id: localId,
+    serial_number: request.serial_number,
+    geodae_gid: null,
+    field: 'last_maintenance_field',
+    value: request.date,
+    previous_value: result.ok ? result.previous_value : null,
+    status: result.ok ? 'ok' : 'erreur',
+    verified: result.ok ? result.verified : false,
+    error: result.ok ? null : result.error,
+    written_by: writtenBy,
+    written_at: new Date().toISOString(),
+  })
+  // Colonnes absentes ou geodae_gid encore obligatoire : la migration 014 n'est pas appliquée
+  if (error) return { persisted: false, reason: unavailableReason(error, WRITEBACK_HINTS) ?? `${MAINTENANCE_WRITEBACK_HINT} (${error.message})` }
+  return { persisted: true }
 }

@@ -17,7 +17,7 @@ import { createSynchroteamClient, extractCustomFields, type SynchroteamClient } 
 import { buildAccounts } from '@/lib/sync-territory-route'
 import { resolveMappings } from '@/lib/geodae/extract-synchroteam'
 import type { CustomFieldMapping, TerritoryCode } from '@/types'
-import type { WritebackRequest, WritebackResult } from '@/lib/geodae/types'
+import type { MaintenanceWriteRequest, MaintenanceWriteResult, WritebackRequest, WritebackResult } from '@/lib/geodae/types'
 
 /** Forme attendue d'un identifiant Géo'DAE (gid) : entier, éventuellement préfixé */
 const GID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
@@ -120,4 +120,92 @@ export async function writeGeoDaeId(
     verified = false
   }
   return { ok: true, gid, previous_value: currentGid, verified }
+}
+
+// ─── Date de dernière maintenance ────────────────────────────────────────────
+// Deuxième écriture vers Synchroteam (décision du 29/09/2026, comparaison des
+// dates Synchroteam ↔ Géo'DAE) : le champ personnalisé « Date dernière
+// maintenance » reçoit la date déclarée dans Géo'DAE quand elle est plus récente
+// ou que Synchroteam n'en a pas. Mêmes garde-fous que l'identifiant ; en plus,
+// une date déjà présente et au moins aussi récente n'est jamais reculée.
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+
+/** Format des dates saisies dans les champs personnalisés Synchroteam (dd/mm/yyyy) */
+function toSynchroteamDate(iso: string): string {
+  const [y, m, d] = iso.split('-')
+  return `${d}/${m}/${y}`
+}
+
+function isoFromField(val: unknown): string | null {
+  const raw = str(val)
+  if (!raw) return null
+  const fr = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(raw)
+  const d = new Date(fr ? `${fr[3]}-${fr[2]}-${fr[1]}` : raw)
+  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10)
+}
+
+export async function writeMaintenanceDate(
+  req: MaintenanceWriteRequest,
+  dbMappings: CustomFieldMapping[],
+  opts: { dryRun?: boolean } = {}
+): Promise<MaintenanceWriteResult> {
+  const date = req.date.trim()
+  if (!ISO_DATE.test(date) || Number.isNaN(new Date(date).getTime())) return { ok: false, error: 'date invalide (attendu yyyy-mm-dd)' }
+  if (date > new Date().toISOString().slice(0, 10)) return { ok: false, error: 'date dans le futur : report refusé' }
+
+  const acc = buildAccounts(req.account)
+  if (!acc) return { ok: false, error: `compte Synchroteam ${req.account} non configuré` }
+  const client = createSynchroteamClient(acc.domain, acc.key)
+
+  // 1. Champ cible : « Date dernière maintenance », résolu par le mapping du compte
+  let mappings: CustomFieldMapping[]
+  try {
+    mappings = await mappingsFor(req.account, client, dbMappings)
+  } catch (err) {
+    return { ok: false, error: `mapping des champs personnalisés indisponible : ${errMsg(err)}` }
+  }
+  const field = mappings.find((m) => m.internal_field === 'last_maintenance_field')
+  if (!field) return { ok: false, error: `champ « Date dernière maintenance » non résolu sur le compte ${req.account} (voir /admin/field-mapping)` }
+
+  // 2. Relecture de l'équipement juste avant l'écriture
+  let equipment: Record<string, unknown>
+  try {
+    equipment = await client.fetchEquipmentDetails(req.synchroteam_id)
+  } catch (err) {
+    return { ok: false, error: `lecture de l'équipement impossible : ${errMsg(err)}` }
+  }
+  const before = extractCustomFields(equipment, mappings)
+  const currentSerial = str(before.serial_number)
+  if (req.serial_number && currentSerial !== req.serial_number) {
+    return { ok: false, error: `n° de série différent dans Synchroteam (${currentSerial ?? 'absent'} au lieu de ${req.serial_number}) : report refusé` }
+  }
+  // 3. Jamais de recul : une date déjà présente et au moins aussi récente est conservée
+  const previous = str(before.last_maintenance_field)
+  const previousIso = isoFromField(previous)
+  if (previousIso && previousIso >= date) {
+    return { ok: true, date, previous_value: previous, verified: true, already_set: true }
+  }
+
+  const payload = {
+    id: equipment.id ?? req.synchroteam_id,
+    customFieldValues: [{ id: field.synchroteam_field_id, label: field.synchroteam_label, value: toSynchroteamDate(date) }],
+  }
+  if (opts.dryRun) return { ok: true, date, previous_value: previous, verified: false, dry_run: true, payload }
+
+  try {
+    await client.sendEquipment(payload)
+  } catch (err) {
+    return { ok: false, error: `écriture Synchroteam refusée : ${errMsg(err)}` }
+  }
+
+  // 4. Relecture de contrôle (non bloquante)
+  let verified = false
+  try {
+    const after = extractCustomFields(await client.fetchEquipmentDetails(req.synchroteam_id), mappings)
+    verified = isoFromField(after.last_maintenance_field) === date
+  } catch {
+    verified = false
+  }
+  return { ok: true, date, previous_value: previous, verified }
 }

@@ -26,19 +26,27 @@ export function parseContratParam(
     .filter((g): g is ContratGroup => g === 'location' || g === 'maintenance' || g === 'autre')
 }
 
+/** Valeur du paramètre autreTypes quand aucun type n'est coché (une liste vide n'est pas représentable dans l'URL) */
+export const AUCUN_AUTRE_TYPE = 'aucun'
+
+/** Valeur de contrat impossible : filtre qui ne retient aucun DAE (groupe « Autres » sans aucun type coché) */
+const IMPOSSIBLE_CONTRACT = '__aucun__'
+
 // Parse ?autreTypes=PDC - Passage Annuel|__sans_contrat__
-// Retourne null si tout est sélectionné (pas de param = tous), tableau sinon
+// Retourne null si tout est sélectionné (pas de param = tous), [] si aucun type
+// n'est coché (?autreTypes=aucun), tableau sinon
 export function parseAutreTypesParam(
   param: string | undefined
 ): string[] | null {
   if (!param) return null
+  if (param === AUCUN_AUTRE_TYPE) return []
   return param.split('|').filter(Boolean)
 }
 
-// Vrai si aucun filtre actif → afficher tout
+// Vrai si aucun filtre actif → afficher tout (une liste vide de types « Autres » est un filtre)
 export function isAllSelected(groups: ContratGroup[], autreTypesSelected?: string[] | null): boolean {
   const groupsAll = groups.length === 0 || groups.length === ALL_GROUPS.length
-  return groupsAll && !autreTypesSelected?.length
+  return groupsAll && autreTypesSelected == null
 }
 
 // Échappe une valeur pour PostgREST in.() — entoure de guillemets si elle contient des caractères spéciaux
@@ -83,15 +91,17 @@ export function buildContratOrFilter(
         parts.push(`contract_type.is.null`)
         parts.push(`contract_type.in.(${sansVals})`)
       }
-    } else {
+    } else if (autreTypesSelected == null) {
       // Tous les AUTRES : NOT IN (location + maintenance) OU NULL
       const excludeVals = [...LOCATION_TYPES, ...MAINTENANCE_TYPES].map(pgEscape).join(',')
       parts.push(`contract_type.not.in.(${excludeVals})`)
       parts.push('contract_type.is.null')
     }
+    // Liste vide ([]) : le groupe Autres ne retient aucun DAE
   }
 
-  if (parts.length === 0) return null
+  // Seul « Autres » sélectionné, sans aucun type coché : rien ne doit passer
+  if (parts.length === 0) return groups.includes('autre') ? `contract_type.eq.${IMPOSSIBLE_CONTRACT}` : null
   return parts.join(',')
 }
 
@@ -124,13 +134,17 @@ export function buildContratSqlParams(
         includeNull = true
         inVals.push(...SANS_CONTRAT_STRINGS)
       }
-    } else {
+    } else if (autreTypesSelected == null) {
       // Tous les AUTRES : tout sauf Location et Maintenance, NULL compris
       notIn = [...LOCATION_TYPES, ...MAINTENANCE_TYPES]
       includeNull = true
     }
+    // Liste vide ([]) : le groupe Autres ne retient aucun DAE
   }
 
-  if (inVals.length === 0 && !notIn && !includeNull) return null
+  // Seul « Autres » sélectionné, sans aucun type coché : un filtre qui ne retient rien
+  if (inVals.length === 0 && !notIn && !includeNull) {
+    return groups.includes('autre') ? { contract_in: [IMPOSSIBLE_CONTRACT], contract_not_in: null, contract_null: false } : null
+  }
   return { contract_in: inVals.length > 0 ? inVals : null, contract_not_in: notIn, contract_null: includeNull }
 }

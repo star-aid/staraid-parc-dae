@@ -18,6 +18,8 @@ export const INTERNAL_FIELDS = [
   { value: 'contract_type',         label: 'Type de contrat',                       type: 'text' as const },
   { value: 'contract_start',        label: 'Date de livraison',                     type: 'date' as const },
   { value: 'contract_end',          label: 'Date de fin de contrat',                type: 'date' as const },
+  // Maintenance : champ saisi sur la fiche (distinct de la dernière intervention calculée)
+  { value: 'last_maintenance_field', label: 'Date dernière maintenance (champ Synchroteam)', type: 'date' as const },
   // Équipement annexe
   { value: 'kit_rcp',               label: 'Kit RCP Complet',                       type: 'text' as const },
   { value: 'loan_serial_number',    label: 'N° de série appareil de prêt',          type: 'text' as const },
@@ -42,6 +44,10 @@ export const HEURISTICS: Array<{
     internal: 'electrodes_adult_expiry', type: 'date' },
   { keywords: ['dlu électrodes pédiatriques', 'péremption des électrodes pédiat', 'électrodes pédiat'],
     internal: 'electrodes_pediatric_expiry', type: 'date' },
+
+  // --- Maintenance ---
+  { keywords: ['date dernière maintenance', 'date derniere maintenance', 'dernière maintenance', 'derniere maintenance'],
+    internal: 'last_maintenance_field', type: 'date' },
 
   // --- Identification ---
   { keywords: ["n° de série du défibrillateur", 'numéro de série du défibrillateur'],
