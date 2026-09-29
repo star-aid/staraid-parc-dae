@@ -166,8 +166,10 @@ au rôle service : les privilèges par défaut du projet n'en donnent aucun.
 - **Crons** : `vercel.json` planifie `/api/sync/reu` (06:00 UTC) et `/api/geodae/cron` (07:00 UTC).
   En plan Vercel gratuit c'est le maximum (deux crons, quotidiens). Pour couvrir les trois
   territoires, remplacer la cible de synchro par `/api/sync/trigger` (GET), qui déclenche les
-  trois synchros ; ajouter d'abord le contrôle du secret (`Authorization: Bearer CRON_SECRET`)
-  sur ce GET, absent aujourd'hui. `CRON_SECRET` doit exister sur Vercel (déjà utilisé par la synchro).
+  trois synchros ; ce GET exige le secret (`Authorization: Bearer CRON_SECRET`, envoyé par Vercel
+  quand la variable existe) depuis le 29/09/2026. `CRON_SECRET` doit exister sur Vercel. Les boutons
+  « Synchroniser » de l'interface n'en dépendent plus : la route lance la synchro directement, sans
+  relais HTTP, donc sans `NEXT_PUBLIC_APP_URL` ni secret en local.
 - **Variables Mayotte et Guadeloupe** (`SYNCHROTEAM_DOMAIN_MYT`, `SYNCHROTEAM_API_KEY_MYT`, `_GLP`) :
   présentes sur Vercel d'après les données du 7 septembre en base, à confirmer.
 - **Premier report réel** sur un seul DAE, vérification de la fiche Synchroteam, puis le lot.

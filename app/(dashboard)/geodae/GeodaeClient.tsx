@@ -925,16 +925,33 @@ export default function GeodaeClient() {
     const configured = result?.accounts.filter((a) => a.configured).map((a) => a.account) ?? []
     const keys = (configured.length > 0 ? configured : ['REU']).map((t) => t.toLowerCase())
     const errors: string[] = []
+    const started: string[] = []
     await Promise.all(keys.map(async (key) => {
       try {
         const res = await fetch(`/api/sync/trigger?territory=${key}`, { method: 'POST' })
-        const body = (await res.json().catch(() => null)) as { errors?: string[]; error?: string } | null
+        const body = (await res.json().catch(() => null)) as { status?: string; error?: string } | null
+        // 409 : une synchronisation est déjà en cours pour ce compte, on attend sa fin
+        if (res.status === 409) { started.push(key); return }
         if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`)
-        errors.push(...(body?.errors ?? []))
+        started.push(key)
       } catch (err) {
         errors.push(`[${key.toUpperCase()}] ${err instanceof Error ? err.message : String(err)}`)
       }
     }))
+    // La synchronisation tourne en tâche de fond côté serveur : on suit son état
+    // toutes les cinq secondes jusqu'à la fin (trois minutes au plus), puis on recharge.
+    const deadline = Date.now() + 3 * 60_000
+    while (started.length > 0 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 5_000))
+      try {
+        const res = await fetch('/api/sync/status?territories=1', { cache: 'no-store' })
+        const data = (await res.json()) as Record<string, { status: string } | null>
+        if (started.every((k) => data[k] && data[k]?.status !== 'running')) {
+          for (const k of started) if (data[k]?.status === 'error') errors.push(`[${k.toUpperCase()}] synchronisation en échec (voir la barre latérale)`)
+          break
+        }
+      } catch { /* on réessaie au tour suivant */ }
+    }
     setSyncing(false)
     if (errors.length > 0) {
       setSyncMsg(`Synchronisation terminée avec ${errors.length} erreur${errors.length > 1 ? 's' : ''} : ${errors.slice(0, 3).join(' · ')}`)
