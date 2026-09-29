@@ -513,27 +513,43 @@ function AnomaliesPanel({ journal, loading, onRefresh, onReconcile, reconciling,
                 </thead>
                 <tbody className={tbodyClass}>
                   {shown.map((a) => {
-                    const d = (a.details ?? {}) as { reason?: string; presence?: string }
+                    const d = (a.details ?? {}) as { reason?: string; presence?: string; hint?: string; geodae_serial?: string; geodae?: { nom?: string | null } }
                     const detail = [d.reason, d.presence].filter(Boolean).join(' · ')
+                    // Pour un identifiant divergent, le n° de série et le nom déclarés côté Géo'DAE
+                    // sont l'essentiel : sans eux, deux identifiants identiques ressemblent à un faux positif
+                    const geodaeSerial = d.geodae_serial && d.geodae_serial !== (a.serial_number ?? '').toUpperCase() ? d.geodae_serial : null
+                    const geodaeName = d.geodae?.nom ?? null
                     const editing = resolving?.id === a.id
                     return (
                       <tr key={a.id} className={trClass}>
-                        <td className={tdClass}>
+                        <td className={cx(tdClass, 'w-px whitespace-nowrap')}>
                           <Tag tone={ANOMALY_TONE[a.type] ?? 'neutral'}>{ANOMALY_LABELS[a.type] ?? a.type}</Tag>
                         </td>
-                        <td className={cx(tdClass, 'text-caption text-fg-secondary')}>{a.account ?? '—'}</td>
-                        <td className={cx(tdClass, 'font-mono text-caption text-fg')}>{a.serial_number ?? '—'}</td>
-                        <td className={tdClass}>{a.synchroteam_geo_dae_id ? <GidLink gid={a.synchroteam_geo_dae_id} /> : <span className="text-border-strong">—</span>}</td>
-                        <td className={tdClass}>{a.geodae_gid ? <GidLink gid={a.geodae_gid} /> : <span className="text-border-strong">—</span>}</td>
-                        <td className={cx(tdClass, 'max-w-[280px] truncate text-caption text-fg-muted')} title={detail || undefined}>{detail || '—'}</td>
-                        <td className={cx(tdClass, 'text-caption text-fg-muted tabular-nums')}>{fmtDate(a.first_seen_at)}</td>
-                        <td className={cx(tdClass, 'text-caption text-fg-muted tabular-nums')}>{fmtDate(a.last_seen_at)}</td>
-                        <td className={cx(tdClass, 'text-caption')}>
+                        <td className={cx(tdClass, 'w-px whitespace-nowrap text-caption text-fg-secondary')}>{a.account ?? '—'}</td>
+                        <td className={cx(tdClass, 'w-px whitespace-nowrap font-mono text-caption text-fg')}>
+                          <span className="block max-w-[110px] truncate" title={a.serial_number ?? undefined}>{a.serial_number ?? '—'}</span>
+                        </td>
+                        <td className={cx(tdClass, 'w-px whitespace-nowrap')}>{a.synchroteam_geo_dae_id ? <GidLink gid={a.synchroteam_geo_dae_id} /> : <span className="text-border-strong">—</span>}</td>
+                        <td className={cx(tdClass, 'w-px whitespace-nowrap')}>{a.geodae_gid ? <GidLink gid={a.geodae_gid} /> : <span className="text-border-strong">—</span>}</td>
+                        <td className={cx(tdClass, 'min-w-[240px] whitespace-normal text-caption leading-snug text-fg-muted')}>
+                          {detail || '—'}
+                          {(geodaeSerial || geodaeName) && (
+                            <div className="mt-0.5 text-label text-fg-faint">
+                              {geodaeSerial && <span className="font-mono font-semibold text-warning" title="Numéro de série lu dans la déclaration Géo'DAE">N° déclaré : {geodaeSerial}</span>}
+                              {geodaeSerial && geodaeName && ' · '}
+                              {geodaeName && <span title={geodaeName}>Fiche : {geodaeName}</span>}
+                            </div>
+                          )}
+                          {d.hint && <div className="mt-0.5 text-label text-info">{d.hint}</div>}
+                        </td>
+                        <td className={cx(tdClass, 'w-px whitespace-nowrap text-caption text-fg-muted tabular-nums')}>{fmtDate(a.first_seen_at)}</td>
+                        <td className={cx(tdClass, 'w-px whitespace-nowrap text-caption text-fg-muted tabular-nums')}>{fmtDate(a.last_seen_at)}</td>
+                        <td className={cx(tdClass, 'w-px whitespace-nowrap text-caption')}>
                           {a.defibrillator_id
                             ? <Link prefetch={false} href={`/parc/${a.defibrillator_id}`} className="font-medium text-brand hover:underline">Voir</Link>
                             : <span className="text-border-strong">—</span>}
                         </td>
-                        <td className={cx(tdClass, 'text-caption')}>
+                        <td className={cx(tdClass, 'w-px whitespace-nowrap text-caption')}>
                           {editing ? (
                             <span className="flex items-center gap-1">
                               <input
