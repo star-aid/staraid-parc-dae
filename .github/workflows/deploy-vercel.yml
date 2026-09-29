@@ -1,0 +1,28 @@
+# Déploiement production Vercel à chaque push sur main.
+#
+# Vercel ne déploie que les commits dont l'auteur a accès au projet. Ce workflow
+# contourne la règle en appelant le Deploy Hook du projet (créé par le
+# propriétaire du projet Vercel), rangé dans le secret VERCEL_DEPLOY_HOOK_URL
+# du dépôt (Settings > Secrets and variables > Actions). Sans secret, le
+# workflow ne fait rien et ne signale pas d'erreur.
+name: Déployer sur Vercel
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Appeler le Deploy Hook Vercel
+        env:
+          HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "Secret VERCEL_DEPLOY_HOOK_URL absent : aucun déploiement déclenché."
+            exit 0
+          fi
+          curl --fail --silent --show-error -X POST "$HOOK" > /dev/null
+          echo "Déploiement de main demandé à Vercel."
