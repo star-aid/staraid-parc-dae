@@ -126,6 +126,8 @@ export type WritebackResult =
       /** Mode simulation : charge utile qui aurait été envoyée */
       dry_run?: boolean
       payload?: unknown
+      /** Autres éléments de l'équipement modifiés par l'écriture, tags compris (attendu : aucun) */
+      collateral?: string[]
     }
   | { ok: false; error: string }
 
@@ -136,7 +138,11 @@ export interface WritebackRow {
   synchroteam_id: string
   defibrillator_id: string | null
   serial_number: string | null
-  geodae_gid: string
+  geodae_gid: string | null
+  /** Champ écrit (migration 014) : 'geo_dae_id' ou 'last_maintenance_field' ; absent avant la migration */
+  field?: string | null
+  /** Valeur écrite (migration 014) ; l'identifiant reste aussi dans geodae_gid */
+  value?: string | null
   previous_value: string | null
   status: 'ok' | 'erreur'
   verified: boolean
@@ -324,4 +330,87 @@ export function toCsv(rows: LocationDae[]): string {
     ].map(csvEscape).join(';'))
   }
   return '﻿' + lines.join('\n')
+}
+
+// ─── Comparaison des dates de maintenance Synchroteam ↔ Géo'DAE ──────────────
+
+export type MaintenanceSituation =
+  | 'identique'           // même date
+  | 'proche'              // écart inférieur ou égal à la tolérance
+  | 'synchroteam_recent'  // Synchroteam plus récent : Géo'DAE à mettre à jour
+  | 'geodae_recent'       // Géo'DAE plus récent : Synchroteam à mettre à jour
+  | 'synchroteam_vide'    // aucune intervention dans Synchroteam : à compléter
+  | 'geodae_vide'         // pas de date déclarée dans Géo'DAE
+  | 'aucune_date'
+
+export const MAINTENANCE_LABELS: Record<MaintenanceSituation, string> = {
+  identique:          'Identique',
+  proche:             'Écart toléré',
+  synchroteam_recent: 'Synchroteam plus récent',
+  geodae_recent:      "Géo'DAE plus récent",
+  synchroteam_vide:   'Synchroteam sans date',
+  geodae_vide:        "Géo'DAE sans date",
+  aucune_date:        'Aucune date',
+}
+
+export interface MaintenanceRow {
+  account: TerritoryCode
+  synchroteam_id: string
+  defibrillator_id: string
+  serial_number: string | null
+  geo_dae_id: string
+  customer_name: string | null
+  site_name: string | null
+  /** Dernière intervention terminée dans Synchroteam (copie Supabase), yyyy-mm-dd */
+  synchroteam_date: string | null
+  /** Valeur du champ « Date dernière maintenance » de la fiche Synchroteam, si mappé et synchronisé */
+  synchroteam_field_date: string | null
+  /** Date de dernière maintenance déclarée dans Géo'DAE (open data), yyyy-mm-dd */
+  geodae_date: string | null
+  geodae_name: string | null
+  /** Synchroteam moins Géo'DAE, en jours (positif = Synchroteam plus récent) */
+  gap_days: number | null
+}
+
+export interface MaintenanceResult {
+  extracted_at: string
+  /** Date de mise à jour la plus récente vue dans l'open data (fraîcheur de la source Géo'DAE) */
+  geodae_updated_at: string | null
+  field_mapped: boolean
+  totals: { location_with_gid: number; paired: number; unpaired: number }
+  rows: MaintenanceRow[]
+  warning: string | null
+}
+
+/** Situation d'un DAE pour une tolérance donnée (jours) : pure, utilisable côté client */
+export function maintenanceSituation(row: Pick<MaintenanceRow, 'synchroteam_date' | 'geodae_date' | 'gap_days'>, toleranceDays: number): MaintenanceSituation {
+  if (!row.synchroteam_date && !row.geodae_date) return 'aucune_date'
+  if (!row.synchroteam_date) return 'synchroteam_vide'
+  if (!row.geodae_date) return 'geodae_vide'
+  const gap = row.gap_days ?? 0
+  if (gap === 0) return 'identique'
+  if (Math.abs(gap) <= toleranceDays) return 'proche'
+  return gap > 0 ? 'synchroteam_recent' : 'geodae_recent'
+}
+
+export interface MaintenanceWriteRequest {
+  account: TerritoryCode
+  synchroteam_id: string
+  serial_number: string | null
+  /** Date à écrire dans le champ « Date dernière maintenance », yyyy-mm-dd */
+  date: string
+}
+
+export type MaintenanceWriteResult =
+  | { ok: true; date: string; previous_value: string | null; verified: boolean; already_set?: boolean; dry_run?: boolean; payload?: unknown; collateral?: string[] }
+  | { ok: false; error: string }
+
+export function maintenanceToCsv(rows: MaintenanceRow[], toleranceDays: number): string {
+  const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
+  const head = ['Compte', 'N° série', 'Identifiant Géo\'DAE', 'Client', 'Site', 'Dernière intervention Synchroteam', 'Champ Synchroteam', 'Date Géo\'DAE', 'Écart (jours)', 'Situation']
+  const lines = rows.map((r) => [
+    r.account, r.serial_number, r.geo_dae_id, r.customer_name, r.site_name, r.synchroteam_date, r.synchroteam_field_date, r.geodae_date, r.gap_days,
+    MAINTENANCE_LABELS[maintenanceSituation(r, toleranceDays)],
+  ].map(esc).join(';'))
+  return '﻿' + [head.map(esc).join(';'), ...lines].join('\n')
 }

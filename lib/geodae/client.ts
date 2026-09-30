@@ -15,8 +15,8 @@ import { GEODAE_DATASET_UUID, type GeodaeInventoryItem, type GidCandidate, type 
 
 const OPEN_DATA_RESOURCE = 'edb6a9e1-2f16-4bbf-99e7-c3eb6b90794c'
 const OPEN_DATA_URL = `https://tabular-api.data.gouv.fr/api/resources/${OPEN_DATA_RESOURCE}/data/`
-const CATALOGUE_URL = 'https://catalogue.atlasante.fr'
-const TIMEOUT_MS = 20_000
+export const CATALOGUE_URL = 'https://catalogue.atlasante.fr'
+export const TIMEOUT_MS = 20_000
 
 function str(v: unknown): string | null {
   if (v == null) return null
@@ -24,7 +24,7 @@ function str(v: unknown): string | null {
   return s === '' ? null : s
 }
 
-async function fetchJson(url: string, init: RequestInit = {}): Promise<{ status: number; body: unknown }> {
+export async function fetchJson(url: string, init: RequestInit = {}): Promise<{ status: number; body: unknown }> {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
   try {
@@ -128,7 +128,7 @@ export function isGeodaeApiConfigured(): boolean {
   return geodaeCredentials() !== null
 }
 
-async function geodaeToken(force = false): Promise<string> {
+export async function geodaeToken(force = false): Promise<string> {
   if (!force && cachedToken && cachedToken.expiresAt > Date.now()) return cachedToken.token
   const creds = geodaeCredentials()
   if (!creds) throw new Error('GEODAE_USERNAME / GEODAE_PASSWORD non configurés')

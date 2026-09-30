@@ -2,78 +2,77 @@ import { NextRequest, NextResponse } from 'next/server'
 import { waitUntil } from '@vercel/functions'
 import { createServiceClient } from '@/lib/supabase'
 import { createSessionClient } from '@/lib/supabase-server'
+import { createSynchroteamClient } from '@/lib/synchroteam'
+import { getSessionUser } from '@/lib/auth/session'
+import { syncTerritory, buildAccounts, claimSyncSlot } from '@/lib/sync-territory-route'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-const TERRITORY_ROUTES: Record<string, { path: string; label: string }> = {
-  reu: { path: '/api/sync/reu', label: 'La Réunion' },
-  myt: { path: '/api/sync/myt', label: 'Mayotte' },
-  glp: { path: '/api/sync/glp', label: 'Guadeloupe' },
+// Déclenchement des synchronisations Synchroteam → Supabase.
+//
+// La synchronisation est lancée ici directement (même logique que les routes
+// /api/sync/reu|myt|glp), sans passer par un appel HTTP vers ces routes :
+// l'ancien relais dépendait de CRON_SECRET et de NEXT_PUBLIC_APP_URL et, sans
+// ces variables, visait la production avec un secret vide (réponse
+// « Unauthorized », constatée le 29/09/2026 depuis un poste de développement).
+
+const TERRITORIES = {
+  reu: { code: 'REU', label: 'La Réunion' },
+  myt: { code: 'MYT', label: 'Mayotte' },
+  glp: { code: 'GLP', label: 'Guadeloupe' },
+} as const
+type TerritoryKey = keyof typeof TERRITORIES
+
+function isCronAuthorized(req: NextRequest): boolean {
+  const secret = process.env.CRON_SECRET
+  if (!secret) return false
+  return req.headers.get('x-cron-secret') === secret || req.headers.get('authorization') === `Bearer ${secret}`
 }
 
-const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://staraid-parc-dae.vercel.app'
-const secret  = process.env.CRON_SECRET ?? ''
+/** Lance la synchronisation d'un territoire en tâche de fond et répond aussitôt */
+async function startTerritorySync(key: TerritoryKey): Promise<{ status: number; body: Record<string, unknown> }> {
+  const t = TERRITORIES[key]
+  const acc = buildAccounts(t.code)
+  if (!acc) return { status: 500, body: { error: `Compte Synchroteam ${t.code} non configuré (SYNCHROTEAM_DOMAIN / API_KEY)`, territory: t.code } }
 
-// GET /api/sync/trigger — déclenche les 3 territoires en parallèle (usage cron interne)
-export async function GET() {
   const supabase = createServiceClient()
+  const slot = await claimSyncSlot(supabase, `synchroteam_${key}`)
+  if (!slot.claimed) {
+    return { status: 409, body: { status: 'already_running', territory: t.code, message: `Une synchronisation ${t.code} est déjà en cours depuis ${slot.alreadyRunningSince}` } }
+  }
+  const logId = slot.logId
 
-  const { data: logEntry } = await supabase
-    .from('sync_logs')
-    .insert({ source: 'synchroteam_trigger', status: 'running', started_at: new Date().toISOString() })
-    .select('id')
-    .single()
-  const logId: string | null = logEntry?.id ?? null
-
+  // waitUntil : la synchronisation continue après la réponse HTTP (limite de 60 s par fonction)
   waitUntil(
-    Promise.allSettled(
-      Object.values(TERRITORY_ROUTES).map(({ path, label }) =>
-        fetch(`${baseUrl}${path}`, { method: 'GET', headers: { 'x-cron-secret': secret } })
-          .then((res) => res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`)))
-          .then((body: { equipments?: number; clients?: number; sites?: number; interventions?: number; errors?: string[] }) => ({
-            label,
-            synced: (body.equipments ?? 0) + (body.clients ?? 0) + (body.sites ?? 0) + (body.interventions ?? 0),
-            errors: (body.errors ?? []).map((e) => `[${label}] ${e}`),
-          }))
-          .catch((err: unknown) => ({ label, synced: 0, errors: [`[${label}] ${String(err)}`] }))
-      )
-    ).then(async (results) => {
-      let totalSynced = 0
-      const allErrors: string[] = []
-      for (const r of results) {
-        if (r.status === 'fulfilled') {
-          totalSynced += r.value.synced
-          allErrors.push(...r.value.errors)
-        } else {
-          allErrors.push(String(r.reason))
-        }
-      }
-      const finalStatus = allErrors.length > 0 ? (totalSynced > 0 ? 'partial' : 'error') : 'success'
+    syncTerritory(supabase, createSynchroteamClient(acc.domain, acc.key), acc.idPrefix, acc.forcedTerritoryCode).then(async (result) => {
       if (logId) {
         await supabase.from('sync_logs').update({
-          status: finalStatus,
-          records_synced: totalSynced,
-          error_message: allErrors.length > 0 ? allErrors.slice(0, 10).join('\n') : null,
+          status: result.status,
+          records_synced: result.clients + result.sites + result.equipments + result.interventions,
+          error_message: result.errors.length > 0 ? result.errors.slice(0, 10).join('\n') : null,
           finished_at: new Date().toISOString(),
         }).eq('id', logId)
       }
     })
   )
 
-  return NextResponse.json({ status: 'started', logId, territories: Object.keys(TERRITORY_ROUTES) })
+  return { status: 200, body: { status: 'started', logId, territory: t.code } }
 }
 
-// POST /api/sync/trigger?territory=reu|myt|glp
-// Appelé depuis la sidebar (session utilisateur) — proxy vers la route territoire avec le secret serveur
+// GET /api/sync/trigger : les trois territoires en parallèle (usage cron), protégé par CRON_SECRET
+export async function GET(req: NextRequest) {
+  if (!isCronAuthorized(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const results = await Promise.all((Object.keys(TERRITORIES) as TerritoryKey[]).map((key) => startTerritorySync(key)))
+  return NextResponse.json({ status: 'started', territories: results.map((r) => r.body) })
+}
+
+// POST /api/sync/trigger?territory=reu|myt|glp : depuis l'interface, session administrateur ou maintenance
 export async function POST(req: NextRequest) {
-  // Vérifie que l'utilisateur est connecté
   try {
-    const supabase = await createSessionClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const user = await getSessionUser(await createSessionClient())
     if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 })
-    const role = user.user_metadata?.role as string | undefined
-    if (role !== 'administrateur' && role !== 'maintenance') {
+    if (user.role !== 'administrateur' && user.role !== 'maintenance') {
       return NextResponse.json({ error: 'Accès refusé' }, { status: 403 })
     }
   } catch {
@@ -81,18 +80,12 @@ export async function POST(req: NextRequest) {
   }
 
   const territory = req.nextUrl.searchParams.get('territory') ?? ''
-  const route = TERRITORY_ROUTES[territory]
-  if (!route) {
-    return NextResponse.json({ error: `Territoire inconnu: ${territory}` }, { status: 400 })
+  if (!(territory in TERRITORIES)) {
+    return NextResponse.json({ error: `Territoire inconnu : ${territory}` }, { status: 400 })
   }
-
   try {
-    const res = await fetch(`${baseUrl}${route.path}`, {
-      method: 'GET',
-      headers: { 'x-cron-secret': secret },
-    })
-    const body = await res.json()
-    return NextResponse.json(body, { status: res.status })
+    const { status, body } = await startTerritorySync(territory as TerritoryKey)
+    return NextResponse.json(body, { status })
   } catch (err) {
     return NextResponse.json({ status: 'error', error: String(err) }, { status: 500 })
   }

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import BackButton from '@/components/BackButton'
+import MaintenancePanel from './MaintenancePanel'
 import { pageParam, pickParam, useUrlState } from '@/lib/url-state'
 import { Download, ExternalLink, Loader2, RefreshCw, Search, ShieldCheck, Upload } from 'lucide-react'
 import {
@@ -32,7 +33,7 @@ type RowFilter = 'all' | 'sans_geo' | 'sans_serie'
 const PAGE_SIZE = 50
 
 // Valeurs admises dans l'URL (onglet, compte, filtre, type d'anomalie)
-const TABS = ['dae', 'anomalies', 'journal'] as const
+const TABS = ['dae', 'anomalies', 'maintenance', 'journal'] as const
 type Tab = typeof TABS[number]
 const ROW_FILTERS: readonly RowFilter[] = ['all', 'sans_geo', 'sans_serie']
 const ACCOUNT_PARAMS = ['all', 'REU', 'MYT', 'GLP'] as const
@@ -48,7 +49,7 @@ type LookupState =
 type WritebackState =
   | { status: 'confirm'; gid: string }
   | { status: 'writing'; gid: string }
-  | { status: 'done'; gid: string; verified: boolean }
+  | { status: 'done'; gid: string; verified: boolean; collateral?: string[] }
   | { status: 'error'; gid: string; message: string }
 
 /** Réponse de POST /api/geodae/writeback (succès, refus 409 ou erreur) */
@@ -57,6 +58,8 @@ type WritebackResponse = {
   verified?: boolean
   already_set?: boolean
   error?: string
+  /** Autres éléments de l'équipement modifiés par l'écriture, tags compris (attendu : aucun) */
+  collateral?: string[]
   journal?: { persisted: boolean; reason?: string; resolved: number }
 }
 
@@ -698,7 +701,7 @@ function HistoryPanel({ journal, loading, onRefresh }: {
                   <th className={thClass}>Date</th>
                   <th className={thClass}>Compte</th>
                   <th className={thClass}>N° série</th>
-                  <th className={thClass}>Identifiant écrit</th>
+                  <th className={thClass}>Valeur écrite</th>
                   <th className={thClass}>Par</th>
                   <th className={thClass}>Résultat</th>
                 </tr>
@@ -709,7 +712,15 @@ function HistoryPanel({ journal, loading, onRefresh }: {
                     <td className={cx(tdClass, 'text-caption text-fg-muted tabular-nums')}>{fmtDateTime(w.written_at)}</td>
                     <td className={cx(tdClass, 'text-caption text-fg-secondary')}>{w.account ?? '—'}</td>
                     <td className={cx(tdClass, 'font-mono text-caption text-fg')}>{w.serial_number ?? '—'}</td>
-                    <td className={tdClass}><GidLink gid={w.geodae_gid} /></td>
+                    <td className={cx(tdClass, 'whitespace-nowrap')}>
+                      {w.field === 'last_maintenance_field'
+                        ? <span className="text-caption">Date dernière maintenance (Synchroteam) : <span className="font-semibold text-fg tabular-nums">{w.value ? fmtDate(w.value) : '—'}</span></span>
+                        : w.field === 'geodae_dermnt'
+                          ? <span className="text-caption">Date de maintenance (Géo&apos;DAE {w.geodae_gid ? <GidLink gid={w.geodae_gid} /> : ''}) : <span className="font-semibold text-fg tabular-nums">{w.value ? fmtDate(w.value) : '—'}</span></span>
+                        : w.geodae_gid
+                          ? <><span className="text-label text-fg-faint">Identifiant </span><GidLink gid={w.geodae_gid} /></>
+                          : <span className="text-border-strong">—</span>}
+                    </td>
                     <td className={cx(tdClass, 'text-caption text-fg-secondary')}>{w.written_by ?? '—'}</td>
                     <td className={cx(tdClass, 'text-caption')}>
                       {w.status === 'ok'
@@ -826,6 +837,9 @@ export default function GeodaeClient() {
   // Rapprochement complet (point 3) lancé à la main
   const [reconciling, setReconciling] = useState(false)
 
+  // Pastille de l'onglet Maintenance : DAE dont une date est à reporter (connue après une première visite)
+  const [maintenanceActionable, setMaintenanceActionable] = useState<number | null>(null)
+
   // Journal des contrôles (tables de la migration 009)
   const [journal, setJournal] = useState<JournalSummary | null>(null)
   const [journalLoading, setJournalLoading] = useState(false)
@@ -915,16 +929,33 @@ export default function GeodaeClient() {
     const configured = result?.accounts.filter((a) => a.configured).map((a) => a.account) ?? []
     const keys = (configured.length > 0 ? configured : ['REU']).map((t) => t.toLowerCase())
     const errors: string[] = []
+    const started: string[] = []
     await Promise.all(keys.map(async (key) => {
       try {
         const res = await fetch(`/api/sync/trigger?territory=${key}`, { method: 'POST' })
-        const body = (await res.json().catch(() => null)) as { errors?: string[]; error?: string } | null
+        const body = (await res.json().catch(() => null)) as { status?: string; error?: string } | null
+        // 409 : une synchronisation est déjà en cours pour ce compte, on attend sa fin
+        if (res.status === 409) { started.push(key); return }
         if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`)
-        errors.push(...(body?.errors ?? []))
+        started.push(key)
       } catch (err) {
         errors.push(`[${key.toUpperCase()}] ${err instanceof Error ? err.message : String(err)}`)
       }
     }))
+    // La synchronisation tourne en tâche de fond côté serveur : on suit son état
+    // toutes les cinq secondes jusqu'à la fin (trois minutes au plus), puis on recharge.
+    const deadline = Date.now() + 3 * 60_000
+    while (started.length > 0 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 5_000))
+      try {
+        const res = await fetch('/api/sync/status?territories=1', { cache: 'no-store' })
+        const data = (await res.json()) as Record<string, { status: string } | null>
+        if (started.every((k) => data[k] && data[k]?.status !== 'running')) {
+          for (const k of started) if (data[k]?.status === 'error') errors.push(`[${k.toUpperCase()}] synchronisation en échec (voir la barre latérale)`)
+          break
+        }
+      } catch { /* on réessaie au tour suivant */ }
+    }
     setSyncing(false)
     if (errors.length > 0) {
       setSyncMsg(`Synchronisation terminée avec ${errors.length} erreur${errors.length > 1 ? 's' : ''} : ${errors.slice(0, 3).join(' · ')}`)
@@ -1118,7 +1149,7 @@ export default function GeodaeClient() {
       const body = (await res.json().catch(() => null)) as WritebackResponse | null
       if (!body) throw new Error(`HTTP ${res.status}`)
       if (!body.ok) throw new Error(body.error ?? `HTTP ${res.status}`)
-      setWritebacks((prev) => ({ ...prev, [key]: { status: 'done', gid, verified: body.verified === true } }))
+      setWritebacks((prev) => ({ ...prev, [key]: { status: 'done', gid, verified: body.verified === true, collateral: body.collateral } }))
       // La ligne rejoint les DAE « avec identifiant » et les compteurs suivent
       setResult((prev) => (prev ? applyWrittenGid(prev, row, gid) : prev))
       if (body.journal && !body.journal.persisted) setJournalMsg(body.journal.reason ?? 'Report non tracé dans le journal.')
@@ -1254,6 +1285,7 @@ export default function GeodaeClient() {
         items={[
           { value: 'dae', label: 'DAE en location', count: result?.totals.location_total ?? null },
           { value: 'anomalies', label: 'Anomalies', count: journal?.available ? journal.open_total : null, tone: 'warn' },
+          { value: 'maintenance', label: 'Maintenance', count: maintenanceActionable, tone: 'warn' },
           { value: 'journal', label: 'Historique' },
         ]}
       />
@@ -1417,6 +1449,8 @@ export default function GeodaeClient() {
                           {r.serial_number ?? <span className="font-sans font-medium text-danger">manquant</span>}
                         </td>
                         <td className={cx(tdClass, 'text-fg-secondary')}>
+                          {/* Largeur bornée : les résultats de recherche (candidats, boutons) se replient au lieu d'élargir la colonne */}
+                          <div className="max-w-[100px]">
                           {r.geo_dae_id
                             ? (
                               <span className="inline-flex flex-wrap items-center gap-1.5">
@@ -1425,6 +1459,11 @@ export default function GeodaeClient() {
                                   <Tag tone="success" title={wb.verified ? 'Valeur relue dans Synchroteam après l’écriture' : 'Écriture acceptée par Synchroteam, relecture non confirmée'}>
                                     Reporté dans Synchroteam
                                   </Tag>
+                                )}
+                                {wb?.status === 'done' && wb.collateral && wb.collateral.length > 0 && (
+                                  <span className="text-label text-danger" title={wb.collateral.join('\n')}>
+                                    {wb.collateral.length} autre{wb.collateral.length > 1 ? 's' : ''} élément{wb.collateral.length > 1 ? 's' : ''} modifié{wb.collateral.length > 1 ? 's' : ''} : vérifier la fiche
+                                  </span>
                                 )}
                               </span>
                             )
@@ -1441,6 +1480,7 @@ export default function GeodaeClient() {
                                 onWriteCancel={() => cancelWrite(r)}
                               />
                             )}
+                          </div>
                         </td>
                         <td className={cx(tdClass, 'max-w-[200px] truncate text-fg-secondary')} title={r.customer_name ?? undefined}>{r.customer_name ?? '—'}</td>
                         <td className={cx(tdClass, 'max-w-[200px] truncate text-fg-secondary')} title={r.site_name ?? undefined}>{r.site_name ?? '—'}</td>
@@ -1480,6 +1520,9 @@ export default function GeodaeClient() {
       )}
 
       {/* ── Onglet Historique ─────────────────────────────────────────────── */}
+      {/* ── Onglet Maintenance ────────────────────────────────────────────── */}
+      {tab === 'maintenance' && <MaintenancePanel onActionable={setMaintenanceActionable} />}
+
       {tab === 'journal' && (
         <HistoryPanel journal={journal} loading={journalLoading} onRefresh={loadJournal} />
       )}

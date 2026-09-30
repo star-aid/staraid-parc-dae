@@ -5,6 +5,7 @@ import {
   type ContratGroup,
   type AutreType,
   ALL_GROUPS,
+  AUCUN_AUTRE_TYPE,
   LOCATION_TYPES,
   MAINTENANCE_TYPES,
   SANS_CONTRAT_SENTINEL,
@@ -86,13 +87,20 @@ export default function ContratFilterBar({ autreTypes }: Props) {
     }
   }
 
+  // Retire le groupe AUTRES, y compris depuis l'état « tout sélectionné »
+  function removeAutre() {
+    const rest = (showAll ? [...ALL_GROUPS] : activeGroups).filter((g) => g !== 'autre') as ContratGroup[]
+    navigate(rest)
+    setShowMenu(false)
+  }
+
   // Toggle un sous-type dans le menu AUTRES
   function toggleAutreType(type: string) {
     const allTypeValues = autreTypes.map((a) => a.type)
     // current = la sélection en cours (null = tous)
     const current = autreTypesSelected ? [...autreTypesSelected] : [...allTypeValues]
     const next = current.includes(type) ? current.filter((t) => t !== type) : [...current, type]
-    const param = next.length === allTypeValues.length ? null : next.join('|')
+    const param = next.length === allTypeValues.length ? null : next.length === 0 ? AUCUN_AUTRE_TYPE : next.join('|')
     const groups: ContratGroup[] = activeGroups.includes('autre') ? activeGroups : [...activeGroups, 'autre']
     navigate(groups, param)
   }
@@ -100,7 +108,7 @@ export default function ContratFilterBar({ autreTypes }: Props) {
   // Tout sélectionner / tout désélectionner dans AUTRES
   function toggleAllAutreTypes(selectAll: boolean) {
     const groups: ContratGroup[] = activeGroups.includes('autre') ? activeGroups : [...activeGroups, 'autre']
-    navigate(groups, selectAll ? null : autreTypes.map((a) => a.type).join('|'))
+    navigate(groups, selectAll ? null : AUCUN_AUTRE_TYPE)
   }
 
   const autreIsActive = showAll || activeGroups.includes('autre')
@@ -135,18 +143,28 @@ export default function ContratFilterBar({ autreTypes }: Props) {
 
         {/* Autres + menu déroulant */}
         <div className="relative" ref={menuRef}>
-          <Chip
-            active={autreIsActive}
-            onClick={() => {
-              if (!autreIsActive) toggleAutre()
-              else setShowMenu((v) => !v)
-            }}
-            aria-expanded={showMenu}
-          >
-            Autres
-            {autrePartial && <span className="tabular-nums opacity-70">{nbSelected}/{autreTypes.length}</span>}
-            <ChevronDown className={cx('h-3.5 w-3.5 transition-transform', showMenu && 'rotate-180')} />
-          </Chip>
+          {/* Deux gestes : le libellé sélectionne ou désélectionne le groupe, la flèche ouvre le choix des types */}
+          <span className="inline-flex items-center">
+            <Chip active={autreIsActive} onClick={toggleAutre} className="rounded-r-none pr-2" title={autreIsActive ? 'Retirer le groupe Autres' : 'Ajouter le groupe Autres'}>
+              Autres
+              {autrePartial && <span className="tabular-nums opacity-70">{nbSelected}/{autreTypes.length}</span>}
+            </Chip>
+            <button
+              type="button"
+              aria-label="Choisir les types de contrat inclus dans Autres"
+              aria-expanded={showMenu}
+              onClick={() => {
+                if (!autreIsActive) toggleAutre()
+                else setShowMenu((v) => !v)
+              }}
+              className={cx(
+                'inline-flex h-7 items-center rounded-r-[6px] pl-1 pr-1.5 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-brand/40',
+                autreIsActive ? 'bg-fg text-white shadow-sm' : 'text-fg-secondary hover:bg-surface hover:text-fg'
+              )}
+            >
+              <ChevronDown className={cx('h-3.5 w-3.5 transition-transform', showMenu && 'rotate-180')} />
+            </button>
+          </span>
 
           {showMenu && autreIsActive && (
             <div className="absolute left-0 top-full z-50 mt-2 w-72 rounded-card border border-border bg-surface shadow-float">
@@ -187,7 +205,7 @@ export default function ContratFilterBar({ autreTypes }: Props) {
               </div>
 
               <div className="flex items-center justify-between border-t border-border-subtle px-3 py-2">
-                <button type="button" onClick={() => { toggleAutre(); setShowMenu(false) }} className="text-caption font-semibold text-danger hover:underline">
+                <button type="button" onClick={removeAutre} className="text-caption font-semibold text-danger hover:underline">
                   Retirer « Autres »
                 </button>
                 <Button variant="secondary" size="xs" onClick={() => setShowMenu(false)}>Fermer</Button>

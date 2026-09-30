@@ -88,7 +88,7 @@ Toujours visible au clavier : `focus-visible:ring-2 focus-visible:ring-brand/40`
 | `LinkButton`, `buttonClass` | Même habillage pour un lien |
 | `IconButton` | Icône seule, libellé accessible obligatoire |
 | `Field`, `Label`, `Input`, `Select`, `controlClass`, `inputClass`, `selectClass` | Champs ; `Select` dessine son chevron |
-| `ChipGroup`, `Chip` | Filtres à bascule sur rail gris (contrôle segmenté) |
+| `ChipGroup`, `Chip` | Filtres à bascule sur rail gris (contrôle segmenté) ; sélection en encre pleine `bg-fg text-white`, jamais en rouge de marque |
 | `Tag` (`tone`, `size`, `dot`, `icon`, `outline`) | Pastille de lecture : statut, compteur, étiquette |
 | `Tabs` | Onglets soulignés, compteur en pastille |
 | `Notice` (`tone`, `icon`, `actions`) | Encadré d'information ou d'erreur non bloquant |

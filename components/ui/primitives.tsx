@@ -351,7 +351,8 @@ export function Chip({
       {...props}
       className={cx(
         'inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[6px] px-2.5 text-caption font-semibold transition-colors outline-none focus-visible:ring-2 focus-visible:ring-brand/40',
-        active ? 'bg-surface text-fg shadow-sm' : 'text-fg-muted hover:text-fg',
+        // Sélection en encre pleine : lisible d'un coup d'œil, sans concurrencer le rouge des actions
+        active ? 'bg-fg text-white shadow-sm' : 'text-fg-secondary hover:bg-surface hover:text-fg',
         className
       )}
     >

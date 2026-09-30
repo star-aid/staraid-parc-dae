@@ -49,6 +49,7 @@ Décisions prises :
 | `20260928000010_geodae_grants.sql` | Droits du rôle service sur ces tables |
 | `20260928000011_geodae_writebacks.sql` | `geodae_writebacks` : trace de chaque report (qui, quand, valeur précédente, résultat) |
 | `20260928000012_geodae_lookups.sql` | `geodae_lookups` : dernier résultat de recherche par DAE (statut, candidats, date et auteur du contrôle, date de report) |
+| `20260929000014_geodae_writebacks_fields.sql` | `geodae_writebacks` : colonnes `field` et `value`, `geodae_gid` facultatif : la même table trace les reports de date de maintenance |
 
 Colonne utilisée dans la table existante `defibrillators` : `geo_dae_id` (migration 005).
 Un report réussi la met à jour aussitôt, sans attendre la synchronisation.
@@ -102,6 +103,31 @@ au rôle service : les privilèges par défaut du projet n'en donnent aucun.
    renseigné, écriture partielle (`POST /Api/v3/equipment/send`, seuls les champs fournis
    changent), relecture de contrôle, trace dans `geodae_writebacks`, clôture des anomalies,
    mise à jour de la copie locale.
+   **Ce qu'un envoi modifie dans Synchroteam** (vérifié dans la référence officielle api.synchroteam.com,
+   Create/Update equipment, le 29/09/2026) : « only the fields provided will be updated. Fields not provided
+   will not be deleted » ; les tags ne sont hérités du site ou du client qu'à la création, jamais à la mise à
+   jour, et un identifiant inconnu fait échouer la requête au lieu de créer un équipement. Nos envois ne
+   contiennent que l'identifiant de l'équipement et la liste des champs personnalisés, relue et renvoyée
+   complète avec le seul champ visé remplacé (`buildPayload`), jamais de tags, nom, client ni site. Après
+   chaque écriture, l'équipement est relu et comparé : tags, nom, état, client, site et autres champs ;
+   tout écart est affiché sur la ligne et conservé dans l'historique (`collateralChanges`).
+8. **Maintenance** (onglet, 29/09/2026) : pour chaque DAE en location apparié, la dernière intervention
+   terminée de Synchroteam (copie Supabase) est comparée à la date de maintenance déclarée dans Géo'DAE
+   (open data, colonne c_dermnt, publiée pour toutes les fiches). Écart en jours, tolérance au choix (7,
+   30 ou 90 jours), situations : identique, écart toléré, Synchroteam plus récent, Géo'DAE plus récent,
+   Synchroteam sans date. Quand Géo'DAE est plus récent ou que Synchroteam n'a pas de date, un bouton écrit
+   la date Géo'DAE dans le champ personnalisé « Date dernière Maintenance » de l'équipement Synchroteam
+   (`writeMaintenanceDate`, mêmes garde-fous que l'identifiant, jamais de recul de date, format dd/mm/yyyy),
+   trace dans `geodae_writebacks` (migration 014). Quand Synchroteam est plus récent, le bouton « Mettre à jour
+   Géo'DAE » écrit la date de dernière intervention dans le champ `dermnt` de la fiche Géo'DAE par l'API PRODIGE
+   du catalogue Atlasanté (PATCH /api/data/{uuid}/gid, corps GeoJSON, documentation sur
+   https://catalogue.atlasante.fr/api/doc) : `lib/geodae/geodae-write.ts`, fiche relue avant et après,
+   SIREN vérifié, jamais de recul de date, tout autre champ modifié est signalé, trace `field = geodae_dermnt`.
+   C'est la première écriture de l'application vers Géo'DAE ; le premier essai est fait par l'équipe STAR aid
+   depuis l'interface, sur une fiche, avec vérification sur le portail (droits du compte et état de validation
+   de la fiche à confirmer à cette occasion). Le champ interne `last_maintenance_field` (à mapper dans
+   /admin/field-mapping puis synchroniser) permet d'afficher la valeur actuelle du champ Synchroteam.
+   Module `lib/geodae/maintenance.ts`, route `app/api/geodae/maintenance`, composant `MaintenancePanel.tsx`.
 
 ## 5. Conventions à connaître
 
@@ -153,8 +179,10 @@ au rôle service : les privilèges par défaut du projet n'en donnent aucun.
 - **Crons** : `vercel.json` planifie `/api/sync/reu` (06:00 UTC) et `/api/geodae/cron` (07:00 UTC).
   En plan Vercel gratuit c'est le maximum (deux crons, quotidiens). Pour couvrir les trois
   territoires, remplacer la cible de synchro par `/api/sync/trigger` (GET), qui déclenche les
-  trois synchros ; ajouter d'abord le contrôle du secret (`Authorization: Bearer CRON_SECRET`)
-  sur ce GET, absent aujourd'hui. `CRON_SECRET` doit exister sur Vercel (déjà utilisé par la synchro).
+  trois synchros ; ce GET exige le secret (`Authorization: Bearer CRON_SECRET`, envoyé par Vercel
+  quand la variable existe) depuis le 29/09/2026. `CRON_SECRET` doit exister sur Vercel. Les boutons
+  « Synchroniser » de l'interface n'en dépendent plus : la route lance la synchro directement, sans
+  relais HTTP, donc sans `NEXT_PUBLIC_APP_URL` ni secret en local.
 - **Variables Mayotte et Guadeloupe** (`SYNCHROTEAM_DOMAIN_MYT`, `SYNCHROTEAM_API_KEY_MYT`, `_GLP`) :
   présentes sur Vercel d'après les données du 7 septembre en base, à confirmer.
 - **Premier report réel** sur un seul DAE, vérification de la fiche Synchroteam, puis le lot.
@@ -163,6 +191,7 @@ au rôle service : les privilèges par défaut du projet n'en donnent aucun.
 
 - **Report automatique** des correspondances uniques par le cron, quand la confiance sera
   acquise (aujourd'hui volontairement manuel).
+- **Premier essai d'écriture dans Géo'DAE** (bouton « Mettre à jour Géo'DAE ») par l'équipe, sur une fiche.
 - **Alerte par e-mail** sur les anomalies ouvertes, si le compteur du menu ne suffit pas.
 - **Compte API Géo'DAE** : le compte configuré (STAR MAINTENANCE, SIREN 908037971) ne voit que
   les DAE qu'il a lui-même déclarés (30 le 28/09/2026), pas le parc du SIREN principal

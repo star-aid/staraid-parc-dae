@@ -9,9 +9,10 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase'
 import { markLookupReported, saveLookups } from '@/lib/geodae/lookups'
 import type {
-  AnomalyRow, AnomalyType, JournalItem, JournalRun, JournalSummary, WritebackRequest, WritebackResult, WritebackRow,
+  AnomalyRow, AnomalyType, JournalItem, JournalRun, JournalSummary, MaintenanceWriteRequest, MaintenanceWriteResult, WritebackRequest, WritebackResult, WritebackRow,
 } from '@/lib/geodae/types'
 import type { TerritoryCode } from '@/types'
+import type { GeodaeDateWriteResult } from '@/lib/geodae/geodae-write'
 
 export const MIGRATION_HINT =
   'Tables du journal absentes : appliquer la migration supabase/migrations/20260922000009_geodae_reconciliation.sql dans Supabase.'
@@ -233,7 +234,8 @@ export async function recordWriteback(params: {
     previous_value: result.ok ? result.previous_value : null,
     status: result.ok ? 'ok' : 'erreur',
     verified: result.ok ? result.verified : false,
-    error: result.ok ? null : result.error,
+    // Un succès qui a touché autre chose que le champ visé le garde en note, visible dans l'historique
+    error: result.ok ? (result.collateral?.length ? `Éléments modifiés en plus du champ : ${result.collateral.join(' ; ')}`.slice(0, 1000) : null) : result.error,
     written_by: writtenBy,
     written_at: now,
   })
@@ -321,4 +323,76 @@ export async function getJournalSummary(): Promise<JournalSummary> {
     writebacks_total,
     ...(writebacks_reason ? { writebacks_reason } : {}),
   }
+}
+
+// ─── Trace d'un report de date de maintenance (migration 014) ────────────────
+
+const MAINTENANCE_WRITEBACK_HINT =
+  'Trace du report non enregistrée : appliquer la migration supabase/migrations/20260929000014_geodae_writebacks_fields.sql (npm run db:push).'
+
+export async function recordMaintenanceWriteback(params: {
+  request: MaintenanceWriteRequest
+  result: MaintenanceWriteResult
+  writtenBy: string | null
+}): Promise<{ persisted: boolean; reason?: string }> {
+  const { request, result, writtenBy } = params
+  const supabase = createServiceClient()
+  const localKey = `${ID_PREFIX[request.account] ?? ''}${request.synchroteam_id}`
+  const localId = (await resolveDefibrillatorIds(supabase, [request])).get(localKey) ?? null
+
+  const { error } = await supabase.from('geodae_writebacks').insert({
+    account: request.account,
+    synchroteam_id: request.synchroteam_id,
+    defibrillator_id: localId,
+    serial_number: request.serial_number,
+    geodae_gid: null,
+    field: 'last_maintenance_field',
+    value: request.date,
+    previous_value: result.ok ? result.previous_value : null,
+    status: result.ok ? 'ok' : 'erreur',
+    verified: result.ok ? result.verified : false,
+    error: result.ok ? (result.collateral?.length ? `Éléments modifiés en plus du champ : ${result.collateral.join(' ; ')}`.slice(0, 1000) : null) : result.error,
+    written_by: writtenBy,
+    written_at: new Date().toISOString(),
+  })
+  // Colonnes absentes ou geodae_gid encore obligatoire : la migration 014 n'est pas appliquée
+  if (error) return { persisted: false, reason: unavailableReason(error, WRITEBACK_HINTS) ?? `${MAINTENANCE_WRITEBACK_HINT} (${error.message})` }
+  return { persisted: true }
+}
+
+// ─── Trace d'une écriture dans Géo'DAE (date de maintenance, migration 014) ──
+
+export async function recordGeodaeWriteback(params: {
+  gid: string
+  date: string
+  account: TerritoryCode | null
+  synchroteam_id: string | null
+  serial_number: string | null
+  result: GeodaeDateWriteResult
+  writtenBy: string | null
+}): Promise<{ persisted: boolean; reason?: string }> {
+  const { gid, date, account, synchroteam_id, serial_number, result, writtenBy } = params
+  const supabase = createServiceClient()
+  const localId = account && synchroteam_id
+    ? ((await resolveDefibrillatorIds(supabase, [{ account, synchroteam_id }])).get(`${ID_PREFIX[account] ?? ''}${synchroteam_id}`) ?? null)
+    : null
+  // Les champs touchés en plus de la date sont conservés dans la colonne error, visible dans l'historique
+  const note = result.ok && result.collateral.length > 0 ? `Champs modifiés en plus de la date : ${result.collateral.join(' ; ')}`.slice(0, 1000) : null
+  const { error } = await supabase.from('geodae_writebacks').insert({
+    account,
+    synchroteam_id: synchroteam_id ?? `geodae:${gid}`,
+    defibrillator_id: localId,
+    serial_number,
+    geodae_gid: gid,
+    field: 'geodae_dermnt',
+    value: date,
+    previous_value: result.ok ? result.previous_value : null,
+    status: result.ok ? 'ok' : 'erreur',
+    verified: result.ok ? result.verified : false,
+    error: result.ok ? note : result.error,
+    written_by: writtenBy,
+    written_at: new Date().toISOString(),
+  })
+  if (error) return { persisted: false, reason: unavailableReason(error, WRITEBACK_HINTS) ?? `${MAINTENANCE_WRITEBACK_HINT} (${error.message})` }
+  return { persisted: true }
 }

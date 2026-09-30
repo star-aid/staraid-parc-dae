@@ -154,8 +154,8 @@ function SortTh({
 
 // Sélecteur Tableau / Carte : pastilles sur rail gris, même dessin que les filtres
 const VIEW_TAB        = 'inline-flex h-7 items-center gap-1.5 rounded-[6px] px-2.5 text-caption font-semibold transition-colors'
-const VIEW_TAB_ACTIVE = 'bg-surface text-fg shadow-sm'
-const VIEW_TAB_IDLE   = 'text-fg-muted hover:text-fg'
+const VIEW_TAB_ACTIVE = 'bg-fg text-white shadow-sm'
+const VIEW_TAB_IDLE   = 'text-fg-secondary hover:bg-surface hover:text-fg'
 
 export default async function ParcPage({ searchParams }: { searchParams: SearchParams }) {
   const q         = (searchParams.q ?? '').trim()
