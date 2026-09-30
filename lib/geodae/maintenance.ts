@@ -1,11 +1,11 @@
 // Comparaison des dates de dernière maintenance Synchroteam ↔ Géo'DAE, pour
 // chaque DAE actif en location déjà apparié (identifiant Géo'DAE renseigné).
 //
-//   - Côté Synchroteam, la référence est la dernière intervention terminée
-//     (colonne last_maintenance_date de la copie Supabase, calculée par la
-//     synchronisation). Le champ « Date dernière maintenance » de la fiche est
-//     lu en plus, s'il est mappé (champ interne last_maintenance_field), pour
-//     savoir ce que voit un utilisateur Synchroteam.
+//   - Côté Synchroteam, la référence est le champ « Date dernière Maintenance »
+//     de la fiche équipement (champ interne last_maintenance_field, recopié par
+//     la synchronisation dans custom_fields). Décision du 30/09/2026 : la
+//     dernière intervention terminée n'est pas forcément une maintenance (un
+//     dépannage, par exemple) ; elle reste affichée à titre d'information.
 //   - Côté Géo'DAE, la date déclarée vient de l'open data (colonne c_dermnt),
 //     publiée pour toutes les fiches du SIREN, sans compte.
 //
@@ -93,7 +93,7 @@ async function compute(): Promise<MaintenanceResult> {
     const { account, rawId } = splitSynchroteamId(r.synchroteam_id)
     const fieldRaw = r.custom_fields?.last_maintenance_field
     if (fieldRaw !== undefined) fieldMapped = true
-    const synchroteamDate = toIsoDate(r.last_maintenance_date)
+    const synchroteamDate = toIsoDate(fieldRaw)
     const geodaeDate = toIsoDate(geo.dermnt)
     out.push({
       account,
@@ -104,7 +104,7 @@ async function compute(): Promise<MaintenanceResult> {
       customer_name: str(r.client?.name),
       site_name: str(r.site?.name),
       synchroteam_date: synchroteamDate,
-      synchroteam_field_date: toIsoDate(fieldRaw),
+      last_intervention_date: toIsoDate(r.last_maintenance_date),
       geodae_date: geodaeDate,
       geodae_name: geo.nom,
       gap_days: synchroteamDate && geodaeDate ? daysBetween(synchroteamDate, geodaeDate) : null,

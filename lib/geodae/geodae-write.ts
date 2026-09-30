@@ -27,7 +27,8 @@ function str(val: unknown): string | null {
   return s === '' ? null : s
 }
 
-async function geodaeFullFeature(gid: string): Promise<GeodaeFullFeature | null> {
+/** Fiche complète telle que l'API la renvoie, avec le système de coordonnées de la collection */
+async function geodaeFullFeature(gid: string): Promise<{ feature: GeodaeFullFeature | null; crs: unknown }> {
   async function query(token: string) {
     const url = new URL(`${CATALOGUE_URL}/api/data/${GEODAE_DATASET_UUID}`)
     url.searchParams.set('_where', `eq(gid,${gid})`)
@@ -37,7 +38,8 @@ async function geodaeFullFeature(gid: string): Promise<GeodaeFullFeature | null>
   let res = await query(await geodaeToken())
   if (res.status === 401) res = await query(await geodaeToken(true))
   if (res.status !== 200) throw new Error(`API Géo'DAE HTTP ${res.status}`)
-  return (res.body as { features?: GeodaeFullFeature[] })?.features?.[0] ?? null
+  const body = res.body as { features?: GeodaeFullFeature[]; crs?: unknown } | null
+  return { feature: body?.features?.[0] ?? null, crs: body?.crs ?? null }
 }
 
 export type GeodaeDateWriteResult =
@@ -52,6 +54,8 @@ export type GeodaeDateWriteResult =
       collateral: string[]
       etat_valid_before: string | null
       etat_valid_after: string | null
+      /** Forme du corps acceptée par le serveur : géométrie + date seule, ou fiche complète */
+      variant?: 'minimal' | 'complete'
     }
   | { ok: false; error: string }
 
@@ -63,8 +67,11 @@ export async function writeGeodaeMaintenanceDate(gid: string, date: string): Pro
 
   // 1. Relecture complète de la fiche avant l'écriture
   let before: GeodaeFullFeature | null
+  let crs: unknown = null
   try {
-    before = await geodaeFullFeature(gid)
+    const read = await geodaeFullFeature(gid)
+    before = read.feature
+    crs = read.crs
   } catch (err) {
     return { ok: false, error: `lecture de la fiche Géo'DAE impossible : ${err instanceof Error ? err.message : String(err)}` }
   }
@@ -81,10 +88,25 @@ export async function writeGeodaeMaintenanceDate(gid: string, date: string): Pro
     return { ok: true, date, previous_value: previous, verified: true, already_set: true, collateral: [], etat_valid_before: etatBefore, etat_valid_after: etatBefore }
   }
 
-  // 3. PATCH : une fiche, la clé gid et le seul champ dermnt, sans géométrie
+  // 3. PATCH. La documentation PRODIGE impose le modèle renvoyé par la lecture : une
+  //    FeatureCollection avec le système de coordonnées de la source et, pour chaque
+  //    fiche, une géométrie du même type que la couche (MultiPoint) et ses propriétés.
+  //    Premier essai, minimal : géométrie relue telle quelle, clé gid et le seul champ
+  //    dermnt. Si le serveur échoue (500) ou refuse (400), second essai avec la fiche
+  //    complète relue, champs système exclus, dermnt remplacé. Un envoi sans géométrie
+  //    a produit un HTTP 500 le 30/09/2026.
   const gidValue = typeof fiche.gid === 'number' ? Number(gid) : gid
-  const body = JSON.stringify({ type: 'FeatureCollection', features: [{ type: 'Feature', properties: { gid: gidValue, dermnt: date } }] })
-  async function patch(token: string): Promise<{ status: number; text: string }> {
+  const collection = (properties: Record<string, unknown>) => JSON.stringify({
+    type: 'FeatureCollection',
+    ...(crs ? { crs } : {}),
+    features: [{ type: 'Feature', geometry: before.geometry ?? null, properties }],
+  })
+  const minimalBody = collection({ gid: gidValue, dermnt: date })
+  const completeProps: Record<string, unknown> = { ...fiche, dermnt: date }
+  for (const k of Object.keys(completeProps)) if (k.startsWith('_') || k === 'dirty' || k === 'maj_don') delete completeProps[k]
+  const completeBody = collection(completeProps)
+
+  async function patch(token: string, body: string): Promise<{ status: number; text: string }> {
     const ctrl = new AbortController()
     const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
     try {
@@ -100,10 +122,19 @@ export async function writeGeodaeMaintenanceDate(gid: string, date: string): Pro
       clearTimeout(timer)
     }
   }
+  async function attempt(body: string): Promise<{ status: number; text: string }> {
+    let r = await patch(await geodaeToken(), body)
+    if (r.status === 401) r = await patch(await geodaeToken(true), body)
+    return r
+  }
+  let variant: 'minimal' | 'complete' = 'minimal'
   let res: { status: number; text: string }
   try {
-    res = await patch(await geodaeToken())
-    if (res.status === 401) res = await patch(await geodaeToken(true))
+    res = await attempt(minimalBody)
+    if (res.status === 500 || res.status === 400) {
+      variant = 'complete'
+      res = await attempt(completeBody)
+    }
   } catch (err) {
     return { ok: false, error: `écriture Géo'DAE impossible : ${err instanceof Error ? err.message : String(err)}` }
   }
@@ -114,7 +145,7 @@ export async function writeGeodaeMaintenanceDate(gid: string, date: string): Pro
   // 4. Relecture et comparaison champ par champ
   let after: GeodaeFullFeature | null = null
   try {
-    after = await geodaeFullFeature(gid)
+    after = (await geodaeFullFeature(gid)).feature
   } catch {
     after = null
   }
@@ -133,5 +164,5 @@ export async function writeGeodaeMaintenanceDate(gid: string, date: string): Pro
     }
     if (JSON.stringify(before.geometry ?? null) !== JSON.stringify(after.geometry ?? null)) collateral.push('géométrie modifiée')
   }
-  return { ok: true, date, previous_value: previous, verified, collateral, etat_valid_before: etatBefore, etat_valid_after: etatAfter }
+  return { ok: true, date, previous_value: previous, verified, collateral, etat_valid_before: etatBefore, etat_valid_after: etatAfter, variant }
 }

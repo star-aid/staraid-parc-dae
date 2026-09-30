@@ -111,8 +111,10 @@ au rôle service : les privilèges par défaut du projet n'en donnent aucun.
    complète avec le seul champ visé remplacé (`buildPayload`), jamais de tags, nom, client ni site. Après
    chaque écriture, l'équipement est relu et comparé : tags, nom, état, client, site et autres champs ;
    tout écart est affiché sur la ligne et conservé dans l'historique (`collateralChanges`).
-8. **Maintenance** (onglet, 29/09/2026) : pour chaque DAE en location apparié, la dernière intervention
-   terminée de Synchroteam (copie Supabase) est comparée à la date de maintenance déclarée dans Géo'DAE
+8. **Maintenance** (onglet, 29/09/2026) : pour chaque DAE en location apparié, le champ « Date dernière
+   Maintenance » de la fiche équipement Synchroteam (champ interne `last_maintenance_field`, mappé et recopié
+   par la synchronisation ; décision du 30/09/2026, la dernière intervention n'étant pas forcément une
+   maintenance, elle reste affichée à titre d'information) est comparé à la date de maintenance déclarée dans Géo'DAE
    (open data, colonne c_dermnt, publiée pour toutes les fiches). Écart en jours, tolérance au choix (7,
    30 ou 90 jours), situations : identique, écart toléré, Synchroteam plus récent, Géo'DAE plus récent,
    Synchroteam sans date. Quand Géo'DAE est plus récent ou que Synchroteam n'a pas de date, un bouton écrit

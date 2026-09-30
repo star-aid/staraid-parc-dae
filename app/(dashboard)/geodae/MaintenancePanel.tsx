@@ -144,7 +144,7 @@ export default function MaintenancePanel({ onActionable }: { onActionable?: (cou
         collateral: body.collateral, etatValid: body.etat_valid_after,
       } }))
       // La ligne reflète la nouvelle valeur du côté qui vient d'être écrit
-      setResult((prev) => prev ? { ...prev, rows: prev.rows.map((x) => (rowKey(x) !== key ? x : target === 'synchroteam' ? { ...x, synchroteam_field_date: date } : { ...x, geodae_date: date, gap_days: 0 })) } : prev)
+      setResult((prev) => prev ? { ...prev, rows: prev.rows.map((x) => (rowKey(x) !== key ? x : target === 'synchroteam' ? { ...x, synchroteam_date: date, gap_days: 0 } : { ...x, geodae_date: date, gap_days: 0 })) } : prev)
     } catch (err) {
       setWrites((prev) => ({ ...prev, [key]: { status: 'error', target, message: err instanceof Error ? err.message : String(err) } }))
     }
@@ -216,10 +216,10 @@ export default function MaintenancePanel({ onActionable }: { onActionable?: (cou
         {error && <Notice tone="danger">Échec du chargement : {error}</Notice>}
         {result?.warning && <Notice tone="warning">{result.warning}</Notice>}
         {result && !result.field_mapped && (
-          <Notice tone="info">
-            Le champ « Date dernière maintenance » de la fiche Synchroteam n&apos;est pas encore lu par la synchronisation : associez-le au champ interne
-            « Date dernière maintenance (champ Synchroteam) » dans <Link href="/admin/field-mapping" className="font-semibold underline">Mapping des champs</Link>, puis synchronisez.
-            Le report vers Synchroteam reste possible, le champ est retrouvé par son libellé.
+          <Notice tone="warning">
+            La comparaison s&apos;appuie sur le champ « Date dernière Maintenance » de la fiche équipement Synchroteam, et la copie ne le contient pas encore :
+            vérifiez son association au champ interne « Date dernière maintenance (champ Synchroteam) » dans <Link href="/admin/field-mapping" className="font-semibold underline">Mapping des champs</Link>,
+            puis lancez une synchronisation. En attendant, toutes les lignes apparaissent « Synchroteam sans date ».
           </Notice>
         )}
       </div>
@@ -239,8 +239,8 @@ export default function MaintenancePanel({ onActionable }: { onActionable?: (cou
                   <th className={thClass}>Compte</th>
                   <th className={thClass}>N° série</th>
                   <th className={thClass}>Client · site</th>
-                  <th className={cx(thClass, 'w-px whitespace-normal leading-tight')}>Dernière intervention<br />Synchroteam</th>
-                  {result.field_mapped && <th className={cx(thClass, 'w-px whitespace-normal leading-tight')}>Champ<br />Synchroteam</th>}
+                  <th className={cx(thClass, 'w-px whitespace-normal leading-tight')} title="Champ « Date dernière Maintenance » de la fiche équipement Synchroteam : la référence de la comparaison">Date dernière maintenance<br />Synchroteam</th>
+                  <th className={cx(thClass, 'w-px whitespace-normal leading-tight')} title="Dernière intervention terminée, toute nature, dépannage compris : information seulement">Dernière intervention<br />(toute nature)</th>
                   <th className={cx(thClass, 'w-px whitespace-normal leading-tight')}>Date<br />Géo&apos;DAE</th>
                   <th className={thClass}>Écart</th>
                   <th className={thClass}>Situation</th>
@@ -263,7 +263,7 @@ export default function MaintenancePanel({ onActionable }: { onActionable?: (cou
                         <div className="truncate text-label text-fg-muted" title={r.site_name ?? undefined}>{r.site_name ?? ''}</div>
                       </td>
                       <td className={cx(tdClass, 'w-px whitespace-nowrap tabular-nums')}>{fmtDate(r.synchroteam_date)}</td>
-                      {result.field_mapped && <td className={cx(tdClass, 'w-px whitespace-nowrap tabular-nums text-fg-muted')}>{fmtDate(r.synchroteam_field_date)}</td>}
+                      <td className={cx(tdClass, 'w-px whitespace-nowrap tabular-nums text-fg-muted')}>{fmtDate(r.last_intervention_date)}</td>
                       <td className={cx(tdClass, 'w-px whitespace-nowrap tabular-nums')}>
                         <a href={geodaeSheetUrl(r.geo_dae_id)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 hover:text-brand hover:underline" title={r.geodae_name ?? undefined}>
                           {fmtDate(r.geodae_date)}<ExternalLink className="h-3 w-3 text-fg-faint" />
