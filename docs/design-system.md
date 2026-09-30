@@ -92,7 +92,7 @@ Toujours visible au clavier : `focus-visible:ring-2 focus-visible:ring-brand/40`
 | `Tag` (`tone`, `size`, `dot`, `icon`, `outline`) | Pastille de lecture : statut, compteur, étiquette |
 | `Tabs` | Onglets soulignés, compteur en pastille |
 | `Notice` (`tone`, `icon`, `actions`) | Encadré d'information ou d'erreur non bloquant |
-| Classes de tableau (`tableWrapClass`, `theadClass`, `thClass`, `trClass`, `tdClass`, `tableFooterClass`, `stickyColClass`) et `pageButtonClass` | Tableaux et pagination uniformes |
+| Classes de tableau (`tableWrapClass`, `theadClass`, `thClass`, `thWrapClass` pour un en-tête sur plusieurs lignes, `trClass`, `tdClass`, `tableFooterClass`, `stickyColClass`) et `pageButtonClass` | Tableaux et pagination uniformes. `thClass` interdit le retour à la ligne : pour une colonne étroite à en-tête long, utiliser `thWrapClass` (ajouter `whitespace-normal` à `thClass` ne suffit pas, `whitespace-nowrap` l'emporte dans la feuille générée) |
 | `EmptyState` (`icon`, `title`, `description`, `action`, `compact`) | Dit ce qui manque et quoi faire |
 
 Statuts DAE : `DAEStatusBadge` et `ConsumableStatus` dans `components/table/StatusBadge.tsx`,

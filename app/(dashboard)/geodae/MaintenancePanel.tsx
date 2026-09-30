@@ -1,16 +1,23 @@
 'use client'
 // Onglet « Maintenance » du contrôle Géo'DAE : compare, pour chaque DAE en
-// location apparié, la dernière intervention Synchroteam et la date de
-// maintenance déclarée dans Géo'DAE, et propose de reporter dans Synchroteam la
-// date Géo'DAE quand elle est plus récente ou que Synchroteam n'en a pas.
-// L'écriture est validée ligne par ligne par l'utilisateur ; l'autre sens
-// (mettre Géo'DAE à jour) reste à faire sur le portail, avec le lien fourni.
+// location apparié, le champ « Date dernière Maintenance » de la fiche
+// équipement Synchroteam et la date de maintenance déclarée dans Géo'DAE, puis
+// propose d'écrire la plus récente de l'autre côté : dans Synchroteam quand
+// Géo'DAE est plus récent ou que Synchroteam n'a pas de date, dans Géo'DAE
+// quand Synchroteam est plus récent. Chaque écriture est validée ligne par
+// ligne par l'utilisateur. La dernière intervention, toute nature, est
+// affichée à titre d'information seulement.
+//
+// Largeur : le tableau doit tenir dans l'écran sans défilement horizontal. Les
+// colonnes à contenu court sont réduites au minimum (w-px), la colonne
+// Client · site absorbe l'espace restant (w-full max-w-0 + truncate), et les
+// en-têtes des colonnes de dates passent sur deux lignes (thWrapClass).
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { CalendarClock, Download, ExternalLink, Loader2, RefreshCw, Upload } from 'lucide-react'
 import {
   Button, Card, EmptyState, Notice, Select, Tag, buttonClass, cx, pageButtonClass,
-  tableClass, tableFooterClass, tbodyClass, tdClass, thClass, theadClass, trClass, type TagTone,
+  tableClass, tableFooterClass, tbodyClass, tdClass, thClass, thWrapClass, theadClass, trClass, type TagTone,
 } from '@/components/ui/primitives'
 import { pageParam, pickParam, useUrlState } from '@/lib/url-state'
 import {
@@ -207,7 +214,7 @@ export default function MaintenancePanel({ onActionable }: { onActionable?: (cou
       {/* Sources */}
       {result && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border-subtle px-4 py-2 text-caption text-fg-secondary tabular-nums">
-          <span>Dernière intervention Synchroteam d&apos;après la copie synchronisée le <span className="font-medium text-fg">{fmtDate(result.extracted_at.slice(0, 10))}</span>, date Géo&apos;DAE d&apos;après l&apos;open data mis à jour le <span className="font-medium text-fg">{fmtDate(result.geodae_updated_at)}</span>. Écart toléré : {tolerance} jours.</span>
+          <span>Dates Synchroteam d&apos;après la copie synchronisée le <span className="font-medium text-fg">{fmtDate(result.extracted_at.slice(0, 10))}</span>, date Géo&apos;DAE d&apos;après l&apos;open data mis à jour le <span className="font-medium text-fg">{fmtDate(result.geodae_updated_at)}</span>. Écart toléré : {tolerance} jours.</span>
           {result.totals.unpaired > 0 && <span className="text-fg-faint">{result.totals.unpaired} identifiant{result.totals.unpaired > 1 ? 's' : ''} inconnu{result.totals.unpaired > 1 ? 's' : ''} de l&apos;open data, non comparé{result.totals.unpaired > 1 ? 's' : ''}</span>}
         </div>
       )}
@@ -236,15 +243,15 @@ export default function MaintenancePanel({ onActionable }: { onActionable?: (cou
             <table className={tableClass}>
               <thead className={theadClass}>
                 <tr>
-                  <th className={thClass}>Compte</th>
-                  <th className={thClass}>N° série</th>
-                  <th className={thClass}>Client · site</th>
-                  <th className={cx(thClass, 'w-px whitespace-normal leading-tight')} title="Champ « Date dernière Maintenance » de la fiche équipement Synchroteam : la référence de la comparaison">Date dernière maintenance<br />Synchroteam</th>
-                  <th className={cx(thClass, 'w-px whitespace-normal leading-tight')} title="Dernière intervention terminée, toute nature, dépannage compris : information seulement">Dernière intervention<br />(toute nature)</th>
-                  <th className={cx(thClass, 'w-px whitespace-normal leading-tight')}>Date<br />Géo&apos;DAE</th>
-                  <th className={thClass}>Écart</th>
-                  <th className={thClass}>Situation</th>
-                  <th className={thClass}>Action</th>
+                  <th className={cx(thClass, 'w-px')}>Compte</th>
+                  <th className={cx(thClass, 'w-px')}>N° série</th>
+                  <th className={cx(thClass, 'w-full min-w-[160px]')}>Client · site</th>
+                  <th className={cx(thWrapClass, 'w-px')} title="Champ « Date dernière Maintenance » de la fiche équipement Synchroteam : la référence de la comparaison">Maintenance<br />Synchroteam</th>
+                  <th className={cx(thWrapClass, 'w-px')} title="Dernière intervention terminée, quelle que soit sa nature (dépannage compris) : information seulement, ce n'est pas la référence de la comparaison">Dernière<br />intervention</th>
+                  <th className={cx(thWrapClass, 'w-px')} title="Date de dernière maintenance déclarée dans Géo'DAE (open data)">Date<br />Géo&apos;DAE</th>
+                  <th className={cx(thClass, 'w-px')}>Écart</th>
+                  <th className={cx(thClass, 'w-px')}>Situation</th>
+                  <th className={cx(thClass, 'w-px')}>Action</th>
                 </tr>
               </thead>
               <tbody className={tbodyClass}>
@@ -256,9 +263,10 @@ export default function MaintenancePanel({ onActionable }: { onActionable?: (cou
                     <tr key={key} className={trClass}>
                       <td className={cx(tdClass, 'w-px whitespace-nowrap text-caption')}>{r.account}</td>
                       <td className={cx(tdClass, 'w-px whitespace-nowrap font-mono text-caption text-fg')}>
-                        <Link prefetch={false} href={`/parc/${r.defibrillator_id}`} className="hover:text-brand hover:underline">{r.serial_number ?? '—'}</Link>
+                        <Link prefetch={false} href={`/parc/${r.defibrillator_id}`} className="block max-w-[150px] truncate hover:text-brand hover:underline" title={r.serial_number ?? undefined}>{r.serial_number ?? '—'}</Link>
                       </td>
-                      <td className={cx(tdClass, 'max-w-[260px]')}>
+                      {/* Colonne souple : prend la largeur restante, coupe le texte trop long */}
+                      <td className={cx(tdClass, 'w-full max-w-0')}>
                         <div className="truncate text-fg" title={r.customer_name ?? undefined}>{r.customer_name ?? '—'}</div>
                         <div className="truncate text-label text-fg-muted" title={r.site_name ?? undefined}>{r.site_name ?? ''}</div>
                       </td>
@@ -273,10 +281,11 @@ export default function MaintenancePanel({ onActionable }: { onActionable?: (cou
                         {r.gap_days == null ? '—' : `${r.gap_days > 0 ? '+' : ''}${r.gap_days} j`}
                       </td>
                       <td className={cx(tdClass, 'w-px whitespace-nowrap')}><Tag tone={SITUATION_TONE[s]} dot>{MAINTENANCE_LABELS[s]}</Tag></td>
-                      <td className={cx(tdClass, 'whitespace-nowrap text-caption')}>
+                      {/* Colonne réduite au bouton le plus large ; les messages plus longs passent sur plusieurs lignes */}
+                      <td className={cx(tdClass, 'w-px whitespace-nowrap text-caption')}>
                         {w?.status === 'writing' && <span className="inline-flex items-center gap-1 text-fg-muted"><Loader2 className="h-3 w-3 animate-spin" />Écriture dans {TARGET_LABEL[w.target]}…</span>}
                         {w?.status === 'done' && (
-                          <span className="inline-flex max-w-[360px] flex-wrap items-center gap-1.5 whitespace-normal">
+                          <span className="inline-flex max-w-[300px] flex-wrap items-center gap-1.5 whitespace-normal">
                             <Tag tone="success" title={w.verified ? `Valeur relue dans ${TARGET_LABEL[w.target]} après l’écriture` : 'Écriture acceptée, relecture non confirmée'}>
                               {w.alreadySet ? `Déjà à jour dans ${TARGET_LABEL[w.target]}` : `Écrit dans ${TARGET_LABEL[w.target]}`}
                             </Tag>
@@ -294,12 +303,12 @@ export default function MaintenancePanel({ onActionable }: { onActionable?: (cou
                         )}
                         {w?.status === 'error' && (
                           <span className="inline-flex items-center gap-1 text-danger">
-                            <span className="max-w-[260px] truncate" title={w.message}>Échec : {w.message}</span>
+                            <span className="max-w-[240px] truncate" title={w.message}>Échec : {w.message}</span>
                             <Button variant="ghost" size="xs" onClick={() => setWrites((p) => ({ ...p, [key]: { status: 'confirm', target: w.target } }))}>Réessayer</Button>
                           </span>
                         )}
                         {w?.status === 'confirm' && (
-                          <span className="inline-flex flex-wrap items-center gap-1">
+                          <span className="inline-flex max-w-[300px] flex-wrap items-center gap-1 whitespace-normal">
                             <span className="text-label font-semibold text-fg-secondary">
                               Écrire {fmtDate(w.target === 'synchroteam' ? r.geodae_date : r.synchroteam_date)} dans {w.target === 'synchroteam' ? 'Synchroteam' : `la fiche Géo'DAE ${r.geo_dae_id}`} ?
                             </span>
@@ -314,11 +323,11 @@ export default function MaintenancePanel({ onActionable }: { onActionable?: (cou
                         )}
                         {!w && s === 'synchroteam_recent' && (
                           <span className="inline-flex items-center gap-1">
-                            <Button variant="soft" size="xs" icon={Upload} onClick={() => setWrites((p) => ({ ...p, [key]: { status: 'confirm', target: 'geodae' } }))} title="Écrire la date de dernière intervention Synchroteam dans la fiche Géo'DAE (champ « date de dernière maintenance »), après confirmation">
+                            <Button variant="soft" size="xs" icon={Upload} onClick={() => setWrites((p) => ({ ...p, [key]: { status: 'confirm', target: 'geodae' } }))} title="Écrire la date de dernière maintenance Synchroteam dans la fiche Géo'DAE (champ « date de dernière maintenance »), après confirmation">
                               Mettre à jour Géo&apos;DAE
                             </Button>
-                            <a href={geodaeSheetUrl(r.geo_dae_id)} target="_blank" rel="noopener noreferrer" className={buttonClass('ghost', 'xs')} title="Ouvrir la fiche sur le portail Géo'DAE">
-                              <ExternalLink className="h-3.5 w-3.5" />Fiche
+                            <a href={geodaeSheetUrl(r.geo_dae_id)} target="_blank" rel="noopener noreferrer" className={cx(buttonClass('ghost', 'xs'), 'px-1.5')} title="Ouvrir la fiche sur le portail Géo'DAE" aria-label="Ouvrir la fiche sur le portail Géo'DAE">
+                              <ExternalLink className="h-3.5 w-3.5" />
                             </a>
                           </span>
                         )}
