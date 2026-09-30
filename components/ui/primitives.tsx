@@ -526,6 +526,7 @@ export const tableWrapClass   = 'overflow-hidden rounded-card border border-bord
 export const tableClass       = 'w-full text-body'
 export const theadClass       = 'border-b border-border bg-surface-muted'
 export const thClass          = 'px-3 py-2 text-left text-label font-bold uppercase tracking-wide text-fg-muted whitespace-nowrap'
+export const thWrapClass      = 'px-3 py-2 text-left text-label font-bold uppercase tracking-wide text-fg-muted whitespace-normal leading-tight'  // en-tête sur plusieurs lignes (colonne étroite)
 export const tbodyClass       = 'divide-y divide-border-subtle'
 export const trClass          = 'transition-colors hover:bg-surface-muted'
 export const tdClass          = 'px-3 py-2 align-middle text-fg-secondary'

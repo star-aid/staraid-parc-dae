@@ -361,10 +361,10 @@ export interface MaintenanceRow {
   geo_dae_id: string
   customer_name: string | null
   site_name: string | null
-  /** Dernière intervention terminée dans Synchroteam (copie Supabase), yyyy-mm-dd */
+  /** Champ « Date dernière Maintenance » de la fiche équipement Synchroteam (copie Supabase), yyyy-mm-dd : la référence */
   synchroteam_date: string | null
-  /** Valeur du champ « Date dernière maintenance » de la fiche Synchroteam, si mappé et synchronisé */
-  synchroteam_field_date: string | null
+  /** Dernière intervention terminée, toute nature (dépannage compris) : information, pas la référence */
+  last_intervention_date: string | null
   /** Date de dernière maintenance déclarée dans Géo'DAE (open data), yyyy-mm-dd */
   geodae_date: string | null
   geodae_name: string | null
@@ -407,9 +407,9 @@ export type MaintenanceWriteResult =
 
 export function maintenanceToCsv(rows: MaintenanceRow[], toleranceDays: number): string {
   const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
-  const head = ['Compte', 'N° série', 'Identifiant Géo\'DAE', 'Client', 'Site', 'Dernière intervention Synchroteam', 'Champ Synchroteam', 'Date Géo\'DAE', 'Écart (jours)', 'Situation']
+  const head = ['Compte', 'N° série', 'Identifiant Géo\'DAE', 'Client', 'Site', 'Date dernière maintenance Synchroteam', 'Dernière intervention (toute nature)', 'Date Géo\'DAE', 'Écart (jours)', 'Situation']
   const lines = rows.map((r) => [
-    r.account, r.serial_number, r.geo_dae_id, r.customer_name, r.site_name, r.synchroteam_date, r.synchroteam_field_date, r.geodae_date, r.gap_days,
+    r.account, r.serial_number, r.geo_dae_id, r.customer_name, r.site_name, r.synchroteam_date, r.last_intervention_date, r.geodae_date, r.gap_days,
     MAINTENANCE_LABELS[maintenanceSituation(r, toleranceDays)],
   ].map(esc).join(';'))
   return '﻿' + [head.map(esc).join(';'), ...lines].join('\n')
