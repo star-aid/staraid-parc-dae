@@ -234,7 +234,8 @@ export async function recordWriteback(params: {
     previous_value: result.ok ? result.previous_value : null,
     status: result.ok ? 'ok' : 'erreur',
     verified: result.ok ? result.verified : false,
-    error: result.ok ? null : result.error,
+    // Un succès qui a touché autre chose que le champ visé le garde en note, visible dans l'historique
+    error: result.ok ? (result.collateral?.length ? `Éléments modifiés en plus du champ : ${result.collateral.join(' ; ')}`.slice(0, 1000) : null) : result.error,
     written_by: writtenBy,
     written_at: now,
   })
@@ -350,7 +351,7 @@ export async function recordMaintenanceWriteback(params: {
     previous_value: result.ok ? result.previous_value : null,
     status: result.ok ? 'ok' : 'erreur',
     verified: result.ok ? result.verified : false,
-    error: result.ok ? null : result.error,
+    error: result.ok ? (result.collateral?.length ? `Éléments modifiés en plus du champ : ${result.collateral.join(' ; ')}`.slice(0, 1000) : null) : result.error,
     written_by: writtenBy,
     written_at: new Date().toISOString(),
   })

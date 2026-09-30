@@ -49,7 +49,7 @@ type LookupState =
 type WritebackState =
   | { status: 'confirm'; gid: string }
   | { status: 'writing'; gid: string }
-  | { status: 'done'; gid: string; verified: boolean }
+  | { status: 'done'; gid: string; verified: boolean; collateral?: string[] }
   | { status: 'error'; gid: string; message: string }
 
 /** Réponse de POST /api/geodae/writeback (succès, refus 409 ou erreur) */
@@ -58,6 +58,8 @@ type WritebackResponse = {
   verified?: boolean
   already_set?: boolean
   error?: string
+  /** Autres éléments de l'équipement modifiés par l'écriture, tags compris (attendu : aucun) */
+  collateral?: string[]
   journal?: { persisted: boolean; reason?: string; resolved: number }
 }
 
@@ -1147,7 +1149,7 @@ export default function GeodaeClient() {
       const body = (await res.json().catch(() => null)) as WritebackResponse | null
       if (!body) throw new Error(`HTTP ${res.status}`)
       if (!body.ok) throw new Error(body.error ?? `HTTP ${res.status}`)
-      setWritebacks((prev) => ({ ...prev, [key]: { status: 'done', gid, verified: body.verified === true } }))
+      setWritebacks((prev) => ({ ...prev, [key]: { status: 'done', gid, verified: body.verified === true, collateral: body.collateral } }))
       // La ligne rejoint les DAE « avec identifiant » et les compteurs suivent
       setResult((prev) => (prev ? applyWrittenGid(prev, row, gid) : prev))
       if (body.journal && !body.journal.persisted) setJournalMsg(body.journal.reason ?? 'Report non tracé dans le journal.')
@@ -1457,6 +1459,11 @@ export default function GeodaeClient() {
                                   <Tag tone="success" title={wb.verified ? 'Valeur relue dans Synchroteam après l’écriture' : 'Écriture acceptée par Synchroteam, relecture non confirmée'}>
                                     Reporté dans Synchroteam
                                   </Tag>
+                                )}
+                                {wb?.status === 'done' && wb.collateral && wb.collateral.length > 0 && (
+                                  <span className="text-label text-danger" title={wb.collateral.join('\n')}>
+                                    {wb.collateral.length} autre{wb.collateral.length > 1 ? 's' : ''} élément{wb.collateral.length > 1 ? 's' : ''} modifié{wb.collateral.length > 1 ? 's' : ''} : vérifier la fiche
+                                  </span>
                                 )}
                               </span>
                             )

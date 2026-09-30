@@ -49,6 +49,67 @@ function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
+type RawCustomField = { id: number | string; label?: string | null; value?: unknown }
+
+/** Champs personnalisés bruts tels que renvoyés par equipment/details */
+function rawCustomFields(equipment: Record<string, unknown>): RawCustomField[] {
+  const raw = equipment.customFieldValues ?? equipment.customFields ?? equipment.custom_fields
+  return Array.isArray(raw) ? (raw as RawCustomField[]).filter((c) => c && c.id != null) : []
+}
+
+/**
+ * Charge utile de mise à jour d'un équipement. La documentation Synchroteam
+ * (api.synchroteam.com, Create/Update equipment) garantit qu'un envoi partiel ne
+ * touche que les champs fournis : « only the fields provided will be updated.
+ * Fields not provided will not be deleted ». Tags, client, site et nom ne sont
+ * donc pas envoyés ; les tags ne sont hérités qu'à la création, jamais ici, et
+ * un identifiant inconnu fait échouer la requête au lieu de créer un équipement.
+ * Par prudence vis-à-vis de la liste des champs personnalisés elle-même, on
+ * renvoie TOUS les champs personnalisés relus, le champ visé remplacé : si
+ * Synchroteam remplaçait la liste au lieu de la fusionner, rien ne serait perdu.
+ */
+function buildPayload(equipment: Record<string, unknown>, fallbackId: string, field: CustomFieldMapping, value: string | number) {
+  const others = rawCustomFields(equipment)
+    .filter((c) => String(c.id) !== String(field.synchroteam_field_id))
+    .map((c) => ({ id: c.id, label: c.label ?? undefined, value: c.value ?? null }))
+  return {
+    id: equipment.id ?? fallbackId,
+    customFieldValues: [...others, { id: field.synchroteam_field_id, label: field.synchroteam_label, value }],
+  }
+}
+
+/**
+ * Ce qui a changé sur l'équipement en dehors du champ visé (attendu : rien) :
+ * tags, nom, état, client, site et les autres champs personnalisés. Remonté à
+ * l'utilisateur et tracé dans le journal.
+ */
+function collateralChanges(before: Record<string, unknown>, after: Record<string, unknown>, fieldId: number): string[] {
+  const out: string[] = []
+  const norm = (v: unknown) => JSON.stringify(v ?? null)
+  const tags = (e: Record<string, unknown>) => (Array.isArray(e.tags) ? (e.tags as unknown[]).map(String).sort() : [])
+  if (norm(tags(before)) !== norm(tags(after))) out.push(`tags : ${tags(before).join(', ') || '(aucun)'} → ${tags(after).join(', ') || '(aucun)'}`)
+  for (const k of ['name', 'active', 'myId'] as const) {
+    if (norm(before[k]) !== norm(after[k])) out.push(`${k} : ${norm(before[k])} → ${norm(after[k])}`)
+  }
+  for (const k of ['customer', 'site'] as const) {
+    const id = (e: Record<string, unknown>) => norm((e[k] as { id?: unknown } | null | undefined)?.id ?? null)
+    if (id(before) !== id(after)) out.push(`${k} : ${id(before)} → ${id(after)}`)
+  }
+  const index = (e: Record<string, unknown>) => new Map(rawCustomFields(e).map((c) => [String(c.id), c]))
+  const b = index(before)
+  const a = index(after)
+  for (const [id, c] of Array.from(b.entries())) {
+    if (id === String(fieldId)) continue
+    const o = a.get(id)
+    if (!o) out.push(`champ « ${c.label ?? id} » disparu`)
+    else if (norm(c.value ?? null) !== norm(o.value ?? null)) out.push(`champ « ${c.label ?? id} » : ${norm(c.value)} → ${norm(o.value)}`)
+  }
+  for (const [id, c] of Array.from(a.entries())) {
+    if (id !== String(fieldId) && !b.has(id)) out.push(`champ « ${c.label ?? id} » apparu`)
+  }
+  return out
+}
+
 /**
  * Écrit l'identifiant Géo'DAE dans le champ personnalisé de l'équipement.
  * Avec `dryRun`, tout est vérifié et la charge utile est renvoyée, sans écriture.
@@ -99,10 +160,7 @@ export async function writeGeoDaeId(
 
   // Un champ de type « nombre » reçoit un nombre, sinon la chaîne telle quelle
   const value: string | number = field.field_type === 'number' && /^\d+$/.test(gid) ? Number(gid) : gid
-  const payload = {
-    id: equipment.id ?? req.synchroteam_id,
-    customFieldValues: [{ id: field.synchroteam_field_id, label: field.synchroteam_label, value }],
-  }
+  const payload = buildPayload(equipment, req.synchroteam_id, field, value)
   if (opts.dryRun) return { ok: true, gid, previous_value: currentGid, verified: false, dry_run: true, payload }
 
   try {
@@ -111,15 +169,18 @@ export async function writeGeoDaeId(
     return fail(`écriture Synchroteam refusée : ${errMsg(err)}`)
   }
 
-  // 4. Relecture de contrôle (non bloquante : l'écriture a été acceptée)
+  // 4. Relecture de contrôle (non bloquante : l'écriture a été acceptée) et
+  //    comparaison de tout le reste de l'équipement, tags compris
   let verified = false
+  let collateral: string[] = []
   try {
-    const after = extractCustomFields(await client.fetchEquipmentDetails(req.synchroteam_id), mappings)
-    verified = str(after.geo_dae_id) === gid
+    const afterRaw = await client.fetchEquipmentDetails(req.synchroteam_id)
+    verified = str(extractCustomFields(afterRaw, mappings).geo_dae_id) === gid
+    collateral = collateralChanges(equipment, afterRaw, field.synchroteam_field_id)
   } catch {
     verified = false
   }
-  return { ok: true, gid, previous_value: currentGid, verified }
+  return { ok: true, gid, previous_value: currentGid, verified, collateral }
 }
 
 // ─── Date de dernière maintenance ────────────────────────────────────────────
@@ -131,10 +192,14 @@ export async function writeGeoDaeId(
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
-/** Format des dates saisies dans les champs personnalisés Synchroteam (dd/mm/yyyy) */
+/**
+ * Format envoyé pour un champ personnalisé de type date : yyyy-mm-dd, le format
+ * dans lequel equipment/details renvoie lui-même ces champs (vérifié le
+ * 29/09/2026 : « Date mise en place batterie » = "2023-01-02"). La relecture
+ * accepte les deux formats (isoFromField) au cas où Synchroteam normaliserait.
+ */
 function toSynchroteamDate(iso: string): string {
-  const [y, m, d] = iso.split('-')
-  return `${d}/${m}/${y}`
+  return iso
 }
 
 function isoFromField(val: unknown): string | null {
@@ -187,10 +252,7 @@ export async function writeMaintenanceDate(
     return { ok: true, date, previous_value: previous, verified: true, already_set: true }
   }
 
-  const payload = {
-    id: equipment.id ?? req.synchroteam_id,
-    customFieldValues: [{ id: field.synchroteam_field_id, label: field.synchroteam_label, value: toSynchroteamDate(date) }],
-  }
+  const payload = buildPayload(equipment, req.synchroteam_id, field, toSynchroteamDate(date))
   if (opts.dryRun) return { ok: true, date, previous_value: previous, verified: false, dry_run: true, payload }
 
   try {
@@ -199,13 +261,15 @@ export async function writeMaintenanceDate(
     return { ok: false, error: `écriture Synchroteam refusée : ${errMsg(err)}` }
   }
 
-  // 4. Relecture de contrôle (non bloquante)
+  // 4. Relecture de contrôle (non bloquante) et comparaison du reste de l'équipement
   let verified = false
+  let collateral: string[] = []
   try {
-    const after = extractCustomFields(await client.fetchEquipmentDetails(req.synchroteam_id), mappings)
-    verified = isoFromField(after.last_maintenance_field) === date
+    const afterRaw = await client.fetchEquipmentDetails(req.synchroteam_id)
+    verified = isoFromField(extractCustomFields(afterRaw, mappings).last_maintenance_field) === date
+    collateral = collateralChanges(equipment, afterRaw, field.synchroteam_field_id)
   } catch {
     verified = false
   }
-  return { ok: true, date, previous_value: previous, verified }
+  return { ok: true, date, previous_value: previous, verified, collateral }
 }

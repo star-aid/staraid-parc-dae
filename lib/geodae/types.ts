@@ -126,6 +126,8 @@ export type WritebackResult =
       /** Mode simulation : charge utile qui aurait été envoyée */
       dry_run?: boolean
       payload?: unknown
+      /** Autres éléments de l'équipement modifiés par l'écriture, tags compris (attendu : aucun) */
+      collateral?: string[]
     }
   | { ok: false; error: string }
 
@@ -400,7 +402,7 @@ export interface MaintenanceWriteRequest {
 }
 
 export type MaintenanceWriteResult =
-  | { ok: true; date: string; previous_value: string | null; verified: boolean; already_set?: boolean; dry_run?: boolean; payload?: unknown }
+  | { ok: true; date: string; previous_value: string | null; verified: boolean; already_set?: boolean; dry_run?: boolean; payload?: unknown; collateral?: string[] }
   | { ok: false; error: string }
 
 export function maintenanceToCsv(rows: MaintenanceRow[], toleranceDays: number): string {

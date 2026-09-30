@@ -103,6 +103,14 @@ au rôle service : les privilèges par défaut du projet n'en donnent aucun.
    renseigné, écriture partielle (`POST /Api/v3/equipment/send`, seuls les champs fournis
    changent), relecture de contrôle, trace dans `geodae_writebacks`, clôture des anomalies,
    mise à jour de la copie locale.
+   **Ce qu'un envoi modifie dans Synchroteam** (vérifié dans la référence officielle api.synchroteam.com,
+   Create/Update equipment, le 29/09/2026) : « only the fields provided will be updated. Fields not provided
+   will not be deleted » ; les tags ne sont hérités du site ou du client qu'à la création, jamais à la mise à
+   jour, et un identifiant inconnu fait échouer la requête au lieu de créer un équipement. Nos envois ne
+   contiennent que l'identifiant de l'équipement et la liste des champs personnalisés, relue et renvoyée
+   complète avec le seul champ visé remplacé (`buildPayload`), jamais de tags, nom, client ni site. Après
+   chaque écriture, l'équipement est relu et comparé : tags, nom, état, client, site et autres champs ;
+   tout écart est affiché sur la ligne et conservé dans l'historique (`collateralChanges`).
 8. **Maintenance** (onglet, 29/09/2026) : pour chaque DAE en location apparié, la dernière intervention
    terminée de Synchroteam (copie Supabase) est comparée à la date de maintenance déclarée dans Géo'DAE
    (open data, colonne c_dermnt, publiée pour toutes les fiches). Écart en jours, tolérance au choix (7,
