@@ -24,11 +24,16 @@ export interface LocationDae {
   lookup?: PersistedLookup | null
 }
 
-/** Un DAE Géo'DAE candidat pour un numéro de série recherché. */
+/**
+ * Un DAE Géo'DAE candidat pour un numéro de série recherché.
+ * Depuis le 01/10/2026 la seule source est l'API exploitants ; la valeur 'open_data'
+ * (recherche dans le nom, open data data.gouv.fr) ne subsiste que dans les résultats
+ * conservés en base avant cette date.
+ */
 export interface GidCandidate {
   gid: string
   nom: string | null
-  /** Renseigné seulement via l'API exploitants */
+  /** Champ num_serie de la fiche, s'il est renseigné */
   num_serie: string | null
   etat: string | null
   etat_fonct: string | null
@@ -36,39 +41,39 @@ export interface GidCandidate {
   expt_rais: string | null
   dermnt: string | null
   source: 'geodae_api' | 'open_data'
-  /** Champ sur lequel la correspondance a été faite */
+  /** Champ sur lequel la correspondance a été faite ('nom' : anciens résultats seulement) */
   matched_on: 'num_serie' | 'nom'
 }
 
 export interface LookupResult {
   serial: string
   candidates: GidCandidate[]
-  /** État de chaque source : 'ok', 'non configuré' ou 'erreur : …' */
-  sources: { open_data: string; geodae_api: string }
+  /** État de l'API exploitants : 'ok', 'non configuré' ou 'erreur : …' ; open_data : traces antérieures au 01/10/2026 */
+  sources: { geodae_api: string; open_data?: string }
 }
 
 /**
  * Issue d'une recherche : une correspondance = trouvé, plusieurs = ambigu, aucune =
- * introuvable si au moins une source a répondu, erreur sinon.
+ * introuvable si la source a répondu, erreur sinon.
  */
 export function outcomeOf(result: LookupResult): 'found' | 'ambiguous' | 'not_found' | 'error' {
   const n = result.candidates.length
   if (n === 1) return 'found'
   if (n > 1) return 'ambiguous'
-  const anySourceOk = result.sources.open_data === 'ok' || result.sources.geodae_api === 'ok'
+  const anySourceOk = result.sources.geodae_api === 'ok' || result.sources.open_data === 'ok'
   return anySourceOk ? 'not_found' : 'error'
 }
 
-/** Message d'erreur quand aucune source n'a répondu */
+/** Message d'erreur quand la source n'a pas répondu */
 export function sourcesFailureMessage(result: LookupResult): string {
-  return `aucune source n'a répondu (open data : ${result.sources.open_data} ; API exploitants : ${result.sources.geodae_api})`
+  return `l'API exploitants Géo'DAE n'a pas répondu (${result.sources.geodae_api})`
 }
 
-/** Un DAE de l'inventaire Géo'DAE (open data par SIREN, ou API exploitants) */
+/** Un DAE de l'inventaire Géo'DAE : fiches visibles par le compte exploitant, restreintes au SIREN configuré */
 export interface GeodaeInventoryItem {
   gid: string
   nom: string | null
-  /** Renseigné par l'API exploitants ; sinon déduit du nom (STAR l'y encode) */
+  /** Champ num_serie de la fiche ; vide si non déclaré, le rapprochement lit alors le nom (STAR y encode le numéro) */
   num_serie: string | null
   etat: string | null
   etat_fonct: string | null
@@ -77,6 +82,7 @@ export interface GeodaeInventoryItem {
   dermnt: string | null
   maj_don: string | null
   com_nom: string | null
+  /** 'open_data' : plus produit depuis le 01/10/2026, conservé pour les traces antérieures */
   source: 'open_data' | 'geodae_api'
 }
 
@@ -365,7 +371,7 @@ export interface MaintenanceRow {
   synchroteam_date: string | null
   /** Dernière intervention terminée, toute nature (dépannage compris) : information, pas la référence */
   last_intervention_date: string | null
-  /** Date de dernière maintenance déclarée dans Géo'DAE (open data), yyyy-mm-dd */
+  /** Date de dernière maintenance déclarée dans Géo'DAE (champ dermnt, API exploitants), yyyy-mm-dd */
   geodae_date: string | null
   geodae_name: string | null
   /** Synchroteam moins Géo'DAE, en jours (positif = Synchroteam plus récent) */
@@ -374,7 +380,7 @@ export interface MaintenanceRow {
 
 export interface MaintenanceResult {
   extracted_at: string
-  /** Date de mise à jour la plus récente vue dans l'open data (fraîcheur de la source Géo'DAE) */
+  /** Date de mise à jour (maj_don) la plus récente parmi les fiches lues (fraîcheur de la source Géo'DAE) */
   geodae_updated_at: string | null
   field_mapped: boolean
   totals: { location_with_gid: number; paired: number; unpaired: number }

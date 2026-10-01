@@ -3,10 +3,11 @@
 //
 // Côté Synchroteam : la copie Supabase (tous les DAE, actifs ou non, pour savoir
 // si un DAE Géo'DAE existe « ailleurs » dans Synchroteam).
-// Côté Géo'DAE : l'open data des DAE déclarés sous le SIREN exploitant STAR
-// (source principale ; le numéro de série y est encodé dans le nom du DAE) et,
-// en complément, les DAE visibles par le compte API exploitants (numéro de série
-// explicite). Rien n'est écrit ni dans Synchroteam ni dans Géo'DAE.
+// Côté Géo'DAE : les fiches visibles par le compte API exploitants (STAR GROUP),
+// restreintes au SIREN configuré, avec leur champ num_serie ; quand il est vide, le
+// numéro est lu dans le nom déclaré (convention STAR « <site> - <n° série> »).
+// L'open data data.gouv.fr n'est plus interrogé depuis le 01/10/2026.
+// Rien n'est écrit ni dans Synchroteam ni dans Géo'DAE.
 //
 // Trois anomalies, celles du cahier des charges :
 //   divergence_id             même n° de série, identifiants différents (ou identifiant
@@ -19,7 +20,7 @@
 import { createServiceClient } from '@/lib/supabase'
 import { isLocationContract } from '@/lib/geodae/extract-synchroteam'
 import { splitSynchroteamId } from '@/lib/geodae/extract-supabase'
-import { isGeodaeApiConfigured, listGeodaeApiAll, listOpenDataBySiren } from '@/lib/geodae/client'
+import { GEODAE_NOT_CONFIGURED, isGeodaeApiConfigured, listGeodaeInventory } from '@/lib/geodae/client'
 import { loadPersistedLookups, lookupKey } from '@/lib/geodae/lookups'
 import type { AnomalyType, GeodaeInventoryItem } from '@/lib/geodae/types'
 import type { TerritoryCode } from '@/types'
@@ -28,9 +29,9 @@ export interface ReconcileResult {
   /** DAE Synchroteam actifs en location examinés */
   synchroteam_total: number
   synchroteam_without_serial: number
-  /** DAE Géo'DAE déclarés sous le SIREN */
+  /** DAE Géo'DAE du compte exploitant (SIREN configuré) */
   geodae_total: number
-  /** … dont numéro de série identifiable (API ou nom) */
+  /** … dont numéro de série identifiable (champ num_serie ou nom) */
   geodae_with_serial: number
   /** DAE appariés (identifiant ou numéro de série) */
   matched: number
@@ -42,7 +43,7 @@ export interface ReconcileResult {
   run_id: string | null
   persisted: boolean
   reason?: string
-  sources: { open_data: string; geodae_api: string }
+  sources: { geodae_api: string }
   duration_ms: number
   dry_run: boolean
   /** En simulation seulement : les anomalies qui auraient été enregistrées */
@@ -130,9 +131,9 @@ async function loadSynchroteamRows(): Promise<SyncRow[]> {
 }
 
 /**
- * Numéro de série d'un DAE Géo'DAE : celui de l'API s'il existe, sinon le plus long
- * numéro de série Synchroteam contenu dans le nom déclaré (convention STAR
- * « <site> - <n° série> »).
+ * Numéro de série d'un DAE Géo'DAE : le champ num_serie de la fiche s'il est renseigné,
+ * sinon le plus long numéro de série Synchroteam contenu dans le nom déclaré
+ * (convention STAR « <site> - <n° série> »).
  */
 function identifySerial(item: GeodaeInventoryItem, knownSerials: string[]): string | null {
   if (item.num_serie) return item.num_serie.toUpperCase()
@@ -188,19 +189,13 @@ function nameKey(s: string | null): string {
 
 export async function reconcileGeodae(opts: { triggeredBy: string; dryRun?: boolean }): Promise<ReconcileResult> {
   const started = Date.now()
-  const siren = process.env.GEODAE_SIREN?.trim()
-  if (!siren) throw new Error("GEODAE_SIREN non configuré : impossible de charger l'inventaire Géo'DAE")
-  const sources = { open_data: 'ok', geodae_api: isGeodaeApiConfigured() ? 'ok' : 'non configuré' }
+  const siren = process.env.GEODAE_SIREN?.trim() || null
+  if (!isGeodaeApiConfigured()) throw new Error(`${GEODAE_NOT_CONFIGURED} : impossible de charger l'inventaire Géo'DAE`)
+  const sources = { geodae_api: 'ok' }
 
-  const [rows, openData, apiItems, persisted] = await Promise.all([
+  const [rows, inventory, persisted] = await Promise.all([
     loadSynchroteamRows(),
-    listOpenDataBySiren(siren), // sans inventaire, pas de rapprochement : l'erreur remonte
-    isGeodaeApiConfigured()
-      ? listGeodaeApiAll().catch((err: unknown) => {
-          sources.geodae_api = `erreur : ${err instanceof Error ? err.message : String(err)}`
-          return [] as GeodaeInventoryItem[]
-        })
-      : Promise.resolve([] as GeodaeInventoryItem[]),
+    listGeodaeInventory(siren), // sans inventaire, pas de rapprochement : l'erreur remonte
     loadPersistedLookups(),
   ])
 
@@ -237,14 +232,8 @@ export async function reconcileGeodae(opts: { triggeredBy: string; dryRun?: bool
   }
 
   // ── Index Géo'DAE : par identifiant et par numéro de série ────────────────
-  // L'API complète l'open data (numéro de série explicite) ; seul l'open data du
-  // SIREN compte pour les « non référencés ».
   const byGid = new Map<string, GeodaeInventoryItem>()
-  for (const it of openData) byGid.set(it.gid, it)
-  for (const it of apiItems) {
-    const prev = byGid.get(it.gid)
-    byGid.set(it.gid, prev ? { ...prev, num_serie: it.num_serie ?? prev.num_serie } : it)
-  }
+  for (const it of inventory) byGid.set(it.gid, it)
   const serialOf = new Map<string, string | null>()
   const bySerial = new Map<string, GeodaeInventoryItem[]>()
   for (const it of Array.from(byGid.values())) {
@@ -343,9 +332,9 @@ export async function reconcileGeodae(opts: { triggeredBy: string; dryRun?: bool
     }
   }
 
-  // ── Géo'DAE → Synchroteam : DAE du SIREN non référencés ──────────────────
+  // ── Géo'DAE → Synchroteam : DAE du compte non référencés ─────────────────
   let geodaeWithSerial = 0
-  for (const it of openData) {
+  for (const it of Array.from(byGid.values())) {
     const serial = serialOf.get(it.gid) ?? null
     if (serial) geodaeWithSerial++
     if (matchedGids.has(it.gid)) continue
@@ -401,7 +390,7 @@ export async function reconcileGeodae(opts: { triggeredBy: string; dryRun?: bool
   const result: ReconcileResult = {
     synchroteam_total: located.length,
     synchroteam_without_serial: withoutSerial,
-    geodae_total: openData.length,
+    geodae_total: byGid.size,
     geodae_with_serial: geodaeWithSerial,
     matched,
     ...counts,
@@ -427,7 +416,7 @@ export async function reconcileGeodae(opts: { triggeredBy: string; dryRun?: bool
     .from('geodae_reconciliation_runs')
     .insert({
       triggered_by: opts.triggeredBy,
-      scope: `Rapprochement complet · ${located.length} DAE Synchroteam en location · ${openData.length} DAE Géo'DAE sous le SIREN ${siren}`,
+      scope: `Rapprochement complet · ${located.length} DAE Synchroteam en location · ${byGid.size} DAE Géo'DAE ${siren ? `sous le SIREN ${siren}` : 'du compte exploitant'}`,
       examined: located.length,
       found: matched,
       ambiguous: 0,

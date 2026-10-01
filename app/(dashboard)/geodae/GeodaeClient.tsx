@@ -63,8 +63,9 @@ type WritebackResponse = {
   journal?: { persisted: boolean; reason?: string; resolved: number }
 }
 
+// 'open_data' : résultats conservés avant le 01/10/2026, quand l'open data data.gouv.fr était encore interrogé
 const SOURCE_LABEL: Record<GidCandidate['source'], string> = {
-  open_data:  'open data data.gouv.fr',
+  open_data:  'open data data.gouv.fr (ancienne source)',
   geodae_api: 'API exploitants Géo’DAE',
 }
 
@@ -126,7 +127,7 @@ function seedLookups(rows: LocationDae[]): Record<string, LookupState> {
           result: {
             serial: r.serial_number ?? '',
             candidates: l.candidates,
-            sources: l.sources ?? { open_data: 'inconnu', geodae_api: 'inconnu' },
+            sources: l.sources ?? { geodae_api: 'inconnu' },
           },
           checked_at: l.checked_at,
           checked_by: l.checked_by,
@@ -319,7 +320,7 @@ function MissingGidCell({
     return (
       <div className="flex flex-col gap-0.5">
         <div className="flex items-center gap-2">
-          <span className="max-w-[320px] truncate text-caption text-danger" title={sourcesFailureMessage(state.result)}>Sources injoignables</span>
+          <span className="max-w-[320px] truncate text-caption text-danger" title={sourcesFailureMessage(state.result)}>API Géo&apos;DAE injoignable</span>
           <Button variant="ghost" size="sm" onClick={onLookup}>Réessayer</Button>
         </div>
         {checked}
@@ -1314,8 +1315,7 @@ export default function GeodaeClient() {
           <div className="mb-4 flex flex-wrap items-center gap-3 rounded-card border border-border bg-surface px-4 py-2.5 shadow-card">
             <div className="min-w-0 flex-1 text-body text-fg-secondary">
               <span className="font-medium text-fg">Identifiants manquants.</span>{' '}
-              La recherche part du n° de série et interroge l&apos;open data Géo&apos;DAE de data.gouv.fr
-              {lookupSummary.apiStatus === 'ok' ? ' et l’API exploitants Géo’DAE' : ''}. Les résultats sont conservés en base et journalisés.
+              La recherche part du n° de série et interroge l&apos;API exploitants Géo&apos;DAE (champ numéro de série des fiches du compte). Les résultats sont conservés en base et journalisés.
               {lookupSummary.total > 0 && (
                 <span className="ml-2 tabular-nums">
                   <span className="text-success">{lookupSummary.found} trouvé{lookupSummary.found > 1 ? 's' : ''}</span>

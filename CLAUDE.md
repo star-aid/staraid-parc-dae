@@ -19,7 +19,7 @@ L'objectif est de centraliser la vision du parc installé à partir des données
 | Versionning | GitHub |
 | API source principale | Synchroteam REST API v3 (lecture seule, à deux exceptions près, validées par un utilisateur : le report de l'identifiant Géo'DAE et celui de la date de dernière maintenance, voir lib/geodae/writeback.ts) |
 | API CRM | Axonaut REST API (lecture seule) |
-| API Géo'DAE | open data data.gouv.fr et API PRODIGE du catalogue Atlasanté (lecture ; une exception validée par un utilisateur : la date de dernière maintenance d'une fiche, voir lib/geodae/geodae-write.ts) |
+| API Géo'DAE | API PRODIGE du catalogue Atlasanté, compte exploitant STAR GROUP (lecture ; une exception validée par un utilisateur : la date de dernière maintenance d'une fiche, voir lib/geodae/geodae-write.ts). L'open data data.gouv.fr n'est plus interrogé depuis le 01/10/2026 |
 | Agent IA | Anthropic API — claude-sonnet-4-6 |
 | Cartes | Leaflet.js |
 | Graphiques | Recharts |
