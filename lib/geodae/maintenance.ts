@@ -6,18 +6,20 @@
 //     la synchronisation dans custom_fields). Décision du 30/09/2026 : la
 //     dernière intervention terminée n'est pas forcément une maintenance (un
 //     dépannage, par exemple) ; elle reste affichée à titre d'information.
-//   - Côté Géo'DAE, la date déclarée vient de l'open data (colonne c_dermnt),
-//     publiée pour toutes les fiches du SIREN, sans compte.
+//   - Côté Géo'DAE, la date déclarée (champ dermnt) est lue par l'API exploitants,
+//     sur les fiches du compte restreintes au SIREN configuré. L'open data
+//     data.gouv.fr n'est plus interrogé depuis le 01/10/2026.
 //
 // Le module ne décide rien : il calcule l'écart en jours, la page en déduit la
 // situation pour la tolérance choisie (maintenanceSituation dans types.ts).
-// Aucune écriture ici ; l'écriture vers Synchroteam est dans writeback.ts.
+// Aucune écriture ici ; l'écriture vers Synchroteam est dans writeback.ts,
+// celle vers Géo'DAE dans geodae-write.ts.
 // Fichier serveur uniquement.
 
 import { createServiceClient } from '@/lib/supabase'
 import { fetchAllRows } from '@/lib/supabase-rows'
 import { LOCATION_TYPES } from '@/lib/contract-groups'
-import { listOpenDataBySiren } from '@/lib/geodae/client'
+import { GEODAE_NOT_CONFIGURED, isGeodaeApiConfigured, listGeodaeInventory } from '@/lib/geodae/client'
 import { splitSynchroteamId } from '@/lib/geodae/extract-supabase'
 import type { MaintenanceResult, MaintenanceRow } from '@/lib/geodae/types'
 
@@ -57,11 +59,11 @@ function daysBetween(a: string, b: string): number {
 }
 
 async function compute(): Promise<MaintenanceResult> {
-  const siren = process.env.GEODAE_SIREN?.trim()
-  if (!siren) throw new Error("GEODAE_SIREN non configuré : impossible de lire les dates Géo'DAE")
+  const siren = process.env.GEODAE_SIREN?.trim() || null
+  if (!isGeodaeApiConfigured()) throw new Error(`${GEODAE_NOT_CONFIGURED} : impossible de lire les dates Géo'DAE`)
   const supabase = createServiceClient()
 
-  const [rows, openData] = await Promise.all([
+  const [rows, inventory] = await Promise.all([
     fetchAllRows<DbRow>('lecture des DAE en location appariés', (from, to, withCount) =>
       supabase
         .from('defibrillators')
@@ -73,12 +75,12 @@ async function compute(): Promise<MaintenanceResult> {
         .range(from, to),
       { expectedPages: 2 }
     ),
-    listOpenDataBySiren(siren),
+    listGeodaeInventory(siren),
   ])
 
-  const geoByGid = new Map(openData.map((g) => [g.gid, g]))
+  const geoByGid = new Map(inventory.map((g) => [g.gid, g]))
   let geodaeUpdatedAt: string | null = null
-  for (const g of openData) if (g.maj_don && (!geodaeUpdatedAt || g.maj_don > geodaeUpdatedAt)) geodaeUpdatedAt = g.maj_don
+  for (const g of inventory) if (g.maj_don && (!geodaeUpdatedAt || g.maj_don > geodaeUpdatedAt)) geodaeUpdatedAt = g.maj_don
 
   let fieldMapped = false
   let newest: string | null = null
@@ -117,7 +119,11 @@ async function compute(): Promise<MaintenanceResult> {
     field_mapped: fieldMapped,
     totals: { location_with_gid: rows.length, paired: out.length, unpaired },
     rows: out,
-    warning: rows.length === 0 ? 'Aucun DAE en location avec identifiant Géo\'DAE dans la copie Supabase.' : null,
+    warning: rows.length === 0
+      ? 'Aucun DAE en location avec identifiant Géo\'DAE dans la copie Supabase.'
+      : inventory.length === 0
+        ? `Aucune fiche Géo'DAE visible par le compte exploitant${siren ? ` pour le SIREN ${siren}` : ''} : vérifier le compte et GEODAE_SIREN.`
+        : null,
   }
 }
 

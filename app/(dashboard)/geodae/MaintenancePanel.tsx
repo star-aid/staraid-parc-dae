@@ -205,7 +205,7 @@ export default function MaintenancePanel({ onActionable }: { onActionable?: (cou
           <a href={csvHref} className={buttonClass('ghost', 'sm')} title="Exporter la comparaison complète (CSV)">
             <Download className="h-4 w-4" />Exporter CSV
           </a>
-          <Button variant="ghost" size="sm" icon={RefreshCw} loading={loading} onClick={() => load(true)} title="Relire la copie Supabase et l'open data Géo'DAE">
+          <Button variant="ghost" size="sm" icon={RefreshCw} loading={loading} onClick={() => load(true)} title="Relire la copie Supabase et les fiches Géo'DAE (API exploitants)">
             Actualiser
           </Button>
         </div>
@@ -214,8 +214,8 @@ export default function MaintenancePanel({ onActionable }: { onActionable?: (cou
       {/* Sources */}
       {result && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border-subtle px-4 py-2 text-caption text-fg-secondary tabular-nums">
-          <span>Dates Synchroteam d&apos;après la copie synchronisée le <span className="font-medium text-fg">{fmtDate(result.extracted_at.slice(0, 10))}</span>, date Géo&apos;DAE d&apos;après l&apos;open data mis à jour le <span className="font-medium text-fg">{fmtDate(result.geodae_updated_at)}</span>. Écart toléré : {tolerance} jours.</span>
-          {result.totals.unpaired > 0 && <span className="text-fg-faint">{result.totals.unpaired} identifiant{result.totals.unpaired > 1 ? 's' : ''} inconnu{result.totals.unpaired > 1 ? 's' : ''} de l&apos;open data, non comparé{result.totals.unpaired > 1 ? 's' : ''}</span>}
+          <span>Dates Synchroteam d&apos;après la copie synchronisée le <span className="font-medium text-fg">{fmtDate(result.extracted_at.slice(0, 10))}</span>, dates Géo&apos;DAE lues en direct par l&apos;API exploitants (fiche la plus récente mise à jour le <span className="font-medium text-fg">{fmtDate(result.geodae_updated_at)}</span>). Écart toléré : {tolerance} jours.</span>
+          {result.totals.unpaired > 0 && <span className="text-fg-faint">{result.totals.unpaired} identifiant{result.totals.unpaired > 1 ? 's' : ''} inconnu{result.totals.unpaired > 1 ? 's' : ''} des fiches du compte Géo&apos;DAE, non comparé{result.totals.unpaired > 1 ? 's' : ''}</span>}
         </div>
       )}
 
@@ -248,7 +248,7 @@ export default function MaintenancePanel({ onActionable }: { onActionable?: (cou
                   <th className={cx(thClass, 'w-full min-w-[160px]')}>Client · site</th>
                   <th className={cx(thWrapClass, 'w-px')} title="Champ « Date dernière Maintenance » de la fiche équipement Synchroteam : la référence de la comparaison">Maintenance<br />Synchroteam</th>
                   <th className={cx(thWrapClass, 'w-px')} title="Dernière intervention terminée, quelle que soit sa nature (dépannage compris) : information seulement, ce n'est pas la référence de la comparaison">Dernière<br />intervention</th>
-                  <th className={cx(thWrapClass, 'w-px')} title="Date de dernière maintenance déclarée dans Géo'DAE (open data)">Date<br />Géo&apos;DAE</th>
+                  <th className={cx(thWrapClass, 'w-px')} title="Date de dernière maintenance déclarée dans Géo'DAE (fiche lue par l'API exploitants)">Date<br />Géo&apos;DAE</th>
                   <th className={cx(thClass, 'w-px')}>Écart</th>
                   <th className={cx(thClass, 'w-px')}>Situation</th>
                   <th className={cx(thClass, 'w-px')}>Action</th>

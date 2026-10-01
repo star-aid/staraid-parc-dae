@@ -1,6 +1,6 @@
 # Contrôle Géo'DAE : ce qui a été fait, comment l'étendre à Mayotte et Guadeloupe
 
-Dernière mise à jour : 28 septembre 2026. Ce document est le fil conducteur du chantier
+Dernière mise à jour : 1er octobre 2026. Ce document est le fil conducteur du chantier
 Synchroteam ↔ Géo'DAE. Il liste ce qui existe, où ça se trouve, et la marche à suivre
 pour activer un nouveau compte Synchroteam (Mayotte, Guadeloupe).
 
@@ -19,6 +19,15 @@ Décisions prises :
   (exception notée dans `CLAUDE.md`).
 - **La page lit la copie Supabase** (synchronisation quotidienne), pas Synchroteam en direct.
   Un bouton « Actualiser depuis Synchroteam » relance la synchronisation à la demande.
+- **Source Géo'DAE unique : l'API exploitants du catalogue Atlasanté** (décision du 01/10/2026),
+  avec le compte rattaché au SIREN du parc (STAR GROUP, 500168190). Elle donne le champ
+  `num_serie` de chaque fiche. L'open data data.gouv.fr, où la recherche se faisait dans le nom
+  du DAE, n'est plus interrogé. Conséquence : `GEODAE_USERNAME` et `GEODAE_PASSWORD` sont
+  indispensables, en local comme sur Vercel ; sans eux, tout le menu Contrôle Géo'DAE est
+  indisponible. Mesuré le 01/10/2026 : `limit` n'est pas plafonné (contrairement à ce qu'on
+  croyait), l'inventaire complet (1 137 fiches, toutes avec `num_serie` et `dermnt`) arrive en une
+  requête de 1,5 à 4 s. Simulation du 01/10/2026 : 1 092 appariés sur 1 102, 19 divergences,
+  10 absents, 49 non référencés (contre 30 absents et 67 non référencés avec l'open data).
 
 ## 2. Où est le code
 
@@ -27,7 +36,7 @@ Décisions prises :
 | Page et interface | `app/(dashboard)/geodae/page.tsx`, `app/(dashboard)/geodae/GeodaeClient.tsx` |
 | Lecture de la copie Supabase (source par défaut) | `lib/geodae/extract-supabase.ts` |
 | Lecture directe Synchroteam (diagnostics, `?source=synchroteam`) | `lib/geodae/extract-synchroteam.ts` |
-| Recherche d'identifiant par n° de série (open data + API exploitants) | `lib/geodae/client.ts` |
+| Accès à l'API exploitants Géo'DAE : connexion, inventaire du compte, recherche par n° de série | `lib/geodae/client.ts` |
 | Report dans Synchroteam avec garde-fous | `lib/geodae/writeback.ts`, méthode `sendEquipment` de `lib/synchroteam.ts` |
 | Journal : exécutions, anomalies, reports | `lib/geodae/journal.ts` |
 | Résultats de recherche conservés par DAE | `lib/geodae/lookups.ts` |
@@ -65,10 +74,12 @@ au rôle service : les privilèges par défaut du projet n'en donnent aucun.
 2. **Ouverture de la page** : lecture immédiate de la copie ; DAE actifs dont le type de contrat
    est reconnu comme « location » (`LOCATION_TYPES` dans `lib/contract-groups.ts`).
 3. **Recherche** (bouton par ligne ou « Rechercher les manquants ») : n° de série →
-   open data data.gouv.fr (nom du DAE contenant le n° de série, restreint au SIREN de
-   `GEODAE_SIREN`) et API exploitants Atlasanté (champ `num_serie`, compte `GEODAE_USERNAME` /
-   `GEODAE_PASSWORD` ; la connexion renvoie `access_token`). Résultat : une, plusieurs ou
-   aucune correspondance ; aucune source qui répond = erreur, pas « introuvable ».
+   API exploitants Atlasanté, égalité exacte sur le champ `num_serie` des fiches du compte
+   (`GEODAE_USERNAME` / `GEODAE_PASSWORD` ; la connexion renvoie `access_token`), second essai
+   en majuscules si la casse diffère. Résultat : une, plusieurs ou aucune correspondance ; API
+   qui ne répond pas = erreur, pas « introuvable ». Une fiche dont le champ `num_serie` est
+   vide n'est pas trouvée par la recherche, mais le rapprochement (point 6) la rattache encore
+   par le nom déclaré.
 4. **Journal** : introuvable, ambigu ou erreur ouvrent une anomalie ; un identifiant retrouvé
    clôt celles du DAE. Le résultat de chaque DAE est aussi conservé dans `geodae_lookups`
    et rechargé à l'ouverture de la page (mention « Contrôlé le … par … » sous le résultat) :
@@ -80,8 +91,9 @@ au rôle service : les privilèges par défaut du projet n'en donnent aucun.
    `geodae_lookups` avec « cron » comme auteur. Le bouton « Contrôle automatique (un lot) »
    de la page lance le même moteur à la main. Le report reste manuel.
 6. **Réconciliation** (première phase du cron, ou « Rapprocher maintenant ») : inventaire Géo'DAE
-   du SIREN STAR par l'open data (1 136 DAE, numéro de série lu dans le nom déclaré) complété
-   par l'API exploitants, comparé à tous les DAE de la copie Supabase. Produit et clôt
+   lu par l'API exploitants (fiches du compte, restreintes à `GEODAE_SIREN` ; 1 137 DAE le
+   01/10/2026, numéro de série pris dans `num_serie`, sinon lu dans le nom déclaré), comparé à
+   tous les DAE de la copie Supabase. Produit et clôt
    automatiquement les anomalies « identifiant divergent », « absent de Géo'DAE » et « non
    référencé dans Synchroteam » (avec la situation réelle : absent, inactif, autre contrat).
    Le rapport est dans l'onglet « Anomalies » de la page : filtre par type, colonnes identifiants
@@ -115,13 +127,13 @@ au rôle service : les privilèges par défaut du projet n'en donnent aucun.
    Maintenance » de la fiche équipement Synchroteam (champ interne `last_maintenance_field`, mappé et recopié
    par la synchronisation ; décision du 30/09/2026, la dernière intervention n'étant pas forcément une
    maintenance, elle reste affichée à titre d'information) est comparé à la date de maintenance déclarée dans Géo'DAE
-   (open data, colonne c_dermnt, publiée pour toutes les fiches). Écart en jours, tolérance au choix (7,
+   (champ `dermnt` des fiches du compte, lu en direct par l'API exploitants). Écart en jours, tolérance au choix (7,
    30 ou 90 jours), situations : identique, écart toléré, Synchroteam plus récent, Géo'DAE plus récent,
    Synchroteam sans date. Quand Géo'DAE est plus récent ou que Synchroteam n'a pas de date, un bouton écrit
    la date Géo'DAE dans le champ personnalisé « Date dernière Maintenance » de l'équipement Synchroteam
    (`writeMaintenanceDate`, mêmes garde-fous que l'identifiant, jamais de recul de date, format dd/mm/yyyy),
    trace dans `geodae_writebacks` (migration 014). Quand Synchroteam est plus récent, le bouton « Mettre à jour
-   Géo'DAE » écrit la date de dernière intervention dans le champ `dermnt` de la fiche Géo'DAE par l'API PRODIGE
+   Géo'DAE » écrit la date de dernière maintenance Synchroteam dans le champ `dermnt` de la fiche Géo'DAE par l'API PRODIGE
    du catalogue Atlasanté (PATCH /api/data/{uuid}/gid, corps GeoJSON, documentation sur
    https://catalogue.atlasante.fr/api/doc) : `lib/geodae/geodae-write.ts`, fiche relue avant et après,
    SIREN vérifié, jamais de recul de date, tout autre champ modifié est signalé, trace `field = geodae_dermnt`.
@@ -143,8 +155,9 @@ au rôle service : les privilèges par défaut du projet n'en donnent aucun.
   Le contrôle Géo'DAE travaille toujours avec l'identifiant brut et le code du compte.
 - **Variables d'environnement** (`.env.local.example`) :
   `SYNCHROTEAM_DOMAIN` / `SYNCHROTEAM_API_KEY` (Réunion), `_MYT` et `_GLP` pour les deux autres
-  comptes, `GEODAE_USERNAME`, `GEODAE_PASSWORD`, `GEODAE_SIREN`, `SUPABASE_DB_URL` (poste
-  uniquement, jamais sur Vercel).
+  comptes, `GEODAE_USERNAME` et `GEODAE_PASSWORD` (indispensables au contrôle Géo'DAE depuis le
+  01/10/2026), `GEODAE_SIREN` (restreint l'inventaire et protège les écritures), `SUPABASE_DB_URL`
+  (poste uniquement, jamais sur Vercel).
 - **Limite Vercel** : 60 secondes par exécution de fonction. C'est ce qui a imposé la copie
   Supabase et qui imposera des lots pour le futur cron Géo'DAE.
 
@@ -174,9 +187,11 @@ au rôle service : les privilèges par défaut du projet n'en donnent aucun.
 
 ## 7. Avant la mise en production
 
-- **Variables Vercel** : `GEODAE_USERNAME`, `GEODAE_PASSWORD` et `GEODAE_SIREN` ont été créées en
-  local après l'export des variables du projet ; elles doivent être ajoutées dans Vercel
-  (Production et Preview). Sans elles, la recherche et le cron ne voient que l'open data.
+- **Variables Vercel** : `GEODAE_USERNAME`, `GEODAE_PASSWORD` (compte STAR GROUP) et `GEODAE_SIREN`
+  ont été créées en local après l'export des variables du projet ; elles doivent être ajoutées dans
+  Vercel (Production et Preview) **avant** de déployer la version sans open data : sans elles, la
+  recherche, le rapprochement du cron et l'onglet Maintenance répondent « GEODAE_USERNAME /
+  GEODAE_PASSWORD non configurés ».
 - **Migrations** : `npm run db:status` doit montrer toutes les migrations appliquées.
 - **Crons** : `vercel.json` planifie `/api/sync/reu` (06:00 UTC) et `/api/geodae/cron` (07:00 UTC).
   En plan Vercel gratuit c'est le maximum (deux crons, quotidiens). Pour couvrir les trois
@@ -195,8 +210,11 @@ au rôle service : les privilèges par défaut du projet n'en donnent aucun.
   acquise (aujourd'hui volontairement manuel).
 - **Premier essai d'écriture dans Géo'DAE** (bouton « Mettre à jour Géo'DAE ») par l'équipe, sur une fiche.
 - **Alerte par e-mail** sur les anomalies ouvertes, si le compteur du menu ne suffit pas.
-- **Compte API Géo'DAE** : le compte configuré (STAR MAINTENANCE, SIREN 908037971) ne voit que
-  les DAE qu'il a lui-même déclarés (30 le 28/09/2026), pas le parc du SIREN principal
-  (500168190). Un compte exploitant rattaché au SIREN principal donnerait le numéro de série
-  explicite pour tout le parc, au lieu de le lire dans le nom.
-- Champ Synchroteam « Date dernière Maintenance » (id 238257) non mappé, décision à prendre.
+- **Fiches Géo'DAE sans `num_serie`** : la recherche par numéro ne les trouve pas ; seul le
+  rapprochement les rattache, par le nom déclaré. Compléter le champ sur le portail quand le cas
+  se présente (le rapport d'anomalies les signale).
+- Champ Synchroteam « Date dernière Maintenance » (id 238257) mappé sur `last_maintenance_field`
+  le 30/09/2026 : lancer une synchronisation pour que la valeur arrive dans la copie Supabase.
+
+Réglé : le compte API est désormais celui de STAR GROUP (SIREN 500168190, 1 137 fiches avec
+`num_serie`), configuré en local le 29/09/2026 ; l'open data a été retiré le 01/10/2026.

@@ -127,7 +127,7 @@ export async function runGeodaeControl(opts: CronOptions = {}): Promise<CronResu
     } catch (err) {
       items.push({ ...base, outcome: 'error', candidates: [], error: errMsg(err) })
     }
-    // Rythme mesuré pour rester courtois avec les API publiques
+    // Rythme mesuré pour ménager l'API Géo'DAE
     await new Promise((r) => setTimeout(r, PAUSE_MS))
   }
 
