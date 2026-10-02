@@ -93,7 +93,9 @@ au rôle service : les privilèges par défaut du projet n'en donnent aucun.
    Un « introuvable » enregistré sans réponse de l'API exploitants (résultats antérieurs au
    01/10/2026, numéro lu dans le nom de la fiche open data) n'est pas fiable : le cron le reprend
    sans attendre les 7 jours, « Rechercher les manquants » le reprend aussi, et la ligne l'affiche
-   en orange avec la mention « sans l'API Géo'DAE, à refaire ».
+   en orange avec la mention « sans l'API Géo'DAE, à refaire ». Une « erreur » (API injoignable ou
+   identifiants refusés) est de même reprise au contrôle suivant : après un cron tombé sur un 401,
+   les « erreur de recherche » se résorbent d'eux-mêmes dès que le compte est corrigé.
 6. **Réconciliation** (première phase du cron, ou « Rapprocher maintenant ») : inventaire Géo'DAE
    lu par l'API exploitants (fiches du compte, restreintes à `GEODAE_SIREN` ; 1 137 DAE le
    01/10/2026, numéro de série pris dans `num_serie`, sinon lu dans le nom déclaré), comparé à
