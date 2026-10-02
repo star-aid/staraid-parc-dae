@@ -90,6 +90,10 @@ au rôle service : les privilèges par défaut du projet n'en donnent aucun.
    elle-même tant qu'il reste des DAE (10 fois au plus). Résultats dans le journal et dans
    `geodae_lookups` avec « cron » comme auteur. Le bouton « Contrôle automatique (un lot) »
    de la page lance le même moteur à la main. Le report reste manuel.
+   Un « introuvable » enregistré sans réponse de l'API exploitants (résultats antérieurs au
+   01/10/2026, numéro lu dans le nom de la fiche open data) n'est pas fiable : le cron le reprend
+   sans attendre les 7 jours, « Rechercher les manquants » le reprend aussi, et la ligne l'affiche
+   en orange avec la mention « sans l'API Géo'DAE, à refaire ».
 6. **Réconciliation** (première phase du cron, ou « Rapprocher maintenant ») : inventaire Géo'DAE
    lu par l'API exploitants (fiches du compte, restreintes à `GEODAE_SIREN` ; 1 137 DAE le
    01/10/2026, numéro de série pris dans `num_serie`, sinon lu dans le nom déclaré), comparé à

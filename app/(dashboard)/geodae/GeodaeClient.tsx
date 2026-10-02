@@ -45,6 +45,15 @@ type LookupState =
   | { status: 'done'; result: LookupResult; checked_at?: string; checked_by?: string | null }
   | { status: 'error'; message: string; checked_at?: string; checked_by?: string | null }
 
+/**
+ * « Introuvable » obtenu sans réponse de l'API exploitants : résultats antérieurs au
+ * 01/10/2026, quand la recherche lisait le numéro dans le nom de la fiche (open data).
+ * Non fiable : la recherche groupée le reprend comme s'il n'avait jamais été contrôlé.
+ */
+function isUnconfirmedNotFound(state: LookupState | undefined): boolean {
+  return state?.status === 'done' && state.result.candidates.length === 0 && state.result.sources.geodae_api !== 'ok'
+}
+
 /** Report d'un identifiant dans Synchroteam, par ligne */
 type WritebackState =
   | { status: 'confirm'; gid: string }
@@ -329,10 +338,16 @@ function MissingGidCell({
   }
 
   if (candidates.length === 0) {
+    const unconfirmed = isUnconfirmedNotFound(state)
     return (
       <div className="flex flex-col gap-0.5">
-        <div className="flex items-center gap-2">
-          <Tag tone="danger">Introuvable dans Géo&apos;DAE</Tag>
+        <div className="flex flex-wrap items-center gap-2">
+          <Tag tone={unconfirmed ? 'warning' : 'danger'}>Introuvable dans Géo&apos;DAE</Tag>
+          {unconfirmed && (
+            <span className="text-label text-warning" title="Résultat obtenu sans l'API exploitants, en lisant le numéro dans le nom de la fiche : la recherche sur le champ numéro de série peut le trouver">
+              sans l&apos;API Géo&apos;DAE, à refaire
+            </span>
+          )}
           <Button variant="ghost" size="sm" onClick={onLookup} title="Relancer la recherche">Réessayer</Button>
         </div>
         {checked}
@@ -1082,7 +1097,7 @@ export default function GeodaeClient() {
 
   // Lignes candidates à la recherche : sans identifiant mais avec un n° de série
   const missingTargets = useMemo(
-    () => filtered.filter((r) => !r.geo_dae_id && r.serial_number && lookups[rowKey(r)]?.status !== 'done'),
+    () => filtered.filter((r) => !r.geo_dae_id && r.serial_number && (lookups[rowKey(r)]?.status !== 'done' || isUnconfirmedNotFound(lookups[rowKey(r)]))),
     [filtered, lookups]
   )
 
