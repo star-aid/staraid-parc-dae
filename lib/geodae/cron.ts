@@ -103,11 +103,17 @@ export async function runGeodaeControl(opts: CronOptions = {}): Promise<CronResu
 
   const [targets, persisted] = await Promise.all([loadTargets(), loadPersistedLookups()])
 
-  // Priorité : jamais contrôlés, puis contrôles les plus anciens ; les contrôles récents attendent
+  // Priorité : jamais contrôlés, puis contrôles les plus anciens ; les contrôles récents attendent.
+  // Exception : un « introuvable » obtenu sans réponse de l'API exploitants (résultats antérieurs
+  // au 01/10/2026, numéro lu dans le nom de la fiche open data) n'est pas fiable et repasse sans délai.
   const cutoff = Date.now() - recheckAfterDays * 86_400_000
+  const unconfirmedNotFound = (t: Omit<Target, 'checked_at'>): boolean => {
+    const prev = persisted.byKey.get(lookupKey(t.account, t.synchroteam_id))
+    return prev?.status === 'introuvable' && prev.sources?.geodae_api !== 'ok'
+  }
   const due: Target[] = targets
     .map((t) => ({ ...t, checked_at: persisted.byKey.get(lookupKey(t.account, t.synchroteam_id))?.checked_at ?? null }))
-    .filter((t) => !t.checked_at || new Date(t.checked_at).getTime() < cutoff)
+    .filter((t) => !t.checked_at || unconfirmedNotFound(t) || new Date(t.checked_at).getTime() < cutoff)
     .sort((a, b) => (a.checked_at ?? '').localeCompare(b.checked_at ?? ''))
 
   const items: JournalItem[] = []
