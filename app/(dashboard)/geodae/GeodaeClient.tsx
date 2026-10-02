@@ -281,7 +281,8 @@ function MissingGidCell({
 
   if (!row.serial_number) {
     return (
-      <div className="flex flex-col gap-0.5">
+      // items-start : la pastille garde sa largeur au lieu de s'étirer sur toute la cellule
+      <div className="flex flex-col items-start gap-0.5">
         {missingPill}
         <span className="text-label italic text-fg-faint">n° de série absent, recherche impossible</span>
       </div>
@@ -314,8 +315,9 @@ function MissingGidCell({
     return (
       <div className="flex flex-col gap-0.5">
         <div className="flex items-center gap-2">
-          <span className="text-caption text-danger">Erreur : {state.message}</span>
-          <Button variant="ghost" size="sm" onClick={onLookup}>Réessayer</Button>
+          {/* Message borné à la cellule, texte complet au survol : un 401 détaillé ne doit pas élargir la colonne */}
+          <span className="min-w-0 flex-1 truncate text-caption text-danger" title={state.message}>Erreur : {state.message}</span>
+          <Button variant="ghost" size="sm" onClick={onLookup} className="shrink-0">Réessayer</Button>
         </div>
         {checked}
       </div>
@@ -1464,8 +1466,10 @@ export default function GeodaeClient() {
                           {r.serial_number ?? <span className="font-sans font-medium text-danger">manquant</span>}
                         </td>
                         <td className={cx(tdClass, 'text-fg-secondary')}>
-                          {/* Largeur bornée : les résultats de recherche (candidats, boutons) se replient au lieu d'élargir la colonne */}
-                          <div className="max-w-[100px]">
+                          {/* Largeur bornée : les résultats de recherche (candidats, boutons, messages) se replient au lieu
+                              d'élargir la colonne. 280 px : assez pour une ligne « à renseigner + Rechercher » ou un message
+                              d'erreur tronqué, sans pousser le tableau au-delà de l'écran ; avec un identifiant, la cellule reste étroite. */}
+                          <div className="max-w-[280px]">
                           {r.geo_dae_id
                             ? (
                               <span className="inline-flex flex-wrap items-center gap-1.5">
