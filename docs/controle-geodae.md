@@ -81,7 +81,9 @@ au rôle service : les privilèges par défaut du projet n'en donnent aucun.
    vide n'est pas trouvée par la recherche, mais le rapprochement (point 6) la rattache encore
    par le nom déclaré.
 4. **Journal** : introuvable, ambigu ou erreur ouvrent une anomalie ; un identifiant retrouvé
-   clôt celles du DAE. Le résultat de chaque DAE est aussi conservé dans `geodae_lookups`
+   clôt celles du DAE, et un nouveau résultat d'un autre type remplace le précédent (une « erreur
+   de recherche » suivie d'un « introuvable » ne laisse qu'une anomalie ouverte).
+   Le résultat de chaque DAE est aussi conservé dans `geodae_lookups`
    et rechargé à l'ouverture de la page (mention « Contrôlé le … par … » sous le résultat) :
    les identifiants trouvés restent à valider d'une session à l'autre.
 5. **Contrôle automatique** (cron Vercel 07:00 UTC, `/api/geodae/cron`, moteur

@@ -191,6 +191,31 @@ export async function recordLookupRun(params: {
     }
   }
 
+  // ── Un nouveau résultat remplace l'anomalie de recherche précédente d'un autre type ──
+  // Exemple : « erreur de recherche » laissée par un cron tombé sur un 401, puis « introuvable »
+  // ou « ambigu » au contrôle suivant. Un DAE ne garde qu'une anomalie de recherche ouverte.
+  const lookupTypes: Array<'absent_geodae' | 'ambigu' | 'erreur_recherche'> = ['absent_geodae', 'ambigu', 'erreur_recherche']
+  for (const type of lookupTypes) {
+    const replaced = items.filter((i) => { const t = outcomeType(i); return t !== null && t !== type })
+    const perAccount = new Map<TerritoryCode, JournalItem[]>()
+    for (const it of replaced) perAccount.set(it.account, [...(perAccount.get(it.account) ?? []), it])
+    for (const [account, list] of Array.from(perAccount.entries())) {
+      for (let i = 0; i < list.length; i += 200) {
+        const slice: JournalItem[] = list.slice(i, i + 200)
+        const { data, error } = await supabase
+          .from('geodae_anomalies')
+          .update({ resolved_at: now, resolution: 'remplacée par un nouveau résultat de recherche' })
+          .eq('account', account)
+          .in('synchroteam_id', slice.map((s) => s.synchroteam_id))
+          .eq('type', type)
+          .is('resolved_at', null)
+          .select('id')
+        if (error) throw new Error(`journal (remplacement) : ${error.message}`)
+        resolved += (data ?? []).length
+      }
+    }
+  }
+
   return {
     persisted: true,
     run_id: runId,
